@@ -302,6 +302,7 @@ void PrintHelpers::printFieldData(InformationElement::IeInfo type, IpfixRecord::
 
 void PrintHelpers::printFrontPayload(InformationElement::IeInfo type, IpfixRecord::Data* data)
 {
+	//printf ("value = |%n|\n", *data);
 	fprintf(fh, "'");
 	for (uint32_t i=0; i<type.length; i++) {
 		char c = data[i];

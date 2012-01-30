@@ -22,7 +22,6 @@
 #include "core/Connector.h"
 #include "core/CfgNode.h"
 #include "common/defs.h"
-
 #include "core/Source.h"
 #include "QueueCfg.h"
 #include "AnonymizerCfg.h"
@@ -44,11 +43,14 @@
 #include "modules/ipfix/IpfixNetflowExporterCfg.h"
 #include "modules/ipfix/IpfixReceiverFileCfg.h"
 #include "modules/ipfix/IpfixDbWriterPgCfg.h"
+
 #include "modules/ipfix/IpfixPayloadWriterCfg.h"
+#include "modules/ipfix/OverlayProtocolFinderCfg.h"
 #include "modules/ipfix/IpfixSamplerCfg.h"
 #include "modules/ipfix/IpfixCsExporterCfg.hpp"
 #include "modules/ipfix/NetflowV9ConverterCfg.hpp"
 #include "modules/ipfix/aggregator/IpfixAggregatorCfg.h"
+
 #include "modules/ipfix/aggregator/PacketAggregatorCfg.h"
 #include "modules/SensorManagerCfg.h"
 #include "modules/analysis/TRWPortscanDetectorCfg.h"
@@ -59,6 +61,8 @@
 #include "modules/idmef//PacketIDMEFReporterCfg.h"
 #include "modules/analysis/P2PDetectorCfg.h"
 #include "modules/analysis/HostStatisticsGeneratorCfg.h"
+
+
 #ifdef PYTHON_SUPPORT_ENABLED
 #include "modules/analysis/PythonFlowAnalyzerCfg.h"
 #endif
@@ -103,6 +107,8 @@ Cfg* ConfigManager::configModules[] = {
 	new P2PDetectorCfg(NULL),
 	new HostStatisticsGeneratorCfg(NULL),
 	new IpfixCsExporterCfg(NULL),
+	new OverlayProtocolFinderCfg(NULL),
+
 #ifdef PYTHON_SUPPORT_ENABLED
 	new PythonFlowAnalyzerCfg(NULL),
 #endif

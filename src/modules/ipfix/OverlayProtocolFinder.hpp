@@ -1,6 +1,6 @@
 /*
- * Vermont Configuration Subsystem
- * Copyright (C) 2009 Vermont Project
+ * OverlayProtocolFinder Module Library
+ * Copyright (C) 2012 Felix Erlacher
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -18,35 +18,31 @@
  *
  */
 
-#ifndef IPFIXSAMPLERCFG_H_
-#define IPFIXSAMPLERCFG_H_
+#ifndef OVERLAYPROTOCOLFINDER_H
+#define OVERLAYPROTOCOLFINDER_H
 
-#include <core/XMLElement.h>
-#include <core/Cfg.h>
-#include "modules/ipfix/IpfixSampler.h"
-#include <string>
-
-using namespace std;
+#include "modules/ipfix/IpfixRecord.hpp"
+#include "modules/ipfix/IpfixRecordDestination.h"
+#include "core/Module.h"
+#include "core/Source.h"
 
 
-class IpfixSamplerCfg
-	: public CfgHelper<IpfixSampler, IpfixSamplerCfg>
+/**
+ * blabla
+ *
+ */
+class OverlayProtocolFinder
+		: public IpfixRecordDestination,
+		  public Module,
+		  public Source<IpfixRecord*>
 {
 public:
-	friend class ConfigManager;
+	OverlayProtocolFinder(uint32_t pollinterval);
+	virtual ~OverlayProtocolFinder();
 
-	virtual IpfixSamplerCfg* create(XMLElement* e);
-	virtual ~IpfixSamplerCfg();
-
-	virtual IpfixSampler* createInstance();
-	virtual bool deriveFrom(IpfixSamplerCfg* old);
+	virtual void onDataRecord(IpfixDataRecord* record);
 
 protected:
-
-	double flowRate;
-
-	IpfixSamplerCfg(XMLElement*);
 };
 
-
-#endif
+#endif  /*OVERLAYPROTOCOLFINDER_H*/

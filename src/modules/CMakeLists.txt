@@ -63,7 +63,7 @@ set(MODULES_SRC
     packet/filter/AnonFilter.cpp
     packet/filter/PayloadFilter.cpp
     packet/filter/HostFilter.cpp
-    
+
     ipfix/FpaPcapExporter.cpp
     ipfix/FpaPcapExporterCfg.cpp
     ipfix/FpaPacketGenerator.cpp
@@ -107,9 +107,12 @@ set(MODULES_SRC
     ipfix/IpfixPayloadWriter.cpp
     ipfix/IpfixRecordAnonymizer.cpp
     ipfix/NetflowV9Converter.cpp
+    ipfix/OverlayProtocolFinder.cpp
+    ipfix/OverlayProtocolFinderCfg.cpp
     ipfix/aggregator/PacketAggregatorCfg.cpp
     ipfix/aggregator/AggregatorBaseCfg.cpp
     ipfix/aggregator/IpfixAggregatorCfg.cpp
+
     ipfix/aggregator/BaseAggregator.cpp
     ipfix/aggregator/BaseHashtable.cpp
     ipfix/aggregator/PacketHashtable.cpp
@@ -118,6 +121,7 @@ set(MODULES_SRC
     ipfix/aggregator/PacketAggregator.cpp
     ipfix/aggregator/Rules.cpp
     ipfix/aggregator/Rule.cpp
+
 )
 
 IF (PYTHONLIBS_FOUND)
