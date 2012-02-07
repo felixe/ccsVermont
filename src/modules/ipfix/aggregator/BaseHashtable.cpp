@@ -394,6 +394,8 @@ int BaseHashtable::isToBeAggregated(InformationElement::IeInfo& type)
 				case IPFIX_ETYPEID_dpaFlowCount:
 				case IPFIX_ETYPEID_dpaReverseStart:
 				case IPFIX_ETYPEID_transportOctetDeltaCount:
+				//###FX: has this type to be aggregated? would have guessed no but all others do...
+				case IPFIX_ETYPEID_overlayProtocol:
 					return 1;
 			}
 			break;
@@ -408,6 +410,8 @@ int BaseHashtable::isToBeAggregated(InformationElement::IeInfo& type)
 				case IPFIX_ETYPEID_dpaFlowCount:
 				case IPFIX_ETYPEID_dpaReverseStart:
 				case IPFIX_ETYPEID_transportOctetDeltaCount:
+				//###FX: has this type to be aggregated? would have guessed no but all others do...
+				case IPFIX_ETYPEID_overlayProtocol:
 					return 1;
 			}
 			break;
@@ -553,6 +557,8 @@ void BaseHashtable::genBiflowStructs()
 					case IPFIX_ETYPEID_dpaFlowCount:
 					case IPFIX_ETYPEID_dpaReverseStart:
 					case IPFIX_ETYPEID_anonymisationType:
+					//##FX:
+					case IPFIX_ETYPEID_overlayProtocol:
 						mapReverseElement(fi->type);
 						break;
 

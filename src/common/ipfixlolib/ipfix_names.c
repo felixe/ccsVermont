@@ -133,7 +133,9 @@ struct ipfix_identifier ipfixids[] = {
  { IPFIX_ETYPEID_transportOctetDeltaCount, IPFIX_ELENGTH_transportOctetDeltaCount, IPFIX_PEN_vermont|IPFIX_PEN_reverse, "revTransportOctetDeltaCount" },
 // { IPFIX_ETYPEID_transportOctetDeltaCount|IPFIX_ETYPE_reverse_bit, IPFIX_ELENGTH_transportOctetDeltaCount, IPFIX_PEN_vermont, "revTransportOctetDeltaCount" },
  { IPFIX_ETYPEID_anonymisationType, IPFIX_ELENGTH_anonymisationType, IPFIX_PEN_vermont, "anonymisationType" },
- { IPFIX_ETYPEID_monitored, IPFIX_ELENGTH_monitored, IPFIX_PEN_vermont, "monitored" }
+ { IPFIX_ETYPEID_monitored, IPFIX_ELENGTH_monitored, IPFIX_PEN_vermont, "monitored" },
+ //###FX
+ { IPFIX_ETYPEID_overlayProtocol, IPFIX_ELENGTH_overlayProtocol, IPFIX_PEN_vermont, "overlayProtocol"}
 };
 
 

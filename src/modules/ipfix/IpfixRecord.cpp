@@ -121,6 +121,10 @@ namespace InformationElement {
 				case IPFIX_ETYPEID_dpaReverseStart:
 				case IPFIX_ETYPEID_transportOctetDeltaCount:
 					return Packet::IPProtocolType(Packet::UDP|Packet::TCP);
+
+				//###FX: mal nur für TCP (weil HTTP)
+				case IPFIX_ETYPEID_overlayProtocol:
+					return Packet::TCP;
 			}
 			if (enterprise==IPFIX_PEN_vermont) {
 				switch (id) {

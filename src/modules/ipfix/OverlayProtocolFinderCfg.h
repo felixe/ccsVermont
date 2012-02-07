@@ -20,10 +20,9 @@
 #ifndef OVERLAYPROTOCOLFINDERCFG_GUARD
 #define OVERLAYPROTOCOLFINDERCFG_GUARD
 
-
-
 #include "core/Cfg.h"
 #include "modules/ipfix/OverlayProtocolFinder.hpp"
+
 
 class OverlayProtocolFinderCfg
 	: public CfgHelper<OverlayProtocolFinder, OverlayProtocolFinderCfg>
@@ -41,8 +40,9 @@ public:
 
 
 protected:
-	//TODO#:hier ev. ProtocolId einführen
+	std::string protocol;
 	OverlayProtocolFinderCfg(XMLElement* elem);
+	std::string getProtocol(std::string);
 	
 };
 #endif //OVERLAYPROTOCOLFINDERCFG_GUARD

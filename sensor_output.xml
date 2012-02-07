@@ -1,26 +1,36 @@
 <vermont>
-	<sensorData time="Fri Feb  3 10:15:34 2012" epochtime="1328260534.757" host="felix-desktop">
-		<pid>19197</pid>
-		<lastTime>Fri Feb  3 10:15:34 2012</lastTime>
+	<sensorData time="Fri Feb 10 16:44:13 2012" epochtime="1328888653.244" host="felix-desktop">
+		<pid>6384</pid>
+		<lastTime>Fri Feb 10 16:44:12 2012</lastTime>
 		<jiffyFrequency>100</jiffyFrequency>
 		<processorAmount>2</processorAmount>
-		<processor id="0"><util type="system">inf</util><util type="user">inf</util></processor>
-		<processor id="1"><util type="system">inf</util><util type="user">inf</util></processor>
-		<memory><free type="bytes">1591795712</free><total type="bytes">2111123456</total></memory>
+		<processor id="0"><util type="system">3.00</util><util type="user">4.00</util></processor>
+		<processor id="1"><util type="system">2.00</util><util type="user">3.00</util></processor>
+		<memory><free type="bytes">1699287040</free><total type="bytes">2111123456</total></memory>
 		<sensor type="module" id="99" name="sensorManager">
-			<memUsage>652</memUsage>
-			<thread tid="19198"><util type="system">-nan</util><util type="user">-nan</util><totalJiffies type="system">0</totalJiffies><totalJiffies type="user">0</totalJiffies><contextSwitches type="non-voluntary">0</contextSwitches><contextSwitches type="voluntary">0</contextSwitches></thread>
+			<memUsage>700</memUsage>
+			<thread tid="6385"><util type="system">0.00</util><util type="user">0.00</util><totalJiffies type="system">0</totalJiffies><totalJiffies type="user">0</totalJiffies><contextSwitches type="non-voluntary">0</contextSwitches><contextSwitches type="voluntary">0</contextSwitches></thread>
 		</sensor>
 		<sensor type="module" id="1" name="observer">
 			<memUsage>639</memUsage>
-			<thread tid="19200"><util type="system">-nan</util><util type="user">-nan</util><totalJiffies type="system">0</totalJiffies><totalJiffies type="user">0</totalJiffies><contextSwitches type="non-voluntary">0</contextSwitches><contextSwitches type="voluntary">0</contextSwitches></thread>
-			<addInfo><observer><processed type="bytes">0</processed><processed type="packets">0</processed><totalProcessed type="packets">95</totalProcessed></observer></addInfo>
+			<thread tid="6388"><util type="system">0.00</util><util type="user">0.00</util><totalJiffies type="system">0</totalJiffies><totalJiffies type="user">0</totalJiffies><contextSwitches type="non-voluntary">3</contextSwitches><contextSwitches type="voluntary">3</contextSwitches></thread>
+			<addInfo><observer><processed type="bytes">63311</processed><processed type="packets">95</processed><totalProcessed type="packets">95</totalProcessed></observer></addInfo>
 			<next>2</next>
 		</sensor>
 		<sensor type="module" id="2" name="packetAggregator">
 			<memUsage>0</memUsage>
-			<thread tid="19199"><util type="system">-nan</util><util type="user">-nan</util><totalJiffies type="system">0</totalJiffies><totalJiffies type="user">0</totalJiffies><contextSwitches type="non-voluntary">1</contextSwitches><contextSwitches type="voluntary">1</contextSwitches></thread>
-			<addInfo><totalReceivedPackets>95</totalReceivedPackets><ignoredPackets>0</ignoredPackets><hashtable rule="0"><entries>0</entries><emptyBuckets>0</emptyBuckets><multientryBuckets>0</multientryBuckets><exportedEntries>0</exportedEntries></hashtable></addInfo>
+			<thread tid="6387"><util type="system">0.00</util><util type="user">0.00</util><totalJiffies type="system">0</totalJiffies><totalJiffies type="user">0</totalJiffies><contextSwitches type="non-voluntary">1</contextSwitches><contextSwitches type="voluntary">1</contextSwitches></thread>
+			<addInfo><totalReceivedPackets>95</totalReceivedPackets><ignoredPackets>0</ignoredPackets><hashtable rule="0"><entries>0</entries><emptyBuckets>0</emptyBuckets><multientryBuckets>0</multientryBuckets><exportedEntries>7</exportedEntries></hashtable></addInfo>
+			<next>3</next>
+		</sensor>
+		<sensor type="module" id="3" name="overlayProtocolFinder">
+			<memUsage>0</memUsage>
+			<next>6</next>
+		</sensor>
+		<sensor type="module" id="4" name="ipfixAggregator">
+			<memUsage>0</memUsage>
+			<thread tid="6389"><util type="system">0.00</util><util type="user">0.00</util><totalJiffies type="system">0</totalJiffies><totalJiffies type="user">0</totalJiffies><contextSwitches type="non-voluntary">1</contextSwitches><contextSwitches type="voluntary">1</contextSwitches></thread>
+			<addInfo><hashtable rule="0"><entries>0</entries><emptyBuckets>0</emptyBuckets><multientryBuckets>0</multientryBuckets><exportedEntries>0</exportedEntries></hashtable></addInfo>
 			<next>6</next>
 		</sensor>
 		<sensor type="module" id="6" name="ipfixPrinter">
@@ -97,6 +107,22 @@
 		<sensor type="simple" id="0" name="InstanceManager (BucketListElement)">
 			<memUsage>284</memUsage>
 			<addInfo><createdInstances>7</createdInstances></addInfo>
+		</sensor>
+		<sensor type="simple" id="0" name="InstanceManager (IpfixDataDataRecord)">
+			<memUsage>116</memUsage>
+			<addInfo><createdInstances>0</createdInstances></addInfo>
+		</sensor>
+		<sensor type="simple" id="0" name="InstanceManager (IpfixDataTemplateRecord)">
+			<memUsage>148</memUsage>
+			<addInfo><createdInstances>1</createdInstances></addInfo>
+		</sensor>
+		<sensor type="simple" id="0" name="InstanceManager (IpfixTemplateDestructionRecord)">
+			<memUsage>116</memUsage>
+			<addInfo><createdInstances>0</createdInstances></addInfo>
+		</sensor>
+		<sensor type="simple" id="0" name="InstanceManager (BucketListElement)">
+			<memUsage>116</memUsage>
+			<addInfo><createdInstances>0</createdInstances></addInfo>
 		</sensor>
 	</sensorData>
 </vermont>

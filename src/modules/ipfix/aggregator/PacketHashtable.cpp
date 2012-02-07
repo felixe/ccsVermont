@@ -337,6 +337,7 @@ void (*PacketHashtable::getCopyDataFunction(const ExpFieldData* efd))(CopyFuncPa
 			switch (efd->typeId.id) {
 				case IPFIX_ETYPEID_dpaForcedExport:
 				case IPFIX_ETYPEID_dpaReverseStart:
+				case IPFIX_ETYPEID_overlayProtocol:
 					if (efd->dstLength != 1) {
 						THROWEXCEPTION("unsupported length %d for type %s", efd->dstLength, efd->typeId.toString().c_str());
 					}
@@ -388,7 +389,9 @@ void (*PacketHashtable::getCopyDataFunction(const ExpFieldData* efd))(CopyFuncPa
 	} else if (efd->typeId == IeInfo(IPFIX_ETYPEID_frontPayloadPktCount, IPFIX_PEN_vermont) ||
 			   efd->typeId == IeInfo(IPFIX_ETYPEID_dpaFlowCount, IPFIX_PEN_vermont) ||
 			   efd->typeId == IeInfo(IPFIX_ETYPEID_dpaReverseStart, IPFIX_PEN_vermont) ||
-			   efd->typeId == IeInfo(IPFIX_ETYPEID_dpaForcedExport, IPFIX_PEN_vermont)) {
+			   efd->typeId == IeInfo(IPFIX_ETYPEID_dpaForcedExport, IPFIX_PEN_vermont)			   ||
+			   //###FX:funktion unten tut nix
+			   efd->typeId == IeInfo(IPFIX_ETYPEID_overlayProtocol, IPFIX_PEN_vermont)) {
 		return copyDataDummy;
 	} else if (efd->typeId == IeInfo(IPFIX_TYPEID_flowStartNanoSeconds, 0) ||
 			efd->typeId == IeInfo(IPFIX_TYPEID_flowEndNanoSeconds, 0)) {
@@ -460,6 +463,8 @@ uint8_t PacketHashtable::getRawPacketFieldLength(const IeInfo& type)
 		switch (type.id) {
 			case IPFIX_ETYPEID_dpaForcedExport:
 			case IPFIX_ETYPEID_dpaReverseStart:
+			//###FX:
+			case IPFIX_ETYPEID_overlayProtocol:
 				return 1;
 
 			case IPFIX_ETYPEID_frontPayloadLen:
@@ -614,6 +619,8 @@ bool PacketHashtable::isRawPacketPtrVariable(const IeInfo& type)
 				case IPFIX_ETYPEID_dpaForcedExport:
 				case IPFIX_ETYPEID_dpaFlowCount:
 				case IPFIX_ETYPEID_dpaReverseStart:
+				//###FX:
+				case IPFIX_ETYPEID_overlayProtocol:
 					return false;
 
 				case IPFIX_ETYPEID_frontPayload:
@@ -732,6 +739,8 @@ bool PacketHashtable::typeAvailable(const IeInfo& type)
 				case IPFIX_ETYPEID_dpaFlowCount:
 				case IPFIX_ETYPEID_dpaReverseStart:
 				case IPFIX_ETYPEID_transportOctetDeltaCount:
+				//###FX: eher nein, aber wenn alle anderen von der Brücke springen mach ichs auch
+				case IPFIX_ETYPEID_overlayProtocol:
 					return true;
 			}
 			break;

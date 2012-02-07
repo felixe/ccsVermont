@@ -196,6 +196,9 @@ extern "C" {
 #define IPFIX_ETYPEID_anonymisationType				9
 #define IPFIX_ETYPEID_monitored						10
 
+//###FX: warum werden manche IDs doppelt vergeben z.B. 8??? versuchsmers mit 13
+#define IPFIX_ETYPEID_overlayProtocol				13
+
 
 #define IPFIX_LENGTH_ipVersion                      IPFIX_LENGTH_octet
 #define IPFIX_LENGTH_sourceIPv4Address              IPFIX_LENGTH_ipv4Address
@@ -308,6 +311,7 @@ extern "C" {
 #define IPFIX_ELENGTH_frontPayloadPktCount			IPFIX_LENGTH_unsigned32
 #define IPFIX_ELENGTH_anonymisationType				IPFIX_LENGTH_octet
 #define IPFIX_ELENGTH_monitored						IPFIX_LENGTH_octet
+#define IPFIX_ELENGTH_overlayProtocol				IPFIX_LENGTH_octet
 
 #define MAX_MSG_LEN   65536
 

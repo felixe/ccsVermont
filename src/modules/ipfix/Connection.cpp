@@ -41,7 +41,7 @@ Connection::Connection(IpfixDataRecord* record)
 	  srcPayload(0), srcPayloadLen(0),
 	  dstPayload(0), dstPayloadLen(0),
 	  dpaForcedExport(0), dpaFlowCount(0),
-	  dpaReverseStart(0)
+	  dpaReverseStart(0),overlayProtocol(0)
 {
 	// convert IpfixDataRecord to Connection
 	TemplateInfo::FieldInfo* fi = record->templateInfo->getFieldInfo(IPFIX_TYPEID_sourceIPv4Address, 0);
@@ -192,6 +192,9 @@ Connection::Connection(IpfixDataRecord* record)
 	if (fi != 0) srcTransOctets = ntohll(*(uint64_t*)(record->data + fi->offset));
 	fi = record->templateInfo->getFieldInfo(IPFIX_ETYPEID_transportOctetDeltaCount, IPFIX_PEN_vermont|IPFIX_PEN_reverse);
 	if (fi != 0) dstTransOctets = ntohll(*(uint64_t*)(record->data + fi->offset));
+	//##FX:
+	fi = record->templateInfo->getFieldInfo(IPFIX_ETYPEID_overlayProtocol, IPFIX_PEN_vermont);
+		if (fi != 0) overlayProtocol =*(record->data + fi->offset);
 }
 
 Connection::~Connection()

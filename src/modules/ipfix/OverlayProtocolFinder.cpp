@@ -39,8 +39,9 @@
  * constructs a new instance
  * @param pollinterval sets the interval of polling the hashtable for expired flows
  */
-OverlayProtocolFinder::OverlayProtocolFinder(uint32_t pollinterval)
+OverlayProtocolFinder::OverlayProtocolFinder(std::string prot)
 {	
+	protocol=prot;
 	msg(MSG_INFO,"OverlayProtocolFinder started");
 }
 
@@ -75,11 +76,10 @@ void OverlayProtocolFinder::onDataRecord(IpfixDataRecord* record)
 
 			InformationElement::IeInfo type =	record->templateInfo->fieldInfo[i].type;
 			IpfixRecord::Data* data = (record->data + record->templateInfo->fieldInfo[i].offset);
-			//uint32_t j=0;
-			if ((type.enterprise!=0) && (type.enterprise!=IPFIX_PEN_reverse)){
-				//haben wir das nicht schon oben getestet?
-				if (type==InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload, IPFIX_PEN_vermont) ||
-								type==InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload, IPFIX_PEN_vermont|IPFIX_PEN_reverse)){
+//			if ((type.enterprise!=0) && (type.enterprise!=IPFIX_PEN_reverse)){
+//				//haben wir das nicht schon oben getestet?
+//				if (type==InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload, IPFIX_PEN_vermont) ||
+//								type==InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload, IPFIX_PEN_vermont|IPFIX_PEN_reverse)){
 
 					for (uint32_t i = 0; i <type.length; i++) {
 						char c = data[i];	//diese umwandlung passt, printed ja auch schön
@@ -87,10 +87,10 @@ void OverlayProtocolFinder::onDataRecord(IpfixDataRecord* record)
 						//payload[i] = c;   //hier wird richtig eingefügt, verliert aber mit der Zeit den ersten "block",
 						if (isprint(c)){
 							payload+=c;
-						}//geht es ineffizienter? wir wahrscheinlich jedes mal speicher neu allozieren müssen?!
+						}//geht es ineffizienter? wird jedes mal speicher neu allozieren müssen?!
 
-					}
-				}
+				//	}
+			//	}
 			}
 
 		}
@@ -100,14 +100,40 @@ void OverlayProtocolFinder::onDataRecord(IpfixDataRecord* record)
 	//front und revpayload werden momentan zusammengefasst, müsste man mit if abfrage oben ändern
 	//dass geht natüüüürlich auch schneller und schöner, nennen wirs mal "proof of concept":
 
-	//std::string payloadStr(payload); //umwandeln ind string funktioniert einwandfrei
-	std::string::size_type foundAt = payload.find("GET /maps/");
-	if(foundAt==std::string::npos){
+	//std::string payloadStr(payload); //umwandeln in string funktioniert einwandfrei
+	std::string::size_type foundAt = payload.find(protocol);
+	//std::string::size_type foundAt2 = payload.find("GET /mapfiles/");
+	if((foundAt==std::string::npos)){	//&&(foundAt2==std::string::npos)){
+		//printf("\nnot found\n");
 		record->removeReference();
 	}else{
+		//adding to record which protocol detected
+		addOverlayProtocol(record);
 		send(record);
 		record->removeReference();
 	}
+}
+/**
+ * add protocol tag to record
+ */
+void OverlayProtocolFinder::addOverlayProtocol(IpfixDataRecord* record){
+	for (uint32_t i = 0; i < record->templateInfo->fieldCount; i++) {
+		InformationElement::IeInfo type =	record->templateInfo->fieldInfo[i].type;
+		IpfixRecord::Data* data = (record->data + record->templateInfo->fieldInfo[i].offset);
+		if (type==InformationElement::IeInfo(IPFIX_ETYPEID_overlayProtocol,IPFIX_PEN_vermont)){
+			*data=resolveOverlayProtocol(protocol);
+		}
+	}
+
+}
+
+uint8_t OverlayProtocolFinder::resolveOverlayProtocol(std::string prot){
+	if(prot=="GET /maps/"){
+		return 1;
+	}else{
+		THROWEXCEPTION("Could not resolve used protocol string");
+	}
+
 }
 
 

@@ -69,10 +69,12 @@ public:
 
 		//initialize variable in cachelines
 		void* tmp;
-		uint32_t clsize = getCachelineSize();
+		//###FX sollte man wieder änder ;-P
+		uint32_t clsize = 64;//getCachelineSize();
 		if (2 * sizeof(uint32_t) + sizeof(struct timespec)
 				+ sizeof(BaseQueue<T>**) > clsize)
-			THROWEXCEPTION("Error: Cacheline Size is not big enough");
+			//###FX
+			THROWEXCEPTION("Error: Cacheline Size is not big enough: %i",clsize);
 
 		if (posix_memalign(&tmp, clsize, 2 * clsize) != 0)
 			THROWEXCEPTION("Error: posix_memalign()");

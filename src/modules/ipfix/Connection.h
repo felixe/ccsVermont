@@ -69,6 +69,7 @@ class Connection
 		uint8_t dpaForcedExport;
 		uint32_t dpaFlowCount; /**<host-byte order **/
 		uint8_t dpaReverseStart;
+		uint8_t overlayProtocol;
 
 		/**
 		 * time in seconds from 1970 on when this record will expire

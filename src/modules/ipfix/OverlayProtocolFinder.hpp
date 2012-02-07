@@ -37,12 +37,15 @@ class OverlayProtocolFinder
 		  public Source<IpfixRecord*>
 {
 public:
-	OverlayProtocolFinder(uint32_t pollinterval);
+	OverlayProtocolFinder(std::string prot);
 	virtual ~OverlayProtocolFinder();
 
 	virtual void onDataRecord(IpfixDataRecord* record);
 
 protected:
+	string protocol;
+	void addOverlayProtocol(IpfixDataRecord* record);
+	uint8_t resolveOverlayProtocol(std::string prot);
 };
 
 #endif  /*OVERLAYPROTOCOLFINDER_H*/

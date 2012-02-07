@@ -32,46 +32,28 @@
 			<flowKey>
 				<ieName>destinationTransportPort</ieName>
 			</flowKey>
-			<!--nonFlowKey>
+			<nonFlowKey>
 				<ieName>flowStartNanoSeconds</ieName>
 			</nonFlowKey>
 			<nonFlowKey>
 				<ieName>flowEndNanoSeconds</ieName>
 			</nonFlowKey>
 			<nonFlowKey>
-				<ieName>octetDeltaCount</ieName>
-			</nonFlowKey>
-			<nonFlowKey>
-				<ieName>packetDeltaCount</ieName>
-			</nonFlowKey>
-			<nonFlowKey>
-				<ieName>tcpControlBits</ieName>
-			</nonFlowKey-->
-			<nonFlowKey>
 				<ieName>frontPayload</ieName>
-				<ieLength>10</ieLength>
+				<ieLength>1000</ieLength>
 			</nonFlowKey>
 			<nonFlowKey>
 				<ieName>frontPayloadLen</ieName>
 			</nonFlowKey>
-			<!--nonFlowKey>
+			<nonFlowKey>
 				<ieName>revflowStartNanoSeconds</ieName>
 			</nonFlowKey>
 			<nonFlowKey>
 				<ieName>revflowEndNanoSeconds</ieName>
 			</nonFlowKey>
 			<nonFlowKey>
-				<ieName>revoctetDeltaCount</ieName>
-			</nonFlowKey>
-			<nonFlowKey>
-				<ieName>revpacketDeltaCount</ieName>
-			</nonFlowKey>
-			<nonFlowKey>
-				<ieName>revtcpControlBits</ieName>
-			</nonFlowKey-->
-			<nonFlowKey>
 				<ieName>revFrontPayload</ieName>
-				<ieLength>10</ieLength>
+				<ieLength>1000</ieLength>
 			</nonFlowKey>
 			<nonFlowKey>
 				<ieName>revFrontPayloadLen</ieName>
@@ -79,21 +61,13 @@
 			<nonFlowKey>
 				<ieName>dpaForcedExport</ieName>
 			</nonFlowKey>
-			<!--nonFlowKey>
+			<nonFlowKey>
 				<ieName>dpaFlowCount</ieName>
 			</nonFlowKey>
-			<nonFlowKey>
-				<ieName>dpaReverseStart</ieName>
-			</nonFlowKey-->
+
 			<nonFlowKey>
 				<ieName>overlayProtocol</ieName>
 			</nonFlowKey>
-			<!--nonFlowKey>
-				<ieName>transportOctetDeltaCount</ieName>
-			</nonFlowKey>
-			<nonFlowKey>
-				<ieName>revTransportOctetDeltaCount</ieName>
-			</nonFlowKey-->
 		</rule>
 		<expiration>
 			<inactiveTimeout unit="sec">10</inactiveTimeout>
@@ -107,6 +81,68 @@
 		<protocol>googleMaps</protocol>
 		<next>6</next>
 	</overlayProtocolFinder>
+
+	<ipfixAggregator id="4">
+		<rule>
+			<templateId>998</templateId>
+				<flowKey>
+					<ieName>overlayProtocol</ieName>
+				</flowKey>				
+				<nonFlowKey>
+					<ieName>sourceIPv4Address</ieName>
+				</nonFlowKey>
+				<nonFlowKey>
+					<ieName>destinationIPv4Address</ieName>
+				</nonFlowKey>
+				<nonFlowKey>
+					<ieName>protocolIdentifier</ieName>
+				</nonFlowKey>
+				<nonFlowKey>
+					<ieName>sourceTransportPort</ieName>
+				</nonFlowKey>
+				<nonFlowKey>
+					<ieName>destinationTransportPort</ieName>
+				</nonFlowKey>
+				<nonFlowKey>
+					<ieName>flowStartNanoSeconds</ieName>
+				</nonFlowKey>
+				<nonFlowKey>
+					<ieName>flowEndNanoSeconds</ieName>
+				</nonFlowKey>
+				<nonFlowKey>
+					<ieName>frontPayload</ieName>
+					<ieLength>1000</ieLength>
+				</nonFlowKey>
+				<nonFlowKey>
+					<ieName>frontPayloadLen</ieName>
+				</nonFlowKey>
+				<nonFlowKey>
+					<ieName>revflowStartNanoSeconds</ieName>
+				</nonFlowKey>
+				<nonFlowKey>
+					<ieName>revflowEndNanoSeconds</ieName>
+				</nonFlowKey>
+				<nonFlowKey>
+					<ieName>revFrontPayload</ieName>
+					<ieLength>1000</ieLength>
+				</nonFlowKey>
+				<nonFlowKey>
+					<ieName>revFrontPayloadLen</ieName>
+				</nonFlowKey>
+				<nonFlowKey>
+					<ieName>dpaForcedExport</ieName>
+				</nonFlowKey>
+				<nonFlowKey>
+					<ieName>dpaFlowCount</ieName>
+				</nonFlowKey>
+			</rule>
+		<expiration>
+			<inactiveTimeout unit="sec">10</inactiveTimeout>
+			<activeTimeout unit="sec">30</activeTimeout>
+		</expiration>
+		<pollInterval unit="msec">100</pollInterval>
+		<next>6</next>
+	</ipfixAggregator>
 
 	<!--ipfixQueue id="5">
 		<maxSize>10</maxSize>

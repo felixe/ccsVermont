@@ -23,7 +23,30 @@
 OverlayProtocolFinderCfg::OverlayProtocolFinderCfg(XMLElement* elem)
 	: CfgHelper<OverlayProtocolFinder, OverlayProtocolFinderCfg>(elem, "overlayProtocolFinder")
 {
-	//TODO:fx hier xml argumente aus config file auslesen
+	if (!elem){
+			//msg(MSG_DIALOG, "no confing element found in oPF config");
+			return;
+		}
+		XMLNode::XMLSet<XMLElement*> set = elem->getElementChildren();
+		for (XMLNode::XMLSet<XMLElement*>::iterator it = set.begin();
+		     it != set.end();
+		     it++) {
+			//Cfg* c;
+			XMLElement* e = *it;
+
+			if (e->matches("protocol")) {
+				protocol=get("protocol",0);
+				//printf("######### %s \n",protocol.c_str());
+			} else if (e->matches("next")) { // ignore next
+				continue;
+			} else {
+				msg(MSG_FATAL, "Unkown protocol %s\n", e->getName().c_str());
+				THROWEXCEPTION("Unkown protocol %s\n", e->getName().c_str());
+				continue;
+			}
+
+			//subCfgs.push_back(c);
+		}
 }
 
 OverlayProtocolFinderCfg::~OverlayProtocolFinderCfg()
@@ -41,7 +64,7 @@ OverlayProtocolFinderCfg* OverlayProtocolFinderCfg::create(XMLElement* elem)
 
 OverlayProtocolFinder* OverlayProtocolFinderCfg::createInstance()
 {
-	instance = new OverlayProtocolFinder(44);
+	instance = new OverlayProtocolFinder(getProtocol(protocol));
 	return instance;
 }
 
@@ -49,4 +72,24 @@ bool OverlayProtocolFinderCfg::deriveFrom(OverlayProtocolFinderCfg* old)
 {
 	return false;  // FIXME: implement it, to gain performance increase in reconnect
 }
+
+
+/**
+ * returns the string the overlayProtocolFinder has to look for, if more protocols follow, insert them here
+ */
+std::string OverlayProtocolFinderCfg::getProtocol(std::string prot)
+{
+	std::string retVal="";
+	if(prot=="googleMaps"){
+		retVal = "GET /maps/";
+	}else{
+		if(prot==""){
+			THROWEXCEPTION("No overlay protocol given");
+		}else{
+			THROWEXCEPTION("Unknown overlay protocol: %s",prot.c_str());
+		}
+	}
+	return retVal;
+}
+
 

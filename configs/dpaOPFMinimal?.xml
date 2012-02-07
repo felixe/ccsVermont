@@ -49,7 +49,7 @@
 			</nonFlowKey-->
 			<nonFlowKey>
 				<ieName>frontPayload</ieName>
-				<ieLength>10</ieLength>
+				<ieLength>10000</ieLength>
 			</nonFlowKey>
 			<nonFlowKey>
 				<ieName>frontPayloadLen</ieName>
@@ -71,7 +71,7 @@
 			</nonFlowKey-->
 			<nonFlowKey>
 				<ieName>revFrontPayload</ieName>
-				<ieLength>10</ieLength>
+				<ieLength>10000</ieLength>
 			</nonFlowKey>
 			<nonFlowKey>
 				<ieName>revFrontPayloadLen</ieName>

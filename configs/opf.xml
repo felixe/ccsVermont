@@ -6,6 +6,7 @@
 	<observer id="1">
 		<!--interface>eth0</interface-->
 		<filename>/home/felix/googlemaps.dump</filename>
+		<!--filename>/home/felix/gmMultiFlow2.dump</filename-->
 		<pcap_filter>ip and tcp</pcap_filter>
 		<offlineAutoExit>1</offlineAutoExit>
 		<offlineSpeed>0</offlineSpeed>
@@ -32,46 +33,28 @@
 			<flowKey>
 				<ieName>destinationTransportPort</ieName>
 			</flowKey>
-			<!--nonFlowKey>
+			<nonFlowKey>
 				<ieName>flowStartNanoSeconds</ieName>
 			</nonFlowKey>
 			<nonFlowKey>
 				<ieName>flowEndNanoSeconds</ieName>
-			</nonFlowKey>
-			<nonFlowKey>
-				<ieName>octetDeltaCount</ieName>
-			</nonFlowKey>
-			<nonFlowKey>
-				<ieName>packetDeltaCount</ieName>
-			</nonFlowKey>
-			<nonFlowKey>
-				<ieName>tcpControlBits</ieName>
-			</nonFlowKey-->
+			</nonFlowKey>>
 			<nonFlowKey>
 				<ieName>frontPayload</ieName>
-				<ieLength>10</ieLength>
+				<ieLength>1000</ieLength>
 			</nonFlowKey>
 			<nonFlowKey>
 				<ieName>frontPayloadLen</ieName>
 			</nonFlowKey>
-			<!--nonFlowKey>
+			<nonFlowKey>
 				<ieName>revflowStartNanoSeconds</ieName>
 			</nonFlowKey>
 			<nonFlowKey>
 				<ieName>revflowEndNanoSeconds</ieName>
 			</nonFlowKey>
 			<nonFlowKey>
-				<ieName>revoctetDeltaCount</ieName>
-			</nonFlowKey>
-			<nonFlowKey>
-				<ieName>revpacketDeltaCount</ieName>
-			</nonFlowKey>
-			<nonFlowKey>
-				<ieName>revtcpControlBits</ieName>
-			</nonFlowKey-->
-			<nonFlowKey>
 				<ieName>revFrontPayload</ieName>
-				<ieLength>10</ieLength>
+				<ieLength>1000</ieLength>
 			</nonFlowKey>
 			<nonFlowKey>
 				<ieName>revFrontPayloadLen</ieName>
@@ -79,39 +62,25 @@
 			<nonFlowKey>
 				<ieName>dpaForcedExport</ieName>
 			</nonFlowKey>
-			<!--nonFlowKey>
+			<nonFlowKey>
 				<ieName>dpaFlowCount</ieName>
 			</nonFlowKey>
 			<nonFlowKey>
-				<ieName>dpaReverseStart</ieName>
-			</nonFlowKey-->
-			<nonFlowKey>
 				<ieName>overlayProtocol</ieName>
 			</nonFlowKey>
-			<!--nonFlowKey>
-				<ieName>transportOctetDeltaCount</ieName>
-			</nonFlowKey>
-			<nonFlowKey>
-				<ieName>revTransportOctetDeltaCount</ieName>
-			</nonFlowKey-->
 		</rule>
 		<expiration>
 			<inactiveTimeout unit="sec">10</inactiveTimeout>
 			<activeTimeout unit="sec">30</activeTimeout>
 		</expiration>
 		<pollInterval unit="msec">100</pollInterval>
-		<next>3</next>
+		<next>6</next>
 	</packetAggregator>
 
 	<overlayProtocolFinder id="3">
 		<protocol>googleMaps</protocol>
 		<next>6</next>
 	</overlayProtocolFinder>
-
-	<!--ipfixQueue id="5">
-		<maxSize>10</maxSize>
-		<next>6</next>
-	</ipfixQueue-->
 
 	<ipfixPrinter id="6">
 		<outputType>table</outputType>
