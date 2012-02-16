@@ -109,6 +109,7 @@ set(MODULES_SRC
     ipfix/NetflowV9Converter.cpp
     ipfix/OverlayProtocolFinder.cpp
     ipfix/OverlayProtocolFinderCfg.cpp
+    ipfix/OverlayProtocols.cpp
     ipfix/aggregator/PacketAggregatorCfg.cpp
     ipfix/aggregator/AggregatorBaseCfg.cpp
     ipfix/aggregator/IpfixAggregatorCfg.cpp

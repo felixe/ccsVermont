@@ -138,7 +138,6 @@ struct ipfix_identifier ipfixids[] = {
  { IPFIX_ETYPEID_overlayProtocol, IPFIX_ELENGTH_overlayProtocol, IPFIX_PEN_vermont, "overlayProtocol"}
 };
 
-
 /* lookup a certain ipfix ID into its name */
 const struct ipfix_identifier * ipfix_id_lookup(uint16_t id, uint32_t pen)
 {

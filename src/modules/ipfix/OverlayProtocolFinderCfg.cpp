@@ -19,6 +19,7 @@
  */
 
 #include "OverlayProtocolFinderCfg.h"
+#include "OverlayProtocols.hpp"
 
 OverlayProtocolFinderCfg::OverlayProtocolFinderCfg(XMLElement* elem)
 	: CfgHelper<OverlayProtocolFinder, OverlayProtocolFinderCfg>(elem, "overlayProtocolFinder")
@@ -36,12 +37,11 @@ OverlayProtocolFinderCfg::OverlayProtocolFinderCfg(XMLElement* elem)
 
 			if (e->matches("protocol")) {
 				protocol=get("protocol",0);
-				//printf("######### %s \n",protocol.c_str());
 			} else if (e->matches("next")) { // ignore next
 				continue;
 			} else {
-				msg(MSG_FATAL, "Unkown protocol %s\n", e->getName().c_str());
-				THROWEXCEPTION("Unkown protocol %s\n", e->getName().c_str());
+				msg(MSG_FATAL, "Unkown parameter %s, only <protocol> supported\n", e->getName().c_str());
+				THROWEXCEPTION("Unkown parameter %s, only <protocol> supported\n", e->getName().c_str());
 				continue;
 			}
 
@@ -51,8 +51,6 @@ OverlayProtocolFinderCfg::OverlayProtocolFinderCfg(XMLElement* elem)
 
 OverlayProtocolFinderCfg::~OverlayProtocolFinderCfg()
 {
-	//if (instance == NULL)
-		//delete rules;
 }
 
 OverlayProtocolFinderCfg* OverlayProtocolFinderCfg::create(XMLElement* elem)
@@ -64,7 +62,7 @@ OverlayProtocolFinderCfg* OverlayProtocolFinderCfg::create(XMLElement* elem)
 
 OverlayProtocolFinder* OverlayProtocolFinderCfg::createInstance()
 {
-	instance = new OverlayProtocolFinder(getProtocol(protocol));
+	instance = new OverlayProtocolFinder(getRegex(protocol));
 	return instance;
 }
 
@@ -75,21 +73,19 @@ bool OverlayProtocolFinderCfg::deriveFrom(OverlayProtocolFinderCfg* old)
 
 
 /**
- * returns the string the overlayProtocolFinder has to look for, if more protocols follow, insert them here
+ * returns the regex the overlayProtocolFinder has to look for
  */
-std::string OverlayProtocolFinderCfg::getProtocol(std::string prot)
+std::string OverlayProtocolFinderCfg::getRegex(std::string prot)
 {
-	std::string retVal="";
-	if(prot=="googleMaps"){
-		retVal = "GET /maps/";
-	}else{
+	std::string regex=overlayProtocol_regex_lookup(prot);
+	if(regex==""){
 		if(prot==""){
 			THROWEXCEPTION("No overlay protocol given");
 		}else{
 			THROWEXCEPTION("Unknown overlay protocol: %s",prot.c_str());
 		}
 	}
-	return retVal;
+	return regex;
 }
 
 

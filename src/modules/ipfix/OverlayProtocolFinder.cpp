@@ -19,19 +19,11 @@
  */
 
 
-
 #include "OverlayProtocolFinder.hpp"
-#include "common/Time.h"
-#include "common/Misc.h"
-#include "Connection.h"
-
+#include "OverlayProtocols.hpp"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <arpa/inet.h>
-#include <string>
-
-
 
 
 
@@ -39,9 +31,9 @@
  * constructs a new instance
  * @param pollinterval sets the interval of polling the hashtable for expired flows
  */
-OverlayProtocolFinder::OverlayProtocolFinder(std::string prot)
+OverlayProtocolFinder::OverlayProtocolFinder(std::string re)
 {	
-	protocol=prot;
+	regex=re;
 	msg(MSG_INFO,"OverlayProtocolFinder started");
 }
 
@@ -57,9 +49,7 @@ void OverlayProtocolFinder::onDataRecord(IpfixDataRecord* record)
 {
 	DPRINTF("Got a Data Record\n");
 
-	//sollte man genauer machen und nicht einfach max nehmen...
-	//char payload[65535];
-	string payload="";
+	bool found=false;
 
 	//egal ob optionsTemplate oder DataTemplate
 	//alle felder durchgehn
@@ -68,29 +58,14 @@ void OverlayProtocolFinder::onDataRecord(IpfixDataRecord* record)
 		if (record->templateInfo->fieldInfo[i].type	== InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload,IPFIX_PEN_vermont)
 				|| record->templateInfo->fieldInfo[i].type== InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload, IPFIX_PEN_vermont
 										| IPFIX_PEN_reverse)) {
-
-
-			//ist shared pointer hier nötig??
+			//ist shared pointer hier nötig?? eher nicht, wir removen reference eh am ende
 			//boost::shared_ptr<TemplateInfo> templateInfo;
 			//templateInfo = record->templateInfo;
-
 			InformationElement::IeInfo type =	record->templateInfo->fieldInfo[i].type;
-			IpfixRecord::Data* data = (record->data + record->templateInfo->fieldInfo[i].offset);
-//			if ((type.enterprise!=0) && (type.enterprise!=IPFIX_PEN_reverse)){
-//				//haben wir das nicht schon oben getestet?
-//				if (type==InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload, IPFIX_PEN_vermont) ||
-//								type==InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload, IPFIX_PEN_vermont|IPFIX_PEN_reverse)){
-
-					for (uint32_t i = 0; i <type.length; i++) {
-						char c = data[i];	//diese umwandlung passt, printed ja auch schön
-						//printf("%c",c);
-						//payload[i] = c;   //hier wird richtig eingefügt, verliert aber mit der Zeit den ersten "block",
-						if (isprint(c)){
-							payload+=c;
-						}//geht es ineffizienter? wird jedes mal speicher neu allozieren müssen?!
-
-				//	}
-			//	}
+			char* data = (char*)(record->data + record->templateInfo->fieldInfo[i].offset);
+			boost::regex bRegex(regex);
+			if (boost::regex_search(data, bRegex)) {
+					found=true;
 			}
 
 		}
@@ -98,12 +73,8 @@ void OverlayProtocolFinder::onDataRecord(IpfixDataRecord* record)
 	}
 
 	//front und revpayload werden momentan zusammengefasst, müsste man mit if abfrage oben ändern
-	//dass geht natüüüürlich auch schneller und schöner, nennen wirs mal "proof of concept":
 
-	//std::string payloadStr(payload); //umwandeln in string funktioniert einwandfrei
-	std::string::size_type foundAt = payload.find(protocol);
-	//std::string::size_type foundAt2 = payload.find("GET /mapfiles/");
-	if((foundAt==std::string::npos)){	//&&(foundAt2==std::string::npos)){
+	if(!found){
 		//printf("\nnot found\n");
 		record->removeReference();
 	}else{
@@ -114,27 +85,26 @@ void OverlayProtocolFinder::onDataRecord(IpfixDataRecord* record)
 	}
 }
 /**
- * add protocol tag to record
+ * add protocol id to record
  */
 void OverlayProtocolFinder::addOverlayProtocol(IpfixDataRecord* record){
+	//ist es wirklich nötig hier nochmal den ganzen record durchzuschleifen? oder könnte man das oben gleich einfügen
+	//-->muss man weil wir oben nicht das feld overlayProtocol raussuchen...
+	//TODO:sollte man hier Fehler werfen falls feld oP nicht gefunden wird, so tipo "sollte vorher gesetzt werden"?
 	for (uint32_t i = 0; i < record->templateInfo->fieldCount; i++) {
 		InformationElement::IeInfo type =	record->templateInfo->fieldInfo[i].type;
 		IpfixRecord::Data* data = (record->data + record->templateInfo->fieldInfo[i].offset);
 		if (type==InformationElement::IeInfo(IPFIX_ETYPEID_overlayProtocol,IPFIX_PEN_vermont)){
-			*data=resolveOverlayProtocol(protocol);
+			int id=overlayProtocol_id_lookup(regex);
+			if(id==-1){
+				THROWEXCEPTION("Problem resolving RegEx: %s to an id",regex.c_str());
+			}
+			*data=id;
 		}
 	}
 
 }
 
-uint8_t OverlayProtocolFinder::resolveOverlayProtocol(std::string prot){
-	if(prot=="GET /maps/"){
-		return 1;
-	}else{
-		THROWEXCEPTION("Could not resolve used protocol string");
-	}
-
-}
 
 
 

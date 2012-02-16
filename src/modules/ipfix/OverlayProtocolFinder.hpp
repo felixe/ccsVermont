@@ -25,27 +25,23 @@
 #include "modules/ipfix/IpfixRecordDestination.h"
 #include "core/Module.h"
 #include "core/Source.h"
+#include <boost/regex.hpp>
 
 
-/**
- * blabla
- *
- */
 class OverlayProtocolFinder
 		: public IpfixRecordDestination,
 		  public Module,
 		  public Source<IpfixRecord*>
 {
 public:
-	OverlayProtocolFinder(std::string prot);
+	OverlayProtocolFinder(std::string regex);
 	virtual ~OverlayProtocolFinder();
 
 	virtual void onDataRecord(IpfixDataRecord* record);
 
 protected:
-	string protocol;
+	string regex;
 	void addOverlayProtocol(IpfixDataRecord* record);
-	uint8_t resolveOverlayProtocol(std::string prot);
 };
 
 #endif  /*OVERLAYPROTOCOLFINDER_H*/

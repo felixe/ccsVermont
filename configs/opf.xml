@@ -74,7 +74,7 @@
 			<activeTimeout unit="sec">30</activeTimeout>
 		</expiration>
 		<pollInterval unit="msec">100</pollInterval>
-		<next>6</next>
+		<next>3</next>
 	</packetAggregator>
 
 	<overlayProtocolFinder id="3">
