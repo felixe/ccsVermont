@@ -26,18 +26,23 @@
  * describes an OverlayProtocol
  * name -> well, obvious
  * id -> the id that the ipfix key overlayProtocol will have if flow matches given oP
- * regex -> regular expression (see http://www.boost.org/doc/libs/1_48_0/libs/regex/doc/html/boost_regex/syntax/perl_syntax.html for syntax)
+ * FPregex -> regular expression (see http://www.boost.org/doc/libs/1_48_0/libs/regex/doc/html/boost_regex/syntax/perl_syntax.html for syntax)
  * 			that will be searched in payload.
- * 			TODO: if needed for other protocols, regex for frontPayload and different one for revFrontPayload could be given
+ * rFPreged -> same as FPregex, will be searched for in reverseFrontPayload (aka "the answer")
+ * connective -> logical connection between both regexes, at the moment only "OR" and "AND" are supported
  */
 struct overlayProtocol {
 	std::string name;
 	int id;
-	std::string regex;
+	std::string FPregex;
+	std::string rFPregex;
+	std::string connective;
 };
 
-const std::string overlayProtocol_regex_lookup(std::string n);
-const int overlayProtocol_id_lookup(std::string n);
+const std::string overlayProtocol_FPregex_lookup(std::string n);
+const std::string overlayProtocol_rFPregex_lookup(std::string n);
+const std::string overlayProtocol_connective_lookup(std::string n);
+const int overlayProtocol_id_lookup(std::string n,std::string m);
 
 
 

@@ -32,10 +32,10 @@ public:
 	 * @param maxEntries maximum number of enqueued elements
 	 */
 	LockfreeSingleQueue(uint32_t maxEntries){
-		uint32_t clsize = getCachelineSize();
+		//###FX: dirty bugfix: 0 ist nicht was wir wollen, jetzt dafür ziemlich unschön:
+		uint32_t clsize = 64;//getCachelineSize();
 		if(clsize < 3 * sizeof(uint32_t))
-			//###FX insertetd LfSQ
-			THROWEXCEPTION("Error: LfSQ Systems cache-line size is too small");
+			THROWEXCEPTION("Error: Systems cache-line size is too small");
 		void* tmp;
 
 		/*get space for 4 cache lines, one padding cacheline in front of it*/

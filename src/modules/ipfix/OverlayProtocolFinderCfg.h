@@ -43,7 +43,9 @@ public:
 protected:
 	std::string protocol;
 	OverlayProtocolFinderCfg(XMLElement* elem);
-	std::string getRegex(std::string);
+	std::string getFPregex(std::string);
+	std::string getrFPregex(std::string);
+	std::string getConnective(std::string prot);
 	
 };
 #endif //OVERLAYPROTOCOLFINDERCFG_GUARD

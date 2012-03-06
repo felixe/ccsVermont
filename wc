@@ -1,0 +1,5 @@
+VERsatile MONitoring Tool - VERMONT
+ mandatory:
+    -f <xmlfile>     load config
+ optional:
+    -d               increase debug level (specify multiple for even more)

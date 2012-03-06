@@ -62,7 +62,7 @@ OverlayProtocolFinderCfg* OverlayProtocolFinderCfg::create(XMLElement* elem)
 
 OverlayProtocolFinder* OverlayProtocolFinderCfg::createInstance()
 {
-	instance = new OverlayProtocolFinder(getRegex(protocol));
+	instance = new OverlayProtocolFinder(getFPregex(protocol),getrFPregex(protocol),getConnective(protocol));
 	return instance;
 }
 
@@ -75,10 +75,10 @@ bool OverlayProtocolFinderCfg::deriveFrom(OverlayProtocolFinderCfg* old)
 /**
  * returns the regex the overlayProtocolFinder has to look for
  */
-std::string OverlayProtocolFinderCfg::getRegex(std::string prot)
+std::string OverlayProtocolFinderCfg::getFPregex(std::string prot)
 {
-	std::string regex=overlayProtocol_regex_lookup(prot);
-	if(regex==""){
+	std::string regex=overlayProtocol_FPregex_lookup(prot);
+	if(regex=="NOTFOUND"){
 		if(prot==""){
 			THROWEXCEPTION("No overlay protocol given");
 		}else{
@@ -86,6 +86,42 @@ std::string OverlayProtocolFinderCfg::getRegex(std::string prot)
 		}
 	}
 	return regex;
+}
+
+/**
+ * returns the regex the overlayProtocolFinder has to look for
+ */
+std::string OverlayProtocolFinderCfg::getrFPregex(std::string prot)
+{
+	std::string regex=overlayProtocol_rFPregex_lookup(prot);
+	if(regex=="NOTFOUND"){
+		if(prot==""){
+			THROWEXCEPTION("No overlay protocol given");
+		}else{
+			THROWEXCEPTION("Unknown overlay protocol: %s",prot.c_str());
+		}
+	}
+	return regex;
+}
+
+/**
+ * returns the regex the overlayProtocolFinder has to look for
+ */
+std::string OverlayProtocolFinderCfg::getConnective(std::string prot)
+{
+	std::string connective=overlayProtocol_connective_lookup(prot);
+	if(connective=="NOTFOUND"){
+		if(prot==""){
+			THROWEXCEPTION("No overlay protocol given");
+		}else{
+			THROWEXCEPTION("Unknown overlay protocol: %s",prot.c_str());
+		}
+	}
+	if(connective=="OR"||connective=="AND"){
+		return connective;
+	}
+	THROWEXCEPTION("Only OR or AND allowed as connectives in overlay protocol definition");
+	return "NOTFOUND";
 }
 
 

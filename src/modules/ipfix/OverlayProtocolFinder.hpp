@@ -34,13 +34,15 @@ class OverlayProtocolFinder
 		  public Source<IpfixRecord*>
 {
 public:
-	OverlayProtocolFinder(std::string regex);
+	OverlayProtocolFinder(std::string FPrx, std::string rFPrx, std::string conn);
 	virtual ~OverlayProtocolFinder();
 
 	virtual void onDataRecord(IpfixDataRecord* record);
 
 protected:
-	string regex;
+	string FPregex;
+	string rFPregex;
+	string connective;
 	void addOverlayProtocol(IpfixDataRecord* record);
 };
 
