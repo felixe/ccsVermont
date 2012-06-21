@@ -55,6 +55,7 @@ void OverlayProtocolFinder::onDataRecord(IpfixDataRecord* record)
 	DPRINTF("Got a Data Record\n");
 
 	bool found;
+	//denotes if biflowAggregation is used
 	bool revFound;
 	//if both regex are emtpy program throws exception (in opfcfg)
 	//connective has to be OR or AND if not exception has already been thrown
@@ -127,7 +128,8 @@ void OverlayProtocolFinder::onDataRecord(IpfixDataRecord* record)
 void OverlayProtocolFinder::addOverlayProtocol(IpfixDataRecord* record){
 	//ist es wirklich nötig hier nochmal den ganzen record durchzuschleifen? oder könnte man das oben gleich einfügen
 	//-->muss man weil wir oben nicht das feld overlayProtocol raussuchen...
-	//TODO:sollte man hier Fehler werfen falls feld oP nicht gefunden wird, so tipo "sollte vorher gesetzt werden"?
+	//TODO-->DONE:sollte man hier Fehler werfen falls feld oP nicht gefunden wird, so tipo "sollte vorher gesetzt werden"?
+	bool oPfound=false;
 	for (uint32_t i = 0; i < record->templateInfo->fieldCount; i++) {
 		InformationElement::IeInfo type =	record->templateInfo->fieldInfo[i].type;
 		IpfixRecord::Data* data = (record->data + record->templateInfo->fieldInfo[i].offset);
@@ -137,7 +139,11 @@ void OverlayProtocolFinder::addOverlayProtocol(IpfixDataRecord* record){
 				THROWEXCEPTION("Problem resolving RegExes: %s or %s to an id",FPregex.c_str(),rFPregex.c_str());
 			}
 			*data=id;
+			oPfound=true;
 		}
+	}
+	if(oPfound==false){
+		THROWEXCEPTION("No field overlayProtocol found in IPFIX Record. Did you include this field in the Aggregator configuration?");
 	}
 
 }
