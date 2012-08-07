@@ -5,8 +5,8 @@
 	</sensorManager>
 	
         <observer id="1">
-                <!--interface>eth0</interface-->
-                <filename>./Tests/Functionality/IbkMadridMap.dump</filename>
+                <interface>eth2</interface>
+                <!--filename>./Tests/Functionality/IbkMadridMap.dump</filename-->
                 <pcap_filter>ip and tcp</pcap_filter>
                 <!--offlineAutoExit>1</offlineAutoExit-->
                 <offlineSpeed>1</offlineSpeed>
@@ -79,7 +79,7 @@
 	</packetAggregator>
 
 	<ipfixPrinter id="4">
-		<!--outputType>table</outputType-->
+		<outputType>table</outputType>
 		<!--filename></filename-->
 	</ipfixPrinter>
 

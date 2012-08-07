@@ -4,7 +4,7 @@ plotPDF.r		-->After all data has been written by above script this R script puts
 startVermontStats.sh	-->Coordinates everything. Starts readVals.sh and vermont, stops readVals.sh after Vermont is finished, creates new directory with current dateTime in TestData and moves everything interesting there
 
 Compact:
-start everything by typing: sudo ./startVermontStats.sh myConfig and admire the stats in TestData/dateTimeFolder
+start everything by typing: sudo ./startVermontStats.sh myConfig and admire the stats in TestData/$dateTimeFolder$
 
 Note:
 if you are not replaying dumps but traffic you will have to kill Vermont sooner or later. Do this with signal 2...

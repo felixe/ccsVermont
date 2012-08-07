@@ -4,8 +4,8 @@
 		<outputfile>sensor_output.xml</outputfile>
 	</sensorManager>
 	<observer id="1">
-		<!--interface>eth0</interface-->
-		<filename>/home/felix/fxProxy.dump</filename>
+		<interface>eth2</interface>
+		<!--filename>/home/felix/fxProxy.dump</filename-->
 		<pcap_filter>ip and tcp</pcap_filter>
 		<!--offlineAutoExit>1</offlineAutoExit-->
 		<offlineSpeed>0</offlineSpeed>
@@ -82,7 +82,7 @@
 	</overlayProtocolFinder>
 
 	<ipfixPrinter id="6">
-		<!--outputType>table</outputType-->
+		<outputType>table</outputType>
 		<!--filename>flows.dat</filename-->
 	</ipfixPrinter>
 

@@ -1,5 +1,5 @@
 This is a git repo for code belonging to the Master Thesis "Monitoring Support for Efficient Web 2.0 and Overlay
-Network Detection". All the base code originally comes from this repo: https://github.com/constcast/vermont/ 
+Network Detection" by Felix Erlacher. All the base code originally comes from this repo: https://github.com/constcast/vermont/ 
 But as the current Master branch has some bugs, especially in modules that were needed for this project, the 
 decision was made to start an own repo for this thesis, with an old branch from the above repo, where things
 needed for this project were working. Don't expect this version of Vermont to have the same functionality as
