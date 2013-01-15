@@ -1,3 +1,4 @@
+
 #
 # VERMONT build scripts for CMake
 # Copyright (C) 2007 Christoph Sommer <christoph.sommer@informatik.uni-erlangen.de>
@@ -367,15 +368,15 @@ IF (USE_PCAPMMAP)
 
 ELSEIF (USE_PFRING)
 
-    FIND_LIBRARY(PCAP_LIBRARY_PFRING NAMES pcap PATHS ${VERMONT_SOURCE_DIR} ${VERMONT_SOURCE_DIR}/PF_RING/userland/libpcap-1.0.0-ring ${VERMONT_SOURCE_DIR}/../PF_RING/userland/libpcap-1.0.0-ring NO_DEFAULT_PATH)
+    FIND_LIBRARY(PCAP_LIBRARY_PFRING NAMES pcap PATHS ${VERMONT_SOURCE_DIR} ${VERMONT_SOURCE_DIR}/PF_RING/userland/libpcap-1.1-1-ring ${VERMONT_SOURCE_DIR}/../PF_RING/userland/libpcap-1.1.1-ring NO_DEFAULT_PATH)
     IF (NOT PCAP_LIBRARY_PFRING)
-        MESSAGE(FATAL_ERROR "Could not find libpcap-ring. This script looks in directories ${VERMONT_SOURCE_DIR}/PF_RING/userland/libpcap-1.0.0-ring and ${VERMONT_SOURCE_DIR}/../PF_RING/userland/libpcap-1.0.0-ring, so maybe you want to create a symlink to the directory of the library.")
+        MESSAGE(FATAL_ERROR "Could not find libpcap-ring. This script looks in directories ${VERMONT_SOURCE_DIR}/PF_RING/userland/libpcap-1.1.1-ring and ${VERMONT_SOURCE_DIR}/../PF_RING/userland/libpcap-1.1.1-ring, so maybe you want to create a symlink to the directory of the library.")
     ENDIF (NOT PCAP_LIBRARY_PFRING)
     FIND_LIBRARY(PFRING_LIBRARY NAMES pfring PATHS ${VERMONT_SOURCE_DIR} ${VERMONT_SOURCE_DIR}/PF_RING/userland/lib ${VERMONT_SOURCE_DIR}/../PF_RING/userland/lib NO_DEFAULT_PATH)
     IF (NOT PFRING_LIBRARY)
         MESSAGE(FATAL_ERROR "Could not find libpfring. This script looks in directories ${VERMONT_SOURCE_DIR}/PF_RING/userland/lib and ${VERMONT_SOURCE_DIR}/../PF_RING/userland/lib, so maybe you want to create a symlink to the directory of the library.")
     ENDIF (NOT PFRING_LIBRARY)
-    FIND_PATH(PCAP_INCLUDE_PATH NAMES pcap.h PATHS ${VERMONT_SOURCE_DIR} ${VERMONT_SOURCE_DIR}/PF_RING/userland/libpcap-1.0.0-ring ${VERMONT_SOURCE_DIR}/../PF_RING/userland/libpcap-1.0.0-ring NO_DEFAULT_PATH)
+    FIND_PATH(PCAP_INCLUDE_PATH NAMES pcap.h PATHS ${VERMONT_SOURCE_DIR} ${VERMONT_SOURCE_DIR}/PF_RING/userland/libpcap-1.1.1-ring ${VERMONT_SOURCE_DIR}/../PF_RING/userland/libpcap-1.1.1-ring NO_DEFAULT_PATH)
     TARGET_LINK_LIBRARIES(vermont ${PCAP_LIBRARY_PFRING})
     TARGET_LINK_LIBRARIES(vermont ${PFRING_LIBRARY})
     INCLUDE_DIRECTORIES(${PCAP_INCLUDE_PATH})

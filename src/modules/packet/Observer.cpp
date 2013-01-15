@@ -20,6 +20,8 @@
 #include <iostream>
 #include <sstream>
 #include <math.h>
+#include <pfring.h>
+
 
 /* Code adopted from tcpreplay: */
 /* subtract uvp from tvp and store in vvp */
@@ -79,6 +81,7 @@ using namespace std;
 
 InstanceManager<Packet> Observer::packetManager("Packet");
 
+
 Observer::Observer(const std::string& interface, bool offline, uint64_t maxpackets) : thread(Observer::observerThread), allDevices(NULL),
 	captureDevice(NULL), capturelen(PCAP_DEFAULT_CAPTURE_LENGTH), pcap_timeout(PCAP_TIMEOUT),
 	pcap_promisc(1), maxPackets(maxpackets), ready(false), filter_exp(0), observationDomainID(0), // FIXME: this must be configured!
@@ -86,7 +89,7 @@ Observer::Observer(const std::string& interface, bool offline, uint64_t maxpacke
 	lastProcessedPackets(0),
 	captureInterface(NULL), fileName(NULL), replaceTimestampsFromFile(false),
 	stretchTimeInt(1), stretchTime(1.0), autoExit(true), slowMessageShown(false),
-	statTotalLostPackets(0), statTotalRecvPackets(0)
+	statTotalLostPackets(0), statTotalRecvPackets(0), sampling(1)
 {
 	if(offline) {
 		readFromFile = true;
@@ -106,6 +109,8 @@ Observer::Observer(const std::string& interface, bool offline, uint64_t maxpacke
 
 	}
 };
+
+
 
 Observer::~Observer()
 {
@@ -141,21 +146,59 @@ Observer::~Observer()
 /*
  This is the main observer loop. It graps packets from libpcap and
  dispatches them to the registered receivers.
- */
+*/
+static pfring *pd;
+static Observer *obs = NULL;
+
+void Observer::incomingPackets(const struct pfring_pkthdr *h, const u_char *pack, const u_char *user_bytes) {
+
+		struct timeval st;
+		st.tv_sec = 1;
+		st.tv_usec = 0;
+
+		Packet *p = NULL;
+		bool have_send = false;
+		p = packetManager.getNewInstance();
+
+		if (h->caplen <= PCAP_DEFAULT_CAPTURE_LENGTH) {
+			p->init((char*)pack, h->caplen, h->ts, obs->observationDomainID, h->len);
+		} else {
+			p->init((char*)pack, (u_int32_t)PCAP_DEFAULT_CAPTURE_LENGTH, h->ts, obs->observationDomainID, h->len);
+		}
+
+		// update statistics
+		obs->receivedBytes += h->caplen;
+
+		obs->processedPackets++;
+
+		while (!obs->exitFlag) {
+			if ((have_send = obs->send(p))) {
+				break;
+			}
+		}
+
+}
+
+
 void *Observer::observerThread(void *arg)
 {
 	/* first we need to get the instance back from the void *arg */
-	Observer *obs=(Observer *)arg;
+	obs=(Observer *)arg;
 	InstanceManager<Packet>& packetManager = obs->packetManager;
 
+	if (pfring_enable_ring(pd) != 0) {
+	   	pfring_close(pd);
+	    	msg(MSG_INFO, "Unable to enable ring");
+ 	 }
+
+
+		
 	Packet *p = NULL;
 	const unsigned char *pcapData;
 	struct pcap_pkthdr packetHeader;
 	bool have_send = false;
 	obs->registerCurrentThread();
-    bool file_eof = false;
-
-
+    	bool file_eof = false;
 
 	msg(MSG_INFO, "Observer started with following parameters:");
 	msg(MSG_INFO, "  - readFromFile=%d", obs->readFromFile);
@@ -175,67 +218,8 @@ void *Observer::observerThread(void *arg)
 
 
 	if(!obs->readFromFile) {
-		while(!obs->exitFlag && (obs->maxPackets==0 || obs->processedPackets<obs->maxPackets)) {
-			// wait until data can be read from pcap file descriptor
-			fd_set fd_wait;
-			FD_ZERO(&fd_wait);
-			FD_SET(pcap_fileno(obs->captureDevice), &fd_wait);
-			struct timeval st;
-			st.tv_sec = 1;
-			st.tv_usec = 0;
-			int result = select(FD_SETSIZE, &fd_wait, NULL, NULL, &st);
-			if (result == -1) {
-				if (errno==EINTR) continue; // just continue on interrupted system call
-				msg(MSG_FATAL, "select() on pcap file descriptor returned -1, error: %s", strerror(errno));
-				msg(MSG_FATAL, "shutting down observer");
-				break;
-			}
-			if (result == 0) {
-				continue;
-			}
-
-			/*
-			 get next packet (no zero-copy possible *sigh*)
-			 NOTICE: potential bottleneck, if pcap_next() is calling gettimeofday() at a high rate;
-			 there is partially caching function described in an Sun or IBM (Developerworks) article
-			 that can act as a via LD_PRELOAD used overlay function.
-			 unfortunately I don't have an URL ready -Freek
-			 */
-			DPRINTFL(MSG_VDEBUG, "trying to get packet from pcap");
-			pcapData = pcap_next(obs->captureDevice, &packetHeader);
-			if(!pcapData)
-			/* no packet data was available */
-			continue;
-			DPRINTFL(MSG_VDEBUG, "got new packet!");
-
-			// show current packet as c-structure on stdout
-			//for (unsigned int i=0; i<packetHeader.caplen; i++) {
-			//printf("0x%02hhX, ", ((unsigned char*)pcapData)[i]);
-			//}
-			//printf("\n");
-
-			// initialize packet structure (init copies packet data)
-			p = packetManager.getNewInstance();
-			p->init((char*)pcapData, packetHeader.caplen, packetHeader.ts, obs->observationDomainID, packetHeader.len);
-
-			DPRINTF("received packet at %u.%04u, len=%d",
-					(unsigned)p->timestamp.tv_sec,
-					(unsigned)p->timestamp.tv_usec / 1000,
-					packetHeader.caplen
-			);
-
-			// update statistics
-			obs->receivedBytes += packetHeader.caplen;
-			obs->processedPackets++;
-
-			while (!obs->exitFlag) {
-				DPRINTFL(MSG_VDEBUG, "trying to push packet to queue");
-				if ((have_send = obs->send(p))) {
-					DPRINTFL(MSG_VDEBUG, "packet pushed");
-					break;
-				}
-			}
-		}
+		 pfring_loop(pd, incomingPackets, (u_char*)NULL, 0);
+	
 	} else {
 		// file handle
 		FILE* fh = pcap_file(obs->captureDevice);
@@ -349,20 +333,23 @@ void *Observer::observerThread(void *arg)
 
 /*
  call after an Observer has been created
- error checking on pcap here, because it can't be done in the constructor
+ error checking on pfring here, because it can't be done in the constructor
  and it may be too late, if done in the thread
  */
-bool Observer::prepare(const std::string& filter)
-{
+
+bool Observer::prepare(const std::string& filter, const int sampling, vector<filtering_rule> f, string bpf, vector<string> hwf) {
+
+
 	struct in_addr i_netmask, i_network;
 
 	// we need to store the filter expression, because pcap needs
 	// a char* and doesn't accept a const char* ... nasty pcap-devs!!!
-	if (!filter.empty()) {
+/*	if (!filter.empty()) {
 		filter_exp = new char[filter.size() + 1];
 		strcpy(filter_exp, filter.c_str());
 		usedBytes += filter.size()+1;
 	}
+*/
 
 	if (!readFromFile) {
 		// query all available capture devices
@@ -377,12 +364,67 @@ bool Observer::prepare(const std::string& filter)
 		}
 
 		msg(MSG_INFO,
-		    "pcap opening interface=%s, promisc=%d, snaplen=%d, timeout=%d",
-		    captureInterface, pcap_promisc, capturelen, pcap_timeout
+		    "PF_RING opening interface=%s, promisc=%d, snaplen=%d, timeout=%d",
+		    captureInterface, pcap_promisc, PCAP_DEFAULT_CAPTURE_LENGTH, pcap_timeout
 		   );
-		captureDevice=pcap_open_live(captureInterface, capturelen, pcap_promisc, pcap_timeout, errorBuffer);
+
+	
+		/*
+			changed to PF_RING
+		*/
+		//captureDevice=pcap_open_live(captureInterface, capturelen, pcap_promisc, pcap_timeout, errorBuffer);	
+		pd = pfring_open(captureInterface, capturelen, PF_RING_PROMISC);
+		if(pd == NULL) {
+			msg(MSG_FATAL, "pfring open error!!");    		
+			goto out;
+		}
+
+		int err = 0;
+		//set the packet direction to tell pfring to check only packets matching the direction
+
+		packet_direction direction = rx_and_tx_direction;
+		if((err = pfring_set_direction(pd, direction)) != 0) {
+			msg(MSG_FATAL, "pfring_set_direction returned [rc=%d][direction=%d]", err, direction);
+    			printf("pfring_set_direction returned [rc=%d][direction=%d]\n", err, direction);
+		}
+
+
+
+		//enable packet sampling
+		if (sampling > 0 && sampling != 1) {
+			if (pfring_set_sampling_rate(pd, sampling) < 0) {
+				msg(MSG_FATAL, "Error while enabling sampling\n");
+				printf("Error while enabling sampling\n");
+			}		
+		}
+
+		//set pfring filters
+		for (int i=0; i<f.size(); i++) {
+			if((err = pfring_add_filtering_rule(pd, &f[i])) < 0) {
+				msg(MSG_FATAL, "pfring_add_filtering_rule failed\n");
+      				printf("pfring_add_filtering_rule failed\n");
+			}
+		}
+
+		if((err=pfring_set_bpf_filter(pd, ((char*) bpf.c_str()))) != 0) {
+			msg(MSG_FATAL, "pfring_set_bpf_filter(%s) returned %d\n", bpf.c_str(), err);
+   			printf("pfring_set_bpf_filter(%s) returned %d\n", bpf.c_str(), err);
+		} else {
+			printf("BPF filter set\n");
+		}
+
+		//set hw filter
+		for (int i=0; i<hwf.size(); i++) {
+			if ((err = system(hwf[i].c_str()) < 0)) {
+				msg(MSG_FATAL, "Could not enable hardware filter\n");
+				printf("Could not enable hardware filter\n");
+			}
+		}
+
+
+
 		// check for errors
-		if(!captureDevice) {
+/*		if(!captureDevice) {
 			msg(MSG_FATAL, "Error initializing pcap interface: %s", errorBuffer);
 			goto out1;
 		}
@@ -414,22 +456,24 @@ bool Observer::prepare(const std::string& filter)
 				goto out2;
 			}
 		default:
-			msg(MSG_ERROR, "You are using an unkown IP_HEADER_OFFSET and data link combination. This can make problems. Please check if you use the correct IP_HEADER_OFFSET for your data link, if you see strange IPFIX/PSAMP packets.");
+			msg(MSG_ERROR, "You are using an unkown IP_HEADER_OFFSET and data link combination. This can make problems. Please check if you use the correct IP_HEADER_OFFSET for your data link, if 				you see strange IPFIX/PSAMP packets.");
 		}
 
 
+
 		/* we need the netmask for the pcap_compile */
-		if(pcap_lookupnet(captureInterface, &network, &netmask, errorBuffer) == -1) {
+/*		if(pcap_lookupnet(captureInterface, &network, &netmask, errorBuffer) == -1) {
 			msg(MSG_ERROR, "unable to determine netmask/network: %s", errorBuffer);
 			network=0;
 			netmask=0;
 		}
+
 		i_network.s_addr=network;
 		i_netmask.s_addr=netmask;
 		msg(MSG_DEBUG, "pcap seems to run on network %s", inet_ntoa(i_network));
 		msg(MSG_INFO, "pcap seems to run on netmask %s", inet_ntoa(i_netmask));
-	} else {
-		captureDevice=pcap_open_offline(fileName, errorBuffer);
+*/	} else {
+		captureDevice = pcap_open_offline(fileName, errorBuffer);
 		// check for errors
 		if(!captureDevice) {
 			msg(MSG_FATAL, "Error opening pcap file %s: %s", fileName, errorBuffer);
@@ -439,7 +483,7 @@ bool Observer::prepare(const std::string& filter)
 		netmask=0;
 	}
 
-
+/*
 	if (filter_exp) {
 		msg(MSG_DEBUG, "compiling pcap filter code from: %s", filter_exp);
 		if(pcap_compile(captureDevice, &pcap_filter, filter_exp, 1, netmask) == -1) {
@@ -452,22 +496,24 @@ bool Observer::prepare(const std::string& filter)
 			goto out3;
 		}
 		/* you may free an attached code, see man-page */
-		pcap_freecode(&pcap_filter);
+/*		pcap_freecode(&pcap_filter);
 	} else {
 		msg(MSG_DEBUG, "using no pcap filter");
 	}
-
+*/
 	ready=true;
 
 	return true;
 
 out3:
-	pcap_freecode(&pcap_filter);
+//	pcap_freecode(&pcap_filter);
 out2:
-	pcap_close(captureDevice);
-	captureDevice=NULL;
+	pfring_close(pd);
+	pd = NULL;
+//	pcap_close(captureDevice);
+//	captureDevice=NULL;
 out1:
-	pcap_freealldevs(allDevices);
+//	pcap_freealldevs(allDevices);
 	allDevices=NULL;
 out:
 	return false;
@@ -481,13 +527,12 @@ out:
 void Observer::doLogging(void *arg)
 {
 	Observer *obs=(Observer *)arg;
-	struct pcap_stat stats;
-
-	 //pcap_stats() will set the stats to -1 if something goes wrong
-	 //so it is okay if we dont check the return code
-	obs->getPcapStats(&stats);
-	msg_stat("%6d recv, %6d drop, %6d ifdrop", stats.ps_recv, stats.ps_drop, stats.ps_ifdrop);
+	pfring_stat pfringStat;
+	
+	pfring_stats(pd, &pfringStat);
+	msg_stat("%6d recv, %6d drop", pfringStat.recv, pfringStat.drop);	
 }
+
 
 /*
    call to get the main capture thread running
@@ -592,9 +637,10 @@ int Observer::getPacketTimeout()
 
    should return: -1 on failure, 0 on OK
    */
-int Observer::getPcapStats(struct pcap_stat *out)
+
+/*int Observer::getPcapStats(struct pfring_stat *out)
 {
-	return(pcap_stats(captureDevice, out));
+	return(pfring_stat(pd, out));
 }
 
 /**
@@ -603,10 +649,11 @@ int Observer::getPcapStats(struct pcap_stat *out)
 std::string Observer::getStatisticsXML(double interval)
 {
 	ostringstream oss;
-	pcap_stat pstats;
-	if (captureDevice && pcap_stats(captureDevice, &pstats)==0) {
-		unsigned int recv = pstats.ps_recv;
-		unsigned int dropped = pstats.ps_drop;
+	pfring_stat pstats;
+	if (captureDevice && pfring_stats(pd, &pstats)==0) {
+		unsigned int recv = pstats.recv;
+		unsigned int dropped = pstats.drop;
+
 
 		oss << "<pcap>";
 		oss << "<received type=\"packets\">" << (uint32_t)((double)(recv-statTotalRecvPackets)/interval) << "</received>";

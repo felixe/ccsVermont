@@ -32,6 +32,8 @@
 #include <core/InstanceManager.h>
 #include <map>
 
+#include "pf_ring.h"
+
 class Observer;
 
 class ObserverCfg
@@ -61,6 +63,10 @@ private:
 	bool offlineAutoExit;
 	float offlineSpeed;
 	uint64_t maxPackets;
+	uint64_t sampling;
+	vector<filtering_rule> filter;
+	string bpf_filter;
+	vector<string> hw_filter;
 };
 
 #endif /*OBSERVERCFG_H_*/

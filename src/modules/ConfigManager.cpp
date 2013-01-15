@@ -187,7 +187,7 @@ void ConfigManager::parseConfig(std::string fileName)
 			msg(MSG_ERROR, "Unknown cfg entry %s found", (*it)->getName().c_str());
 		}
 	}
-
+printf("test\n");
 	if (!oldGraph) { // this is the first config we have read
 		Connector connector;
 		graph->accept(&connector);

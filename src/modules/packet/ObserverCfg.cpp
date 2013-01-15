@@ -27,6 +27,16 @@
 #include <string>
 #include <vector>
 #include <cassert>
+#include <iostream>
+
+#include <string>
+#include <boost/foreach.hpp>
+#include <boost/tokenizer.hpp>
+#include <boost/lexical_cast.hpp>
+
+using namespace std;
+using namespace boost;
+
 
 
 ObserverCfg* ObserverCfg::create(XMLElement* e)
@@ -45,14 +55,13 @@ ObserverCfg::ObserverCfg(XMLElement* elem)
 	replaceOfflineTimestamps(false),
 	offlineAutoExit(true),
 	offlineSpeed(1.0),
-	maxPackets(0)
+	maxPackets(0),
+	sampling(1)
 {
 	if (!elem) return;  // needed because of table inside ConfigManager
 
 	XMLNode::XMLSet<XMLElement*> set = _elem->getElementChildren();
-	for (XMLNode::XMLSet<XMLElement*>::iterator it = set.begin();
-	     it != set.end();
-	     it++) {
+	for (XMLNode::XMLSet<XMLElement*>::iterator it = set.begin(); it != set.end(); it++) {
 		XMLElement* e = *it;
 
 		if (e->matches("interface")) {
@@ -72,6 +81,144 @@ ObserverCfg::ObserverCfg(XMLElement* elem)
 			capture_len = getInt("captureLength");
 		} else if (e->matches("maxPackets")) {
 			maxPackets = getInt("maxPackets");
+		} else if (e->matches("pfring_sampling")) {
+			sampling = getInt("pfring_sampling");
+		} else if (e->matches("wildcard")) {
+
+
+			filtering_rule tmp;
+			memset(&tmp, 0, sizeof(tmp));
+
+			tmp.rule_id = filter.size() + 1;
+			tmp.rule_action = dont_forward_packet_and_stop_rule_evaluation;
+							
+
+			XMLNode::XMLSet<XMLElement*> wild = e->getElementChildren();			
+			for (XMLNode::XMLSet<XMLElement*>::const_iterator _it = wild.begin();  _it != wild.end(); _it++) {
+				XMLElement *_e = *_it;
+
+				if (_e->matches("action")) {
+					int a = 0;
+					a = getInt("action");
+					if (a==1)
+						tmp.rule_action = forward_packet_and_stop_rule_evaluation;
+					else
+						tmp.rule_action = dont_forward_packet_and_stop_rule_evaluation;
+				} else if (_e->matches("smac")) {
+
+					u_int8_t s[ETH_ALEN];
+
+					string mac = _e->getFirstText();
+					char_separator<char> sep(":");
+					tokenizer< char_separator<char> > tokens(mac, sep);
+					int i = 0;
+					BOOST_FOREACH(const string &t, tokens) {
+						stringstream ss(t);
+						int n;
+						ss >> std::hex >> n;
+						s[i] = n;
+						i++;
+					}
+					 memcpy(&tmp.core_fields.smac, &s, sizeof(s));
+				} else if (_e->matches("dmac")) {
+					u_int8_t d[ETH_ALEN];
+
+					std::string mac = _e->getFirstText();
+					char_separator<char> sep(":");
+					tokenizer< char_separator<char> > tokens(mac, sep);
+					int i = 0;
+					BOOST_FOREACH(const string &t, tokens) {
+
+						stringstream ss(t);
+						int n;
+						ss >> std::hex >> n;
+						d[i] = n;
+						i++;
+					}
+
+					memcpy(&tmp.core_fields.dmac, &d, sizeof(d));
+				} else if (_e->matches("vlan")) {
+					tmp.core_fields.vlan_id = getInt("vlan");
+				} else if (_e->matches("proto")) {
+					int b = atoi((_e->getFirstText()).c_str());
+					tmp.core_fields.proto = b;
+				} else if (_e->matches("shost")) {
+					string sh = _e->getFirstText();
+					const char *addr = sh.c_str();
+					tmp.core_fields.shost.v4 = ntohl(inet_addr(addr));
+					tmp.core_fields.shost_mask.v4 = 0xFFFFFFFF;
+				} else if (_e->matches("dhost")) {
+					string dh = _e->getFirstText();
+					const char *addr = dh.c_str();
+					tmp.core_fields.dhost.v4 = ntohl(inet_addr(addr));
+					tmp.core_fields.shost_mask.v4 = 0xFFFFFFFF;
+				} else if (_e->matches("shost_mask")) {
+					u_int32_t s_mask;
+					string shm = _e->getFirstText();
+					tmp.core_fields.shost_mask.v4 = ntohl(inet_addr(shm.c_str()));
+				} else if (_e->matches("dhost_mask")) {
+					string dhm = _e->getFirstText();
+					const char *addr = dhm.c_str();
+					tmp.core_fields.dhost_mask.v4 = ntohl(inet_addr(dhm.c_str()));
+				} else if (_e->matches("sport_low")) {
+					tmp.core_fields.sport_low = atoi((_e->getFirstText()).c_str());
+				} else if (_e->matches("sport_high")) {
+					tmp.core_fields.sport_high = atoi((_e->getFirstText()).c_str());
+				} else if (_e->matches("dport_low")) {
+					tmp.core_fields.dport_low = atoi((_e->getFirstText()).c_str());
+				} else if (_e->matches("dport_high")) {
+					tmp.core_fields.dport_high = atoi((_e->getFirstText()).c_str());
+				} else {
+					msg(MSG_FATAL, "Unknown wildcard filter config statement %s\n", _e->getName().c_str());
+				}
+			}
+			filter.push_back(tmp);
+ 		} else if (e->matches("bpf")) {
+			bpf_filter = e->getFirstText();
+		} else if (e->matches("hwf")) {
+			string hf = "ethtool -U " + interface + " ";
+
+			XMLNode::XMLSet<XMLElement*> hwf = e->getElementChildren();
+			for (XMLNode::XMLSet<XMLElement*>::const_iterator _it = hwf.begin();  _it != hwf.end(); _it++) {
+				XMLElement *_e = *_it;
+
+				if (_e->matches("flowType")) {
+					hf += "flow-type " + _e->getFirstText() + " ";
+				} else if (_e->matches("src")) {
+					hf += "src " + _e->getFirstText() + " ";
+				} else if (_e->matches("dst")) {
+					hf += "dst " + _e->getFirstText() + " ";
+				} else if (_e->matches("prot")) {
+					hf += "proto " + _e->getFirstText() + " ";
+				} else if (_e->matches("srcIP")) {
+					hf += "src-ip " + _e->getFirstText() + " ";
+				} else if (_e->matches("dstIP")) {
+					hf += "dst-ip " + _e->getFirstText() + " ";
+				} else if (_e->matches("tos")) {
+					hf += "tos " + _e->getFirstText() + " ";
+				} else if (_e->matches("l4proto")) {
+					hf += "l4proto " + _e->getFirstText() + " ";
+				} else if (_e->matches("srcPort")) {
+					hf += "src-port " + _e->getFirstText() + " ";
+				} else if (_e->matches("dstPort")) {
+					hf += "dst-port " + _e->getFirstText() + " ";
+				} else if (_e->matches("spi")) {
+					hf += "spi " + _e->getFirstText() + " ";
+				} else if (_e->matches("vlanType")) {
+					hf += "vlan-etype " + _e->getFirstText() + " ";
+				} else if (_e->matches("vlan")) {
+					hf += "vlan " + _e->getFirstText() + " ";
+				} else if (_e->matches("userDef")) {
+					hf += "user-def " + _e->getFirstText() + " ";
+				} else if (_e->matches("action")) {
+					hf += "action " + _e->getFirstText() + " ";
+				} else if (_e->matches("loc")) {
+					hf += "loc " + _e->getFirstText() + " ";
+				} else {
+					msg(MSG_FATAL, "Unknown hwf filter config statement %s\n", _e->getName().c_str());
+				}
+			}
+			hw_filter.push_back(hf);
 		} else if (e->matches("next")) { // ignore next
 		} else {
 			msg(MSG_FATAL, "Unknown observer config statement %s\n", e->getName().c_str());
@@ -79,6 +226,7 @@ ObserverCfg::ObserverCfg(XMLElement* elem)
 		}
 	}
 }
+
 
 ObserverCfg::~ObserverCfg()
 {
@@ -99,7 +247,7 @@ Observer* ObserverCfg::createInstance()
 		}
 	}
 
-	if (!instance->prepare(pcap_filter.c_str())) {
+	if (!instance->prepare(pcap_filter.c_str(), sampling, filter, bpf_filter, hw_filter)) {
 		msg(MSG_FATAL, "Observer: preparing failed");
 		THROWEXCEPTION("Observer setup failed!");
 	}

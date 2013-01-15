@@ -37,6 +37,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include "pf_ring.h"
 #include <pcap.h>
 
 class Observer : public Module, public Source<Packet*>, public Destination<NullEmitable*>
@@ -54,14 +55,19 @@ public:
 	int getPacketTimeout();
 	void replaceOfflineTimestamps();
 	void setOfflineSpeed(float m);
-	int getPcapStats(struct pcap_stat *out);
-	bool prepare(const std::string& filter);
+//	int getPcapStats(struct pfring_stat *out);
+	bool prepare(const std::string& filter, const int sampling, vector<filtering_rule> f, string bpf, vector<string> hwf);
 	static void doLogging(void *arg);
 	virtual std::string getStatisticsXML(double interval);
 	int getDataLinkType();
+	static void *observerThread(void *);
+	static void incomingPackets(const struct pfring_pkthdr *h, const unsigned char *pack, const unsigned char *user_bytes);
+
 
 
 protected:
+
+
 	Thread thread;
 
 	// pointer to list of pcap-devices
@@ -128,10 +134,12 @@ protected:
 
 	bool slowMessageShown;	// true if message was shown that vermont is too slow to read file in time
 
+	//pfring
+	int sampling;
+
+
 	uint32_t statTotalLostPackets;
 	uint32_t statTotalRecvPackets;
-
-	static void *observerThread(void *);
 };
 
 #endif
