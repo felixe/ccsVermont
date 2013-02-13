@@ -39,6 +39,10 @@
 #include <arpa/inet.h>
 #include <pcap.h>
 
+#include "/home/martin/ntop/userland/lib/pfring.h"
+//#include "/home/martin/uni/bac/PF_RING/userland/lib/pfring.h"
+#undef max
+
 class Observer : public Module, public Source<Packet*>, public Destination<NullEmitable*>
 {
 public:
@@ -63,6 +67,8 @@ public:
 
 protected:
 	Thread thread;
+
+    pfring *ring;
 
 	// pointer to list of pcap-devices
 	pcap_if_t *allDevices;
