@@ -118,11 +118,11 @@ Observer::~Observer()
 	shutdown(false);
 
 	/* collect and output statistics */
-	pcap_stat pstats;
-	if (captureDevice && pcap_stats(captureDevice, &pstats)==0) {
-		msg(MSG_DIALOG, "PCAP statistics (INFO: if statistics were activated, this information does not contain correct data!):");
-		msg(MSG_DIALOG, "Number of packets received on interface: %u", pstats.ps_recv);
-		msg(MSG_DIALOG, "Number of packets dropped by PCAP: %u", pstats.ps_drop);
+	pfring_stat ringStats;
+	if (ring && pfring_stats(ring, &ringStats)>=0) {
+		msg(MSG_DIALOG, "PF_RING statistics (INFO: if statistics were activated, this information does not contain correct data!):");
+		msg(MSG_DIALOG, "Number of packets received on interface: %u", ringStats.recv);
+		msg(MSG_DIALOG, "Number of packets dropped by PF_RING: %u", ringStats.drop);
 	}
 
 	msg(MSG_DEBUG, "freeing pcap/devices");
@@ -583,17 +583,17 @@ int Observer::getPcapStats(struct pcap_stat *out)
 std::string Observer::getStatisticsXML(double interval)
 {
 	ostringstream oss;
-	pcap_stat pstats;
-	if (captureDevice && pcap_stats(captureDevice, &pstats)==0) {
-		unsigned int recv = pstats.ps_recv;
-		unsigned int dropped = pstats.ps_drop;
+	pfring_stat ringStats;
+	if (ring && pfring_stats(ring, &ringStats)>=0) {
+		unsigned int recv = ringStats.recv;
+		unsigned int dropped = ringStats.drop;
 
-		oss << "<pcap>";
+		oss << "<pf_ring>";
 		oss << "<received type=\"packets\">" << (uint32_t)((double)(recv-statTotalRecvPackets)/interval) << "</received>";
 		oss << "<dropped type=\"packets\">" << (uint32_t)((double)(dropped-statTotalLostPackets)/interval) << "</dropped>";
 		oss << "<totalReceived type=\"packets\">" << statTotalRecvPackets << "</totalReceived>";
 		oss << "<totalDropped type=\"packets\">" << statTotalLostPackets << "</totalDropped>";
-		oss << "</pcap>";
+		oss << "</pf_ring>";
 		statTotalLostPackets = dropped;
 		statTotalRecvPackets = recv;
 	}
