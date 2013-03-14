@@ -161,7 +161,8 @@ void *Observer::observerThread(void *arg)
     Packet *p = NULL;
     int i, rc;
     struct pfring_pkthdr hdr;
-    u_char *buffer = NULL;
+    u_char buf[obs->capturelen];
+    u_char *buffer = buf;
 
 
 	msg(MSG_INFO, "Observer started with following parameters:");
@@ -182,7 +183,7 @@ void *Observer::observerThread(void *arg)
 
 	if(!obs->readFromFile) {
 		while(!obs->exitFlag && (obs->maxPackets==0 || obs->processedPackets<obs->maxPackets)) {
-            rc = pfring_recv(obs->ring, &buffer, 0, &hdr, 1);
+            rc = pfring_recv(obs->ring, &buffer, obs->capturelen, &hdr, 1);
             if (rc > 0) {
 
                 // initialize packet structure (init copies packet data)
@@ -344,9 +345,8 @@ bool Observer::prepare(const std::string& filter)
 		    captureInterface, capturelen);
 
 		//captureDevice=pcap_open_live(captureInterface, capturelen, pcap_promisc, pcap_timeout, errorBuffer);
-        //ring = pfring_open(captureInterface, capturelen, PF_RING_PROMISC);
 
-        ring = pfring_open(captureInterface, capturelen, 0);
+        ring = pfring_open(captureInterface, capturelen, PF_RING_PROMISC);
         if (ring == NULL) {
             msg(MSG_FATAL, "Failed to open PF_RING for device %s", captureInterface);
             goto out1;
