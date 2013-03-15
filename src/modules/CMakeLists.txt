@@ -34,6 +34,8 @@ ADD_LIBRARY(modules
     
     packet/Observer.cpp
     packet/ObserverCfg.cpp
+    packet/LibzeroObserver.cpp
+    packet/LibzeroObserverCfg.cpp
     packet/Packet.cpp
     packet/Template.cpp
     packet/PCAPExporterBase.cpp

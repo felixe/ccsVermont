@@ -27,6 +27,7 @@
 #include "QueueCfg.h"
 #include "AnonymizerCfg.h"
 #include "modules/packet/ObserverCfg.h"
+#include "modules/packet/LibzeroObserverCfg.h"
 #include "modules/packet/PSAMPExporterCfg.h"
 #include "modules/packet/PCAPExporterFileCfg.h"
 #include "modules/packet/PCAPExporterPipeCfg.h"
@@ -71,6 +72,7 @@
 // module instances if they handle the specific entry.
 Cfg* ConfigManager::configModules[] = {
 	new ObserverCfg(NULL),
+	new LibzeroObserverCfg(NULL),
 	new PacketFilterCfg(NULL),
 	new PacketQueueCfg(NULL),
 	new PCAPExporterFileCfg(NULL),
