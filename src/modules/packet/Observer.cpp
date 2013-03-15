@@ -79,8 +79,6 @@
 using namespace std;
 
 
-InstanceManager<Packet> Observer::packetManager("Packet");
-
 Observer::Observer(const std::string& interface, bool offline, uint64_t maxpackets) : thread(Observer::observerThread), allDevices(NULL),
 	captureDevice(NULL), capturelen(PCAP_DEFAULT_CAPTURE_LENGTH), pcap_timeout(PCAP_TIMEOUT),
 	pcap_promisc(1), maxPackets(maxpackets), ready(false), filter_exp(0), observationDomainID(0), // FIXME: this must be configured!
@@ -88,7 +86,7 @@ Observer::Observer(const std::string& interface, bool offline, uint64_t maxpacke
 	lastProcessedPackets(0),
 	captureInterface(NULL), fileName(NULL), replaceTimestampsFromFile(false),
 	stretchTimeInt(1), stretchTime(1.0), autoExit(true), slowMessageShown(false),
-	statTotalLostPackets(0), statTotalRecvPackets(0)
+	statTotalLostPackets(0), statTotalRecvPackets(0), packetManager("Packet")
 {
 	if(offline) {
 		readFromFile = true;

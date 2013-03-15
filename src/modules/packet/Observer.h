@@ -105,7 +105,7 @@ protected:
 	char* filter_exp;
 
 	// manages instances of Packets
-	static InstanceManager<Packet> packetManager;
+	InstanceManager<Packet> packetManager;
 
 	uint32_t observationDomainID;
 
