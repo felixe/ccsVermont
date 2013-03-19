@@ -44,9 +44,6 @@ LibzeroObserverCfg::LibzeroObserverCfg(XMLElement* elem)
 	pcap_filter(),
 	capture_len(PCAP_DEFAULT_CAPTURE_LENGTH),
 	offline(false),
-	replaceOfflineTimestamps(false),
-	offlineAutoExit(true),
-	offlineSpeed(1.0),
 	maxPackets(0)
 {
 	if (!elem) return;  // needed because of table inside ConfigManager
@@ -61,15 +58,8 @@ LibzeroObserverCfg::LibzeroObserverCfg(XMLElement* elem)
 			interface = e->getFirstText();
 		} else if (e->matches("pcap_filter")) {
 			pcap_filter = e->getFirstText();
-		} else if (e->matches("filename")) {
-			interface = e->getFirstText();
-			offline = true;
 		} else if (e->matches("replaceTimestamps")) {
 			replaceOfflineTimestamps = getBool("replaceTimestamps", replaceOfflineTimestamps);
-		} else if (e->matches("offlineSpeed")) {
-			offlineSpeed = getDouble("offlineSpeed");
-		} else if (e->matches("offlineAutoExit")) {
-			offlineAutoExit = getBool("offlineAutoExit", offlineAutoExit);
 		} else if (e->matches("captureLength")) {
 			capture_len = getInt("captureLength");
 		} else if (e->matches("maxPackets")) {
@@ -86,15 +76,11 @@ LibzeroObserverCfg::LibzeroObserverCfg(XMLElement* elem)
 LibzeroObserverCfg::~LibzeroObserverCfg()
 {
     LibzeroObserverCfg::numLibzeroObservers--;
-
 }
 
 LibzeroObserver* LibzeroObserverCfg::createInstance()
 {
-	instance = new LibzeroObserver(interface, offline, maxPackets, numLibzeroObservers);
-	instance->setOfflineSpeed(offlineSpeed);
-	instance->setOfflineAutoExit(offlineAutoExit);
-	if (replaceOfflineTimestamps) instance->replaceOfflineTimestamps();
+	instance = new LibzeroObserver(interface, numLibzeroObservers, maxPackets);
 
 	if (capture_len) {
 		if(!instance->setCaptureLen(capture_len)) {

@@ -37,16 +37,14 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <pcap.h>
 
-#include "/home/martin/ntop/userland/lib/pfring.h"
-//#include "/home/martin/uni/bac/PF_RING/userland/lib/pfring.h"
+#include<pfring.h>
 #undef max
 
 class LibzeroObserver : public Module, public Source<Packet*>, public Destination<NullEmitable*>
 {
 public:
-	LibzeroObserver(const std::string& interface, bool offline, uint64_t maxpackets, int numLibzeroObservers);
+	LibzeroObserver(const std::string& interface, int numLibzeroObservers, uint64_t maxpackets);
 	~LibzeroObserver();
 
 	virtual void performStart();
@@ -58,7 +56,7 @@ public:
 	int getPacketTimeout();
 	void replaceOfflineTimestamps();
 	void setOfflineSpeed(float m);
-	int getPcapStats(struct pcap_stat *out);
+	int getPfRingStats(pfring_stat *out);
 	bool prepare(const std::string& filter);
 	static void doLogging(void *arg);
 	virtual std::string getStatisticsXML(double interval);
@@ -70,29 +68,26 @@ protected:
 
     pfring *ring;
 
-	// pointer to list of pcap-devices
-	pcap_if_t *allDevices;
-
 	// pcap descriptor of device
-	pcap_t *captureDevice;
+	//pcap_t *captureDevice;
 
 	// IPv4 netmask + network bitmasks the interface is on
-	uint32_t netmask, network;
+	//uint32_t netmask, network;
 
 	// holding the pcap filter program
-	struct bpf_program pcap_filter;
+	//struct bpf_program pcap_filter;
 
 	// pcap reports error nicely, this is the used buffer
-	char errorBuffer[PCAP_ERRBUF_SIZE];
+	//char errorBuffer[PCAP_ERRBUF_SIZE];
 
 	// also called snaplen; only sniff this much bytes from each packet
 	uint32_t capturelen;
 
 	// wait this much ms until pcap_read() returns and get ALL packets received
-	int pcap_timeout;
+	//int pcap_timeout;
 
 	// capture packets in promiscous mode or not
-	int pcap_promisc;
+	//int pcap_promisc;
 
 	// maximum number of packets to capture, then stop processing
 	// 0 == do not stop
@@ -123,14 +118,16 @@ protected:
 	char *captureInterface;
 
 	// pcap file we read traffic from - string
-	char *fileName;
+	//char *fileName;
 
 	// offline mode parameters
+    /*
 	bool readFromFile;
 	bool replaceTimestampsFromFile;
 	uint16_t stretchTimeInt; // 1 means no timing change, 0 means that stretchTimes (float) is used
 	float stretchTime;
 	bool autoExit;
+    */
 
 	bool slowMessageShown;	// true if message was shown that vermont is too slow to read file in time
 
