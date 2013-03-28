@@ -121,6 +121,7 @@ protected:
     static Mutex mutex;
     static pfring_dna_cluster *cluster;
     static int cluster_id;
+    static int slavecount;
 };
 
 #endif

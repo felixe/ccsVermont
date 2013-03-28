@@ -81,6 +81,7 @@ using namespace std;
 Mutex LibzeroObserver::mutex;
 pfring_dna_cluster* LibzeroObserver::cluster = NULL;
 int LibzeroObserver::cluster_id;
+int LibzeroObserver::slavecount = 0;
 
 LibzeroObserver::LibzeroObserver(const std::string& interface, int numlibzeroobservers, uint64_t maxpackets) : thread(LibzeroObserver::observerThread),
 	capturelen(PCAP_DEFAULT_CAPTURE_LENGTH),
@@ -121,8 +122,16 @@ LibzeroObserver::~LibzeroObserver()
 
 	/* no pcap_freecode here, is already done after attaching the filter */
 
-	free(captureInterface);
-	delete[] filter_exp;
+	//delete[] filter_exp;
+    mutex.lock();
+    pfring_close(ring);
+    slavecount--;
+    if(slavecount == 0) { // last one cleans up
+        dna_cluster_destroy(cluster);
+        msg(MSG_DEBUG, "dna cluster destroyed!");
+    }
+    mutex.unlock();
+
 	msg(MSG_DEBUG, "successful shutdown");
 }
 /*
@@ -215,7 +224,7 @@ bool LibzeroObserver::prepare(const std::string& filter)
 
     // First  one prepares the DNA cluster
     mutex.lock(); // just to make sure
-    msg(MSG_INFO, "there are %d observers\n", numLibzeroObservers);
+    msg(MSG_DEBUG, "there are %d observers\n", numLibzeroObservers);
     if(cluster == NULL) { // create cluster
         msg(MSG_DEBUG, "trying to create dna-cluster");
         int rc;
@@ -224,24 +233,28 @@ bool LibzeroObserver::prepare(const std::string& filter)
 
         cluster = dna_cluster_create(cluster_id, numLibzeroObservers, 0);
         if(cluster == NULL) {
-            msg(MSG_FATAL, "Failed to crate DNA Cluster!");
+            msg(MSG_FATAL, "Failed to crate DNA Cluster");
             goto out;
         }
 
         dna_cluster_set_mode(cluster, mode);
         pfring *device_ring = pfring_open(captureInterface, capturelen, PF_RING_PROMISC);
+        if(device_ring == NULL) {
+            msg(MSG_FATAL, "Failed to open interface %s", captureInterface);
+            goto out1;
+        }
 
         dna_cluster_set_wait_mode(cluster, 0);
 
         rc = dna_cluster_register_ring(cluster, device_ring);
         if(rc < 0) {
-            msg(MSG_FATAL, "Failed to register ring!");
+            msg(MSG_FATAL, "Failed to add interface %s to DNA Cluster", captureInterface);
             goto out1;
         }
 
         rc = dna_cluster_enable(cluster);
         if(rc < 0) {
-            msg(MSG_FATAL, "Failed to enable cluster!");
+            msg(MSG_FATAL, "Failed to enable DNA Cluster");
             goto out1;
         }
         msg(MSG_INFO, "Created DNA-Cluster on Interface %s with %d observer(s)", captureInterface, numLibzeroObservers);
@@ -258,6 +271,10 @@ bool LibzeroObserver::prepare(const std::string& filter)
     if (ring == NULL) {
         msg(MSG_FATAL, "Failed to open PF_RING for device %s", virtualInterface);
         goto out1;
+    } else {
+        mutex.lock();
+        slavecount++;
+        mutex.unlock();
     }
 
     if(pfring_set_socket_mode(ring, recv_only_mode) < 0) {
