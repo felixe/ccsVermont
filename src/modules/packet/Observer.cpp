@@ -21,8 +21,6 @@
 #include <sstream>
 #include <math.h>
 
-//#include "/home/martin/ntop/userland/lib/pfring.h"
-
 /* Code adopted from tcpreplay: */
 /* subtract uvp from tvp and store in vvp */
 #ifndef timersub
@@ -79,6 +77,8 @@
 using namespace std;
 
 
+InstanceManager<Packet> Observer::packetManager("Packet");
+
 Observer::Observer(const std::string& interface, bool offline, uint64_t maxpackets) : thread(Observer::observerThread), allDevices(NULL),
 	captureDevice(NULL), capturelen(PCAP_DEFAULT_CAPTURE_LENGTH), pcap_timeout(PCAP_TIMEOUT),
 	pcap_promisc(1), maxPackets(maxpackets), ready(false), filter_exp(0), observationDomainID(0), // FIXME: this must be configured!
@@ -86,7 +86,7 @@ Observer::Observer(const std::string& interface, bool offline, uint64_t maxpacke
 	lastProcessedPackets(0),
 	captureInterface(NULL), fileName(NULL), replaceTimestampsFromFile(false),
 	stretchTimeInt(1), stretchTime(1.0), autoExit(true), slowMessageShown(false),
-	statTotalLostPackets(0), statTotalRecvPackets(0), packetManager("Packet")
+	statTotalLostPackets(0), statTotalRecvPackets(0)
 {
 	if(offline) {
 		readFromFile = true;
@@ -95,15 +95,14 @@ Observer::Observer(const std::string& interface, bool offline, uint64_t maxpacke
 	} else {
 		readFromFile = false;
 		captureInterface = (char*)malloc(interface.size() + 1);
-        strcpy(captureInterface, interface.c_str());
+		strcpy(captureInterface, interface.c_str());
 	}
-
 
 	usedBytes += sizeof(Observer)+interface.size()+1;
 
 	if(capturelen > PCAP_MAX_CAPTURE_LENGTH) {
 		THROWEXCEPTION("compile-time parameter PCAP_DEFAULT_CAPTURE_LENGTH (%d) exceeds maximum capture length %d, "
-				"adjust compile-time parameter PCAP_MAX_CAPTURE_LENGTH!", PCAP_DEFAULT_CAPTURE_LENGTH, PCAP_MAX_CAPTURE_LENGTH);
+				"adjust compile-time parameter PCAP_MAX_CAPTURE_LENGTH!", capturelen, PCAP_DEFAULT_CAPTURE_LENGTH);
 
 	}
 };
@@ -116,11 +115,11 @@ Observer::~Observer()
 	shutdown(false);
 
 	/* collect and output statistics */
-	pfring_stat ringStats;
-	if (ring && pfring_stats(ring, &ringStats)>=0) {
-		msg(MSG_DIALOG, "PF_RING statistics (INFO: if statistics were activated, this information does not contain correct data!):");
-		msg(MSG_DIALOG, "Number of packets received on interface: %u", ringStats.recv);
-		msg(MSG_DIALOG, "Number of packets dropped by PF_RING: %u", ringStats.drop);
+	pcap_stat pstats;
+	if (captureDevice && pcap_stats(captureDevice, &pstats)==0) {
+		msg(MSG_DIALOG, "PCAP statistics (INFO: if statistics were activated, this information does not contain correct data!):");
+		msg(MSG_DIALOG, "Number of packets received on interface: %u", pstats.ps_recv);
+		msg(MSG_DIALOG, "Number of packets dropped by PCAP: %u", pstats.ps_drop);
 	}
 
 	msg(MSG_DEBUG, "freeing pcap/devices");
@@ -149,18 +148,13 @@ void *Observer::observerThread(void *arg)
 	Observer *obs=(Observer *)arg;
 	InstanceManager<Packet>& packetManager = obs->packetManager;
 
-    /*
+	Packet *p = NULL;
 	const unsigned char *pcapData;
-	obs->registerCurrentThread();
-    */
+	struct pcap_pkthdr packetHeader;
 	bool have_send = false;
+	obs->registerCurrentThread();
     bool file_eof = false;
 
-    Packet *p = NULL;
-    int i, rc;
-    struct pfring_pkthdr hdr;
-    u_char buf[obs->capturelen];
-    u_char *buffer = buf;
 
 
 	msg(MSG_INFO, "Observer started with following parameters:");
@@ -179,34 +173,69 @@ void *Observer::observerThread(void *arg)
 	// start capturing packets
 	msg(MSG_INFO, "now running capturing thread for device %s", obs->captureInterface);
 
+
 	if(!obs->readFromFile) {
 		while(!obs->exitFlag && (obs->maxPackets==0 || obs->processedPackets<obs->maxPackets)) {
-            rc = pfring_recv(obs->ring, &buffer, obs->capturelen, &hdr, 1);
-            if (rc > 0) {
+			// wait until data can be read from pcap file descriptor
+			fd_set fd_wait;
+			FD_ZERO(&fd_wait);
+			FD_SET(pcap_fileno(obs->captureDevice), &fd_wait);
+			struct timeval st;
+			st.tv_sec = 1;
+			st.tv_usec = 0;
+			int result = select(FD_SETSIZE, &fd_wait, NULL, NULL, &st);
+			if (result == -1) {
+				if (errno==EINTR) continue; // just continue on interrupted system call
+				msg(MSG_FATAL, "select() on pcap file descriptor returned -1, error: %s", strerror(errno));
+				msg(MSG_FATAL, "shutting down observer");
+				break;
+			}
+			if (result == 0) {
+				continue;
+			}
 
-                // initialize packet structure (init copies packet data)
-                p = packetManager.getNewInstance();
-                p->init((char*)buffer, hdr.caplen, hdr.ts, obs->observationDomainID, hdr.len);
+			/*
+			 get next packet (no zero-copy possible *sigh*)
+			 NOTICE: potential bottleneck, if pcap_next() is calling gettimeofday() at a high rate;
+			 there is partially caching function described in an Sun or IBM (Developerworks) article
+			 that can act as a via LD_PRELOAD used overlay function.
+			 unfortunately I don't have an URL ready -Freek
+			 */
+			DPRINTFL(MSG_VDEBUG, "trying to get packet from pcap");
+			pcapData = pcap_next(obs->captureDevice, &packetHeader);
+			if(!pcapData)
+			/* no packet data was available */
+			continue;
+			DPRINTFL(MSG_VDEBUG, "got new packet!");
 
-                DPRINTF("received packet at %u.%04u, len=%d",
+			// show current packet as c-structure on stdout
+			//for (unsigned int i=0; i<packetHeader.caplen; i++) {
+			//printf("0x%02hhX, ", ((unsigned char*)pcapData)[i]);
+			//}
+			//printf("\n");
+
+			// initialize packet structure (init copies packet data)
+			p = packetManager.getNewInstance();
+			p->init((char*)pcapData, packetHeader.caplen, packetHeader.ts, obs->observationDomainID, packetHeader.len);
+
+			DPRINTF("received packet at %u.%04u, len=%d",
 					(unsigned)p->timestamp.tv_sec,
 					(unsigned)p->timestamp.tv_usec / 1000,
-					hdr.caplen
-			    );
+					packetHeader.caplen
+			);
 
-                // update statistics
-                obs->receivedBytes += hdr.caplen;
-                obs->processedPackets++;
+			// update statistics
+			obs->receivedBytes += packetHeader.caplen;
+			obs->processedPackets++;
 
-                while (!obs->exitFlag) {
-                    DPRINTFL(MSG_VDEBUG, "trying to push packet to queue");
-                    if ((have_send = obs->send(p))) {
-                        DPRINTFL(MSG_VDEBUG, "packet pushed");
-                        break;
-                    }
-			    }
-		    }
-        }
+			while (!obs->exitFlag) {
+				DPRINTFL(MSG_VDEBUG, "trying to push packet to queue");
+				if ((have_send = obs->send(p))) {
+					DPRINTFL(MSG_VDEBUG, "packet pushed");
+					break;
+				}
+			}
+		}
 	} else {
 		// file handle
 		FILE* fh = pcap_file(obs->captureDevice);
@@ -216,9 +245,6 @@ void *Observer::observerThread(void *arg)
 		struct timeval first = {0,0};
 		// differences
 		struct timeval wait_val, delta_now, delta_file, delta_to_be;
-
-        const unsigned char *pcapData;
-        struct pcap_pkthdr packetHeader;
 
 		// make compiler happy ...
 		delta_to_be.tv_sec = 0;
@@ -339,35 +365,35 @@ bool Observer::prepare(const std::string& filter)
 	}
 
 	if (!readFromFile) {
-		msg(MSG_INFO, "pf_ring opening interface='%s', snaplen=%d",
-		    captureInterface, capturelen);
+		// query all available capture devices
+		msg(MSG_INFO, "Finding devices");
+		if(pcap_findalldevs(&allDevices, errorBuffer) == -1) {
+			msg(MSG_FATAL, "error getting list of interfaces: %s", errorBuffer);
+			goto out;
+		}
 
-		//captureDevice=pcap_open_live(captureInterface, capturelen, pcap_promisc, pcap_timeout, errorBuffer);
+		for(pcap_if_t *dev = allDevices; dev != NULL; dev=dev->next) {
+			msg(MSG_DEBUG, "PCAP: name=%s, desc=%s", dev->name, dev->description);
+		}
 
-        ring = pfring_open(captureInterface, capturelen, PF_RING_PROMISC);
-        if (ring == NULL) {
-            msg(MSG_FATAL, "Failed to open PF_RING for device %s", captureInterface);
-            goto out1;
-        }
-
-        if(pfring_set_socket_mode(ring, recv_only_mode) < 0) {
-            msg(MSG_ERROR, "failed to set pf_ring socket mode to 'recv_only'\n");
-            goto out2;
-        }
-
-        pfring_enable_ring(ring);
-        msg(MSG_INFO, "ring enabled\n");
+		msg(MSG_INFO,
+		    "pcap opening interface=%s, promisc=%d, snaplen=%d, timeout=%d",
+		    captureInterface, pcap_promisc, capturelen, pcap_timeout
+		   );
+		captureDevice=pcap_open_live(captureInterface, capturelen, pcap_promisc, pcap_timeout, errorBuffer);
+		// check for errors
+		if(!captureDevice) {
+			msg(MSG_FATAL, "Error initializing pcap interface: %s", errorBuffer);
+			goto out1;
+		}
 
 		// make reads non-blocking
-        /*
 		if(pcap_setnonblock(captureDevice, 1, errorBuffer) == -1) {
 			msg(MSG_FATAL, "Error setting pcap interface to non-blocking: %s", errorBuffer);
 			goto out2;
 		}
-        */
 
 		// IP_HEADER_OFFSET is set by the configure script
-        /*
 		switch (getDataLinkType()) {
 		case DLT_EN10MB:
 			if (IP_HEADER_OFFSET != 14 && IP_HEADER_OFFSET != 18) {
@@ -390,11 +416,9 @@ bool Observer::prepare(const std::string& filter)
 		default:
 			msg(MSG_ERROR, "You are using an unkown IP_HEADER_OFFSET and data link combination. This can make problems. Please check if you use the correct IP_HEADER_OFFSET for your data link, if you see strange IPFIX/PSAMP packets.");
 		}
-        */
 
 
 		/* we need the netmask for the pcap_compile */
-        /*
 		if(pcap_lookupnet(captureInterface, &network, &netmask, errorBuffer) == -1) {
 			msg(MSG_ERROR, "unable to determine netmask/network: %s", errorBuffer);
 			network=0;
@@ -404,7 +428,6 @@ bool Observer::prepare(const std::string& filter)
 		i_netmask.s_addr=netmask;
 		msg(MSG_DEBUG, "pcap seems to run on network %s", inet_ntoa(i_network));
 		msg(MSG_INFO, "pcap seems to run on netmask %s", inet_ntoa(i_netmask));
-        */
 	} else {
 		captureDevice=pcap_open_offline(fileName, errorBuffer);
 		// check for errors
@@ -441,8 +464,7 @@ bool Observer::prepare(const std::string& filter)
 out3:
 	pcap_freecode(&pcap_filter);
 out2:
-	//pcap_close(captureDevice);
-    pfring_close(ring);
+	pcap_close(captureDevice);
 	captureDevice=NULL;
 out1:
 	pcap_freealldevs(allDevices);
@@ -581,17 +603,17 @@ int Observer::getPcapStats(struct pcap_stat *out)
 std::string Observer::getStatisticsXML(double interval)
 {
 	ostringstream oss;
-	pfring_stat ringStats;
-	if (ring && pfring_stats(ring, &ringStats)>=0) {
-		unsigned int recv = ringStats.recv;
-		unsigned int dropped = ringStats.drop;
+	pcap_stat pstats;
+	if (captureDevice && pcap_stats(captureDevice, &pstats)==0) {
+		unsigned int recv = pstats.ps_recv;
+		unsigned int dropped = pstats.ps_drop;
 
-		oss << "<pf_ring>";
+		oss << "<pcap>";
 		oss << "<received type=\"packets\">" << (uint32_t)((double)(recv-statTotalRecvPackets)/interval) << "</received>";
 		oss << "<dropped type=\"packets\">" << (uint32_t)((double)(dropped-statTotalLostPackets)/interval) << "</dropped>";
 		oss << "<totalReceived type=\"packets\">" << statTotalRecvPackets << "</totalReceived>";
 		oss << "<totalDropped type=\"packets\">" << statTotalLostPackets << "</totalDropped>";
-		oss << "</pf_ring>";
+		oss << "</pcap>";
 		statTotalLostPackets = dropped;
 		statTotalRecvPackets = recv;
 	}
