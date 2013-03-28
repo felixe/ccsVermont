@@ -18,6 +18,8 @@
  *
  */
 
+#ifdef LIBZERO_SUPPORT_ENABLED
+
 #ifndef LIBZEROOBSERVERCFG_H_
 #define LIBZEROOBSERVERCFG_H_
 
@@ -56,15 +58,10 @@ private:
 	std::string interface;	// also used for filename in offline mode
 	std::string pcap_filter;
 	unsigned int capture_len;
-	bool offline;
-	bool replaceOfflineTimestamps;
-	bool offlineAutoExit;
-	float offlineSpeed;
 	uint64_t maxPackets;
 
     static int numLibzeroObservers;
 };
 
-//int LibzeroObserverCfg::numLibzeroObservers = 0;
-
 #endif /*LIBZEROOBSERVERCFG_H_*/
+#endif // LIBZERO_SUPPORT_ENABLED

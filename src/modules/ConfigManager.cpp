@@ -72,7 +72,9 @@
 // module instances if they handle the specific entry.
 Cfg* ConfigManager::configModules[] = {
 	new ObserverCfg(NULL),
+#ifdef LIBZERO_SUPPORT_ENABLED
 	new LibzeroObserverCfg(NULL),
+#endif
 	new PacketFilterCfg(NULL),
 	new PacketQueueCfg(NULL),
 	new PCAPExporterFileCfg(NULL),

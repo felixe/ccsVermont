@@ -7,8 +7,8 @@
  changed by: Ronny T. Lampert
              Gerhard Münz
  */
- // TODO: credits
 
+#ifdef LIBZERO_SUPPORT_ENABLED
 
 #include "LibzeroObserver.h"
 
@@ -16,13 +16,12 @@
 #include "common/Thread.h"
 #include "common/defs.h"
 
-//#include <pcap.h>
 #include <unistd.h>
 #include <iostream>
 #include <sstream>
 #include <math.h>
 
-//#include "/home/martin/ntop/userland/lib/pfring.h"
+#include<pfring.h>
 
 /* Code adopted from tcpreplay: */
 /* subtract uvp from tvp and store in vvp */
@@ -79,15 +78,16 @@
 
 using namespace std;
 
+Mutex LibzeroObserver::mutex;
+pfring_dna_cluster* LibzeroObserver::cluster = NULL;
+int LibzeroObserver::cluster_id;
 
-LibzeroObserver::LibzeroObserver(const std::string& interface, int numLibzeroObservers, uint64_t maxpackets) : thread(LibzeroObserver::observerThread), 
-	capturelen(PCAP_DEFAULT_CAPTURE_LENGTH), 
-	maxPackets(maxpackets), ready(false), filter_exp(0), observationDomainID(0), // FIXME: this must be configured!
-	receivedBytes(0), lastReceivedBytes(0), processedPackets(0),
-	lastProcessedPackets(0),
-	captureInterface(NULL), 
-	slowMessageShown(false),
-	statTotalLostPackets(0), statTotalRecvPackets(0), packetManager("Packet")
+LibzeroObserver::LibzeroObserver(const std::string& interface, int numlibzeroobservers, uint64_t maxpackets) : thread(LibzeroObserver::observerThread),
+	capturelen(PCAP_DEFAULT_CAPTURE_LENGTH),
+	maxPackets(maxpackets), numLibzeroObservers(numlibzeroobservers), ready(false), filter_exp(0),
+    observationDomainID(0), // FIXME: this must be configured!
+	receivedBytes(0), lastReceivedBytes(0), processedPackets(0), lastProcessedPackets(0), captureInterface(NULL),
+	slowMessageShown(false), statTotalLostPackets(0), statTotalRecvPackets(0), packetManager("Packet")
 {
 	captureInterface = (char*)malloc(interface.size() + 1);
     strcpy(captureInterface, interface.c_str());
@@ -101,7 +101,6 @@ LibzeroObserver::LibzeroObserver(const std::string& interface, int numLibzeroObs
 
 	}
 
-    msg(MSG_INFO, "there are %d observers\n", numLibzeroObservers);
 };
 
 LibzeroObserver::~LibzeroObserver()
@@ -136,10 +135,6 @@ void *LibzeroObserver::observerThread(void *arg)
 	LibzeroObserver *obs=(LibzeroObserver *)arg;
 	InstanceManager<Packet>& packetManager = obs->packetManager;
 
-    /*
-	const unsigned char *pcapData;
-	obs->registerCurrentThread();
-    */
 	bool have_send = false;
     bool file_eof = false;
 
@@ -188,7 +183,7 @@ void *LibzeroObserver::observerThread(void *arg)
     }
 
     /*
-	if (obs->autoExit && (file_eof || (obs->maxPackets && obs->processedPackets>=obs->maxPackets)) ) {
+	if (obs->autoExit && (obs->maxPackets && obs->processedPackets>=obs->maxPackets) ) {
 		// notify Vermont to shut down
 		DPRINTF("notifying Vermont to shut down, as all PCAP file data was read, or maximum packet count was reached");
 		obs->shutdownVermont();
@@ -218,18 +213,56 @@ bool LibzeroObserver::prepare(const std::string& filter)
 		usedBytes += filter.size()+1;
 	}
 
-    msg(MSG_INFO, "pf_ring opening interface='%s', snaplen=%d",
-        captureInterface, capturelen);
+    // First  one prepares the DNA cluster
+    mutex.lock(); // just to make sure
+    msg(MSG_INFO, "there are %d observers\n", numLibzeroObservers);
+    if(cluster == NULL) { // create cluster
+        msg(MSG_DEBUG, "trying to create dna-cluster");
+        int rc;
+        cluster_id = 1;
+        socket_mode mode = recv_only_mode;
 
-    ring = pfring_open(captureInterface, capturelen, PF_RING_PROMISC);
+        cluster = dna_cluster_create(cluster_id, numLibzeroObservers, 0);
+        if(cluster == NULL) {
+            msg(MSG_FATAL, "Failed to crate DNA Cluster!");
+            goto out;
+        }
+
+        dna_cluster_set_mode(cluster, mode);
+        pfring *device_ring = pfring_open(captureInterface, capturelen, PF_RING_PROMISC);
+
+        dna_cluster_set_wait_mode(cluster, 0);
+
+        rc = dna_cluster_register_ring(cluster, device_ring);
+        if(rc < 0) {
+            msg(MSG_FATAL, "Failed to register ring!");
+            goto out1;
+        }
+
+        rc = dna_cluster_enable(cluster);
+        if(rc < 0) {
+            msg(MSG_FATAL, "Failed to enable cluster!");
+            goto out1;
+        }
+        msg(MSG_INFO, "Created DNA-Cluster on Interface %s with %d observer(s)", captureInterface, numLibzeroObservers);
+
+    }
+    mutex.unlock();
+
+    char virtualInterface[32];
+    snprintf(virtualInterface, sizeof(virtualInterface), "dnacluster:%d", cluster_id);
+    msg(MSG_INFO, "pf_ring opening interface='%s', snaplen=%d",
+        virtualInterface, capturelen);
+
+    ring = pfring_open(virtualInterface, capturelen, PF_RING_PROMISC); //TODO
     if (ring == NULL) {
-        msg(MSG_FATAL, "Failed to open PF_RING for device %s", captureInterface);
-        goto out;
+        msg(MSG_FATAL, "Failed to open PF_RING for device %s", virtualInterface);
+        goto out1;
     }
 
     if(pfring_set_socket_mode(ring, recv_only_mode) < 0) {
         msg(MSG_ERROR, "failed to set pf_ring socket mode to 'recv_only'\n");
-        goto out1;
+        goto out2;
     }
 
     pfring_enable_ring(ring);
@@ -256,11 +289,12 @@ bool LibzeroObserver::prepare(const std::string& filter)
     */
 
 	ready=true;
-
 	return true;
 
-out1:
+out2:
     pfring_close(ring);
+out1:
+    dna_cluster_destroy(cluster);
 out:
 	return false;
 }
@@ -325,6 +359,11 @@ int LibzeroObserver::getCaptureLen()
 	return capturelen;
 }
 
+int LibzeroObserver::getNumLibzeroObservers()
+{
+    return numLibzeroObservers;
+}
+
 
 /*
    get some capturing statistics
@@ -369,3 +408,5 @@ std::string LibzeroObserver::getStatisticsXML(double interval)
 	oss << "</observer>";
 	return oss.str();
 }
+
+#endif //LIBZERO_SUPPORT_ENABLED

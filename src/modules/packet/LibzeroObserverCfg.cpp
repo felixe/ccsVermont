@@ -6,17 +6,19 @@
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
  * of the License, or (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  *
  */
+
+#ifdef LIBZERO_SUPPORT_ENABLED
 
 #include "LibzeroObserverCfg.h"
 #include "common/msg.h"
@@ -43,7 +45,6 @@ LibzeroObserverCfg::LibzeroObserverCfg(XMLElement* elem)
 	interface(),
 	pcap_filter(),
 	capture_len(PCAP_DEFAULT_CAPTURE_LENGTH),
-	offline(false),
 	maxPackets(0)
 {
 	if (!elem) return;  // needed because of table inside ConfigManager
@@ -56,10 +57,10 @@ LibzeroObserverCfg::LibzeroObserverCfg(XMLElement* elem)
 
 		if (e->matches("interface")) {
 			interface = e->getFirstText();
+        /*
 		} else if (e->matches("pcap_filter")) {
 			pcap_filter = e->getFirstText();
-		} else if (e->matches("replaceTimestamps")) {
-			replaceOfflineTimestamps = getBool("replaceTimestamps", replaceOfflineTimestamps);
+        */
 		} else if (e->matches("captureLength")) {
 			capture_len = getInt("captureLength");
 		} else if (e->matches("maxPackets")) {
@@ -105,6 +106,10 @@ bool LibzeroObserverCfg::deriveFrom(LibzeroObserverCfg* old)
 		return false;
 	if (pcap_filter != old->pcap_filter)
 		return false;
+    if(numLibzeroObservers != old->getInstance()->getNumLibzeroObservers())
+        return false;
 
 	return true;
 }
+
+#endif // LIBZERO_SUPPORT_ENABLED
