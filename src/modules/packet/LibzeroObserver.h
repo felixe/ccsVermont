@@ -37,11 +37,17 @@
 #include <vector>
 #include <string>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
 #include<pfring.h>
 #undef max
+
+
+// Define what properties are used to distriubte packets to LibzeroObservers
+#define IP_ADDR 0 // IP addresses (src + dest); default
+#define MAC 1 // MAC addresses (src + dest)
 
 class LibzeroObserver : public Module, public Source<Packet*>, public Destination<NullEmitable*>
 {
@@ -59,7 +65,8 @@ public:
 	void replaceOfflineTimestamps();
 	void setOfflineSpeed(float m);
 	int getPfRingStats(pfring_stat *out);
-	bool prepare(const std::string& filter);
+	//bool prepare(const std::string& filter);
+	bool prepare(int cluster_id, int hash_mode);
 	static void doLogging(void *arg);
 	virtual std::string getStatisticsXML(double interval);
 	int getDataLinkType();
@@ -120,8 +127,13 @@ protected:
     // all LibzeroObservers share this DNA Cluster
     static Mutex mutex;
     static pfring_dna_cluster *cluster;
-    static int cluster_id;
+    static int clusterId;
     static int slavecount;
+    static int hashMode;
+
+    static int masterDistributionFunction(const u_char *buffer, const u_int16_t buffer_len,
+        const pfring_dna_cluster_slaves_info *slaves_info, u_int32_t *id_mask, u_int32_t *hash);
+    static u_int32_t masterCustomHashFunction(const u_char *buffer, const u_int16_t buffer_len);
 };
 
 #endif

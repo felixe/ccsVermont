@@ -61,6 +61,8 @@ private:
 	uint64_t maxPackets;
 
     static int numLibzeroObservers;
+    static int hashMode;
+    static int clusterId;
 };
 
 #endif /*LIBZEROOBSERVERCFG_H_*/

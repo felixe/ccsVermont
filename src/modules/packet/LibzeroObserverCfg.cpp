@@ -39,6 +39,8 @@ LibzeroObserverCfg* LibzeroObserverCfg::create(XMLElement* e)
 }
 
 int LibzeroObserverCfg::numLibzeroObservers;
+int LibzeroObserverCfg::hashMode;
+int LibzeroObserverCfg::clusterId = 1;
 
 LibzeroObserverCfg::LibzeroObserverCfg(XMLElement* elem)
 	: CfgHelper<LibzeroObserver, LibzeroObserverCfg>(elem, "libzeroObserver"),
@@ -65,6 +67,15 @@ LibzeroObserverCfg::LibzeroObserverCfg(XMLElement* elem)
 			capture_len = getInt("captureLength");
 		} else if (e->matches("maxPackets")) {
 			maxPackets = getInt("maxPackets");
+        } else if (e->matches("hashMode")) {
+            std::string mode = e->getFirstText();
+            if(mode == "IP-ADDR") {
+                hashMode = IP_ADDR;
+            } else if(mode == "MAC") {
+                hashMode = MAC;
+            }
+        } else if (e->matches("clusterId")) {
+            clusterId = getInt("clusterId");
 		} else if (e->matches("next")) { // ignore next
 		} else {
 			msg(MSG_FATAL, "Unknown observer config statement %s\n", e->getName().c_str());
@@ -90,7 +101,7 @@ LibzeroObserver* LibzeroObserverCfg::createInstance()
 		}
 	}
 
-	if (!instance->prepare(pcap_filter.c_str())) {
+	if (!instance->prepare(clusterId, hashMode)) {
 		msg(MSG_FATAL, "LibzeroObserver: preparing failed");
 		THROWEXCEPTION("LibzeroObserver setup failed!");
 	}

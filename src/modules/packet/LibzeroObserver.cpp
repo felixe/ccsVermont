@@ -80,8 +80,9 @@ using namespace std;
 
 Mutex LibzeroObserver::mutex;
 pfring_dna_cluster* LibzeroObserver::cluster = NULL;
-int LibzeroObserver::cluster_id;
-int LibzeroObserver::slavecount = 0;
+int LibzeroObserver::slavecount;
+int LibzeroObserver::clusterId = 1;
+int LibzeroObserver::hashMode = IP_ADDR;
 
 LibzeroObserver::LibzeroObserver(const std::string& interface, int numlibzeroobservers, uint64_t maxpackets) : thread(LibzeroObserver::observerThread),
 	capturelen(PCAP_DEFAULT_CAPTURE_LENGTH),
@@ -210,17 +211,19 @@ void *LibzeroObserver::observerThread(void *arg)
  error checking on pcap here, because it can't be done in the constructor
  and it may be too late, if done in the thread
  */
-bool LibzeroObserver::prepare(const std::string& filter)
+bool LibzeroObserver::prepare(int cluster_id, int hash_mode)
 {
 	struct in_addr i_netmask, i_network;
 
 	// we need to store the filter expression, because pcap needs
 	// a char* and doesn't accept a const char* ... nasty pcap-devs!!!
+    /*
 	if (!filter.empty()) {
 		filter_exp = new char[filter.size() + 1];
 		strcpy(filter_exp, filter.c_str());
 		usedBytes += filter.size()+1;
 	}
+    */
 
     // First  one prepares the DNA cluster
     mutex.lock(); // just to make sure
@@ -228,10 +231,12 @@ bool LibzeroObserver::prepare(const std::string& filter)
     if(cluster == NULL) { // create cluster
         msg(MSG_DEBUG, "trying to create dna-cluster");
         int rc;
-        cluster_id = 1;
+        clusterId = cluster_id;
+        hashMode = hash_mode;
         socket_mode mode = recv_only_mode;
+        msg(MSG_DEBUG, "clusterId=%d; num=%d", clusterId, numLibzeroObservers);
 
-        cluster = dna_cluster_create(cluster_id, numLibzeroObservers, 0);
+        cluster = dna_cluster_create(clusterId, numLibzeroObservers, 0);
         if(cluster == NULL) {
             msg(MSG_FATAL, "Failed to crate DNA Cluster");
             goto out;
@@ -240,30 +245,38 @@ bool LibzeroObserver::prepare(const std::string& filter)
         dna_cluster_set_mode(cluster, mode);
         pfring *device_ring = pfring_open(captureInterface, capturelen, PF_RING_PROMISC);
         if(device_ring == NULL) {
-            msg(MSG_FATAL, "Failed to open interface %s", captureInterface);
+            msg(MSG_FATAL, "Failed to open interface '%s'", captureInterface);
             goto out1;
         }
+        msg(MSG_DEBUG, "Opened interface '%s'", captureInterface);
 
         dna_cluster_set_wait_mode(cluster, 0);
 
         rc = dna_cluster_register_ring(cluster, device_ring);
         if(rc < 0) {
-            msg(MSG_FATAL, "Failed to add interface %s to DNA Cluster", captureInterface);
+            msg(MSG_FATAL, "Failed to add interface '%s' to DNA Cluster", captureInterface);
             goto out1;
+        }
+        msg(MSG_DEBUG, "Added interface '%s' to DNA Cluster", captureInterface);
+
+        msg(MSG_DEBUG, "hashMode=%d", hashMode);
+        if(hashMode > 0) {
+            msg(MSG_DEBUG, "Setting distribution function");
+            dna_cluster_set_distribution_function(cluster, masterDistributionFunction);
         }
 
         rc = dna_cluster_enable(cluster);
         if(rc < 0) {
-            msg(MSG_FATAL, "Failed to enable DNA Cluster");
+            msg(MSG_FATAL, "Failed to enable DNA Cluster. Was Vermont linked correctly?");
             goto out1;
         }
-        msg(MSG_INFO, "Created DNA-Cluster on Interface %s with %d observer(s)", captureInterface, numLibzeroObservers);
+        msg(MSG_INFO, "Created DNA-Cluster: interface=%s with %d observer(s) and clusterId %d", captureInterface, numLibzeroObservers, clusterId);
 
     }
     mutex.unlock();
 
     char virtualInterface[32];
-    snprintf(virtualInterface, sizeof(virtualInterface), "dnacluster:%d", cluster_id);
+    snprintf(virtualInterface, sizeof(virtualInterface), "dnacluster:%d", clusterId);
     msg(MSG_INFO, "pf_ring opening interface='%s', snaplen=%d",
         virtualInterface, capturelen);
 
@@ -425,5 +438,27 @@ std::string LibzeroObserver::getStatisticsXML(double interval)
 	oss << "</observer>";
 	return oss.str();
 }
+
+int LibzeroObserver::masterDistributionFunction(const u_char *buffer, const u_int16_t buffer_len,
+    const pfring_dna_cluster_slaves_info *slaves_info, u_int32_t *id_mask, u_int32_t *hash)
+{
+    u_int32_t slave_idx;
+
+    *hash = masterCustomHashFunction(buffer, buffer_len);
+    slave_idx = (*hash) % slaves_info->num_slaves;
+    *id_mask = (1 << slave_idx);
+    return DNA_CLUSTER_PASS;
+}
+
+u_int32_t LibzeroObserver::masterCustomHashFunction(const u_char *buffer, const u_int16_t buffer_len)
+{
+    switch(hashMode) {
+    case MAC:
+        return buffer[3] + buffer[4] + buffer[5] + buffer[9] + buffer[10] + buffer[11];
+    default:
+        return 0;
+    }
+}
+
 
 #endif //LIBZERO_SUPPORT_ENABLED
