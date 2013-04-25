@@ -84,18 +84,18 @@ int LibzeroObserver::slavecount;
 int LibzeroObserver::clusterId = 1;
 int LibzeroObserver::hashMode = IP_ADDR;
 
-LibzeroObserver::LibzeroObserver(const std::string& interface, int numlibzeroobservers, uint64_t maxpackets) : thread(LibzeroObserver::observerThread),
+LibzeroObserver::LibzeroObserver(const std::string& interfaces, int numlibzeroobservers, uint64_t maxpackets) : thread(LibzeroObserver::observerThread),
 	capturelen(PCAP_DEFAULT_CAPTURE_LENGTH),
 	maxPackets(maxpackets), numLibzeroObservers(numlibzeroobservers), ready(false), filter_exp(0),
     observationDomainID(0), // FIXME: this must be configured!
-	receivedBytes(0), lastReceivedBytes(0), processedPackets(0), lastProcessedPackets(0), captureInterface(NULL),
+	receivedBytes(0), lastReceivedBytes(0), processedPackets(0), lastProcessedPackets(0), captureInterfaces(NULL),
 	slowMessageShown(false), statTotalLostPackets(0), statTotalRecvPackets(0), packetManager("Packet")
 {
-	captureInterface = (char*)malloc(interface.size() + 1);
-    strcpy(captureInterface, interface.c_str());
+	captureInterfaces= (char*)malloc(interfaces.size() + 1);
+    strcpy(captureInterfaces, interfaces.c_str());
 
 
-	usedBytes += sizeof(LibzeroObserver)+interface.size()+1;
+	usedBytes += sizeof(LibzeroObserver)+interfaces.size()+1;
 
 	if(capturelen > PCAP_MAX_CAPTURE_LENGTH) {
 		THROWEXCEPTION("compile-time parameter PCAP_DEFAULT_CAPTURE_LENGTH (%d) exceeds maximum capture length %d, "
@@ -156,13 +156,13 @@ void *LibzeroObserver::observerThread(void *arg)
 
 
 	msg(MSG_INFO, "LibzeroObserver started with following parameters:");
-	if (obs->captureInterface) msg(MSG_INFO, "  - captureInterface=%s", obs->captureInterface);
-	msg(MSG_INFO, "  - filterString='%s'", (obs->filter_exp ? obs->filter_exp : "none"));
+	if (obs->captureInterfaces) msg(MSG_INFO, "  - captureInterfaces=%s", obs->captureInterfaces);
+	//msg(MSG_INFO, "  - filterString='%s'", (obs->filter_exp ? obs->filter_exp : "none"));
 	msg(MSG_INFO, "  - maxPackets=%u", obs->maxPackets);
 	msg(MSG_INFO, "  - capturelen=%d", obs->capturelen);
 
 	// start capturing packets
-	msg(MSG_INFO, "now running capturing thread for device %s", obs->captureInterface);
+	msg(MSG_INFO, "now running capturing thread for interface %s", obs->captureInterfaces);
 
     while(!obs->exitFlag && (obs->maxPackets==0 || obs->processedPackets<obs->maxPackets)) {
         rc = pfring_recv(obs->ring, &buffer, obs->capturelen, &hdr, 1);
@@ -233,6 +233,9 @@ bool LibzeroObserver::prepare(int cluster_id, int hash_mode)
         int rc;
         clusterId = cluster_id;
         hashMode = hash_mode;
+        char *interface;
+        char *saveptr;
+        pfring *interface_ring[LIBZERO_MAX_NUM_INTERFACES];
         socket_mode mode = recv_only_mode;
         msg(MSG_DEBUG, "clusterId=%d; num=%d", clusterId, numLibzeroObservers);
 
@@ -243,21 +246,32 @@ bool LibzeroObserver::prepare(int cluster_id, int hash_mode)
         }
 
         dna_cluster_set_mode(cluster, mode);
-        pfring *device_ring = pfring_open(captureInterface, capturelen, PF_RING_PROMISC);
-        if(device_ring == NULL) {
-            msg(MSG_FATAL, "Failed to open interface '%s'", captureInterface);
-            goto out1;
-        }
-        msg(MSG_DEBUG, "Opened interface '%s'", captureInterface);
-
         dna_cluster_set_wait_mode(cluster, 0);
 
-        rc = dna_cluster_register_ring(cluster, device_ring);
-        if(rc < 0) {
-            msg(MSG_FATAL, "Failed to add interface '%s' to DNA Cluster", captureInterface);
-            goto out1;
-        }
-        msg(MSG_DEBUG, "Added interface '%s' to DNA Cluster", captureInterface);
+        msg(MSG_DEBUG, "captureInterfaces='%s'", captureInterfaces);
+
+        // I don't want strtok() to damage 'captureInterfaces'
+        char interfaces[strlen(captureInterfaces+1)];
+        strcpy(interfaces, captureInterfaces);
+
+        interface = strtok_r(interfaces, ",", &saveptr);
+        do {
+            int current = 0;
+            interface_ring[current] = pfring_open(interface, capturelen, PF_RING_PROMISC);
+            if(interface_ring[current] == NULL) {
+                msg(MSG_FATAL, "Failed to open interface '%s'", interface );
+                goto out1;
+            }
+            msg(MSG_DEBUG, "Opened interface'%s'", interface);
+
+            rc = dna_cluster_register_ring(cluster, interface_ring[current]);
+            if(rc < 0) {
+                msg(MSG_FATAL, "Failed to add interface'%s' to DNA Cluster", interface);
+                goto out1;
+            }
+            msg(MSG_DEBUG, "Added interface '%s' to DNA Cluster", interface);
+            current++;
+        } while(interface = strtok_r(NULL, ",", &saveptr));
 
         msg(MSG_DEBUG, "hashMode=%d", hashMode);
         if(hashMode > 0) {
@@ -270,7 +284,7 @@ bool LibzeroObserver::prepare(int cluster_id, int hash_mode)
             msg(MSG_FATAL, "Failed to enable DNA Cluster. Was Vermont linked correctly?");
             goto out1;
         }
-        msg(MSG_INFO, "Created DNA-Cluster: interface=%s with %d observer(s) and clusterId %d", captureInterface, numLibzeroObservers, clusterId);
+        msg(MSG_INFO, "Created DNA-Cluster: interface='%s'; %d observer(s), clusterId=%d", captureInterfaces, numLibzeroObservers, clusterId);
 
     }
     mutex.unlock();
@@ -282,7 +296,7 @@ bool LibzeroObserver::prepare(int cluster_id, int hash_mode)
 
     ring = pfring_open(virtualInterface, capturelen, PF_RING_PROMISC); //TODO
     if (ring == NULL) {
-        msg(MSG_FATAL, "Failed to open PF_RING for device %s", virtualInterface);
+        msg(MSG_FATAL, "Failed to open PF_RING for interface %s", virtualInterface);
         goto out1;
     } else {
         mutex.lock();
@@ -302,13 +316,13 @@ bool LibzeroObserver::prepare(int cluster_id, int hash_mode)
     /* TODO: use filters for pf_ring?
 	if (filter_exp) {
 		msg(MSG_DEBUG, "compiling pcap filter code from: %s", filter_exp);
-		if(pcap_compile(captureDevice, &pcap_filter, filter_exp, 1, netmask) == -1) {
+		if(pcap_compile(captureinterface, &pcap_filter, filter_exp, 1, netmask) == -1) {
 			msg(MSG_FATAL, "unable to validate+compile pcap filter");
 			goto out2;
 		}
 
-		if(pcap_setfilter(captureDevice, &pcap_filter) == -1) {
-			msg(MSG_FATAL, "unable to attach filter to pcap: %s", pcap_geterr(captureDevice));
+		if(pcap_setfilter(captureinterface, &pcap_filter) == -1) {
+			msg(MSG_FATAL, "unable to attach filter to pcap: %s", pcap_geterr(captureinterface));
 			goto out3;
 		}
 		// you may free an attached code, see man-page

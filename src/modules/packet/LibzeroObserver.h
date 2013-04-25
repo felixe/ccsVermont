@@ -52,7 +52,7 @@
 class LibzeroObserver : public Module, public Source<Packet*>, public Destination<NullEmitable*>
 {
 public:
-	LibzeroObserver(const std::string& interface, int numLibzeroObservers, uint64_t maxpackets);
+	LibzeroObserver(const std::string& interfaces, int numLibzeroObservers, uint64_t maxpackets);
 	~LibzeroObserver();
 
 	virtual void performStart();
@@ -112,8 +112,8 @@ protected:
 	volatile uint64_t processedPackets;
 	volatile uint64_t lastProcessedPackets;
 
-	// interface we capture traffic on - string
-	char *captureInterface;
+	// interfaces we capture traffic on - string
+	char *captureInterfaces;
 
 	bool slowMessageShown;	// true if message was shown that vermont is too slow to read file in time
 
