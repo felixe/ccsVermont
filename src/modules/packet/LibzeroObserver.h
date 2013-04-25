@@ -131,6 +131,10 @@ protected:
     static int slavecount;
     static int hashMode;
 
+    // One LibzeroObserver ist responsible for the cluster
+    int responsibleForCluster;
+    uint32_t statClusterTotalRecvPackets;
+
     static int masterDistributionFunction(const u_char *buffer, const u_int16_t buffer_len,
         const pfring_dna_cluster_slaves_info *slaves_info, u_int32_t *id_mask, u_int32_t *hash);
     static u_int32_t masterCustomHashFunction(const u_char *buffer, const u_int16_t buffer_len);

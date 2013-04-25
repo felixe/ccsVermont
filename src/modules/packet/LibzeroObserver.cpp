@@ -85,14 +85,16 @@ int LibzeroObserver::clusterId = 1;
 int LibzeroObserver::hashMode = IP_ADDR;
 
 LibzeroObserver::LibzeroObserver(const std::string& interfaces, int numlibzeroobservers, uint64_t maxpackets) : thread(LibzeroObserver::observerThread),
-	capturelen(PCAP_DEFAULT_CAPTURE_LENGTH),
+	capturelen(PCAP_DEFAULT_CAPTURE_LENGTH), responsibleForCluster(0), statClusterTotalRecvPackets(0),
 	maxPackets(maxpackets), numLibzeroObservers(numlibzeroobservers), ready(false), filter_exp(0),
     observationDomainID(0), // FIXME: this must be configured!
 	receivedBytes(0), lastReceivedBytes(0), processedPackets(0), lastProcessedPackets(0), captureInterfaces(NULL),
 	slowMessageShown(false), statTotalLostPackets(0), statTotalRecvPackets(0), packetManager("Packet")
 {
-	captureInterfaces= (char*)malloc(interfaces.size() + 1);
-    strcpy(captureInterfaces, interfaces.c_str());
+    if(interfaces.size() > 0) {
+        captureInterfaces = (char*)malloc(interfaces.size() + 1);
+        strcpy(captureInterfaces, interfaces.c_str());
+    }
 
 
 	usedBytes += sizeof(LibzeroObserver)+interfaces.size()+1;
@@ -208,8 +210,7 @@ void *LibzeroObserver::observerThread(void *arg)
 
 /*
  call after an LibzeroObserver has been created
- error checking on pcap here, because it can't be done in the constructor
- and it may be too late, if done in the thread
+ opens the DNA cluster and prepares everything for capturing packets
  */
 bool LibzeroObserver::prepare(int cluster_id, int hash_mode)
 {
@@ -225,11 +226,17 @@ bool LibzeroObserver::prepare(int cluster_id, int hash_mode)
 	}
     */
 
+    if(cluster == NULL && captureInterfaces == NULL) {
+        msg(MSG_FATAL, "no capture interface defined!");
+        goto out;
+    }
+
     // First  one prepares the DNA cluster
     mutex.lock(); // just to make sure
     msg(MSG_DEBUG, "there are %d observers\n", numLibzeroObservers);
     if(cluster == NULL) { // create cluster
-        msg(MSG_DEBUG, "trying to create dna-cluster");
+        responsibleForCluster = 1;
+        msg(MSG_DEBUG, "trying to create dna-cluster on interface '%s'", captureInterfaces);
         int rc;
         clusterId = cluster_id;
         hashMode = hash_mode;
@@ -289,7 +296,7 @@ bool LibzeroObserver::prepare(int cluster_id, int hash_mode)
     }
     mutex.unlock();
 
-    char virtualInterface[32];
+    char virtualInterface[16];
     snprintf(virtualInterface, sizeof(virtualInterface), "dnacluster:%d", clusterId);
     msg(MSG_INFO, "pf_ring opening interface='%s', snaplen=%d",
         virtualInterface, capturelen);
@@ -441,6 +448,17 @@ std::string LibzeroObserver::getStatisticsXML(double interval)
 		statTotalLostPackets = dropped;
 		statTotalRecvPackets = recv;
 	}
+
+    pfring_dna_cluster_stat cluster_stats;
+    if (responsibleForCluster && cluster && dna_cluster_stats(cluster, &cluster_stats) == 0) {
+        unsigned int recv = cluster_stats.tot_rx_packets;
+        oss << "<dna_cluster>";
+        oss << "<received type=\"packets\">" << (uint32_t)((double)(recv-statClusterTotalRecvPackets)/interval) << "</received>";
+        oss << "<totalReceived type=\"packets\">" << statClusterTotalRecvPackets << "</totalReceived>";
+        oss << "</dna_cluster>";
+        statClusterTotalRecvPackets = recv;
+    }
+
 	uint64_t diff = receivedBytes-lastReceivedBytes;
 	lastReceivedBytes += diff;
 	oss << "<observer>";
