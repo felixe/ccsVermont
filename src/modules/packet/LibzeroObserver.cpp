@@ -281,7 +281,7 @@ bool LibzeroObserver::prepare(int cluster_id, int hash_mode)
         } while(interface = strtok_r(NULL, ",", &saveptr));
 
         msg(MSG_DEBUG, "hashMode=%d", hashMode);
-        if(hashMode > 0) {
+        if(hashMode != IP_ADDR) {
             msg(MSG_DEBUG, "Setting distribution function");
             dna_cluster_set_distribution_function(cluster, masterDistributionFunction);
         }
