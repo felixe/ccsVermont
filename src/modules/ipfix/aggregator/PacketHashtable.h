@@ -25,6 +25,7 @@
 #include "Rule.hpp"
 #include "modules/packet/Packet.h"
 #include "BaseHashtable.h"
+#include "HttpAggregation.h"
 #include <iostream>
 #include <fstream>
 
@@ -32,7 +33,7 @@
 
 
 
-class PacketHashtable : public BaseHashtable
+class PacketHashtable : public BaseHashtable, public HttpAggregation
 {
 public:
 	PacketHashtable(Source<IpfixRecord*>* recordsource, Rule* rule,
@@ -41,7 +42,7 @@ public:
 
 	void aggregatePacket(Packet* p);
 
-	static uint8_t getRawPacketFieldLength(const InformationElement::IeInfo& type);
+	static uint16_t getRawPacketFieldLength(const InformationElement::IeInfo& type);
 	static uint16_t getRawPacketFieldOffset(const InformationElement::IeInfo& type, const Packet* p);
 
 private:
@@ -106,6 +107,8 @@ private:
 			} frontPayload;
 		} typeSpecData;
 
+		bool httpFlowData;
+		uint32_t httpFlowDataOffset;
 	};
 	struct ExpHelperTable
 	{
@@ -132,6 +135,8 @@ private:
 
 	ExpHelperTable expHelperTable;
 
+	StreamData** streamBuckets;
+
 	bool snapshotWritten; /**< set to true, if snapshot of hashtable was already written */
 	time_t startTime; /**< if a snapshot of the hashtable should be performed, this variable is used and stores initialization time of this hashtable */
 
@@ -153,11 +158,13 @@ private:
 	static void copyDataTransportOctets(CopyFuncParameters* cfp);
 	static void aggregateFrontPayload(IpfixRecord::Data* bucket, HashtableBucket* hbucket, const Packet* src,
 									  const ExpFieldData* efd, bool firstpacket, bool onlyinit);
+	static void aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* hbucket, const Packet* src,
+									  const ExpFieldData* efd, bool firstpacket, bool onlyinit);
 	void (*getCopyDataFunction(const ExpFieldData* efd))(CopyFuncParameters*);
 	void fillExpFieldData(ExpFieldData* efd, TemplateInfo::FieldInfo* hfi, Rule::Field::Modifier fieldModifier, uint16_t index);
-	uint32_t calculateHash(const IpfixRecord::Data* data);
-	uint32_t calculateHashRev(const IpfixRecord::Data* data);
-	boost::shared_array<IpfixRecord::Data> buildBucketData(Packet* p);
+	uint32_t calculateHash(const IpfixRecord::Data* data, uint32_t* streamDataIndex);
+	uint32_t calculateHashRev(const IpfixRecord::Data* data, uint32_t* streamDataIndex);
+	boost::shared_array<IpfixRecord::Data> buildBucketData(Packet* p, StreamData* streamData);
 	void aggregateField(const ExpFieldData* efd, HashtableBucket* hbucket,
 					    const IpfixRecord::Data* deltaData, IpfixRecord::Data* data);
 	void aggregateFlow(HashtableBucket* bucket, const Packet* p, bool reverse);

@@ -115,6 +115,7 @@ protected:
 	HashtableBucket** buckets; /**< array of pointers to hash buckets at start of spill chain. Members are NULL where no entry present */
 
 	bool biflowAggregation; /**< set to true if biflow aggregation is to be done*/
+	bool httpPipeliningAggregation; /**< set to true if http pipelining flow aggregation is to be done*/
 	uint32_t* revKeyMapper; /**< contains indizes to dataTemplate for a reverse flow*/
 	/**
 	 * contains indizes to reversed flow key fields

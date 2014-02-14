@@ -32,6 +32,7 @@ using namespace std;
 BaseHashtable::BaseHashtable(Source<IpfixRecord*>* recordsource, Rule* rule,
 		uint16_t minBufferTime, uint16_t maxBufferTime, uint8_t hashbits)
 	: biflowAggregation(rule->biflowAggregation),
+	  httpPipeliningAggregation(rule->httpPipeliningAggregation),
 	  revKeyMapper(NULL),
 	  switchArray(NULL),
 	  htableBits(hashbits),
@@ -393,6 +394,8 @@ int BaseHashtable::isToBeAggregated(InformationElement::IeInfo& type)
 				case IPFIX_ETYPEID_dpaFlowCount:
 				case IPFIX_ETYPEID_dpaReverseStart:
 				case IPFIX_ETYPEID_transportOctetDeltaCount:
+				case IPFIX_ETYPEID_httpMethod:
+				case IPFIX_ETYPEID_httpType:
 					return 1;
 			}
 			break;
@@ -407,6 +410,8 @@ int BaseHashtable::isToBeAggregated(InformationElement::IeInfo& type)
 				case IPFIX_ETYPEID_dpaFlowCount:
 				case IPFIX_ETYPEID_dpaReverseStart:
 				case IPFIX_ETYPEID_transportOctetDeltaCount:
+				case IPFIX_ETYPEID_httpMethod:
+				case IPFIX_ETYPEID_httpType:
 					return 1;
 			}
 			break;

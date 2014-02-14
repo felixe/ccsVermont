@@ -80,6 +80,8 @@ Rule* AggregatorBaseCfg::readRule(XMLElement* elem) {
 			rule->preceding = getInt("preceding", 0, e);
 		} else if (e->matches("biflowAggregation")) {
 			rule->biflowAggregation = getInt("biflowAggregation", 0, e);
+		} else if (e->matches("httpPipeliningAggregation")) {
+			rule->httpPipeliningAggregation = getInt("httpPipeliningAggregation", 0, e);
 		} else if (e->matches("flowKey")) {
 			Rule::Field* ruleField = readFlowKeyRule(e);
 			if (ruleField)
@@ -108,6 +110,10 @@ Rule* AggregatorBaseCfg::readRule(XMLElement* elem) {
 				rule->field[i]->pattern = NULL;
 		}
 	}
+	// biflowAggregation has to be enabled for httpPipeliningAggregation
+	if (rule->httpPipeliningAggregation && !rule->biflowAggregation)
+		THROWEXCEPTION("httpPipeliningAggregation works only in conjunction with biflowAggregation");
+
 	return rule;
 }
 

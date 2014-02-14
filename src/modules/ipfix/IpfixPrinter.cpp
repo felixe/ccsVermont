@@ -305,13 +305,37 @@ void PrintHelpers::printFieldData(InformationElement::IeInfo type, IpfixRecord::
 
 void PrintHelpers::printFrontPayload(InformationElement::IeInfo type, IpfixRecord::Data* data)
 {
+	int lastPrintedCharacter = -1;
 	fprintf(fh, "'");
 	for (uint32_t i=0; i<type.length; i++) {
 		char c = data[i];
+
+		if (c!=0) {
+			if (i && lastPrintedCharacter) {
+				lastPrintedCharacter++;
+				for (;lastPrintedCharacter<i;lastPrintedCharacter++)
+					fprintf(fh, ".");
+			}
+			lastPrintedCharacter = i;
+		}
+
 		if (isprint(c)) fprintf(fh, "%c", c);
-		else fprintf(fh, ".");
+		else {
+			const char *special = 0;
+			switch (c) {
+			case 0: break;
+			case '\n': special = "\\n"; break;
+			case '\r': special = "\\r"; break;
+			case '\t': special = "\\t"; break;
+			default : special = ".";
+			}
+			if (special) fprintf(fh, "%s", special);
+		}
 	}
 	fprintf(fh, "'");
+	if (lastPrintedCharacter+1<type.length) {
+		fprintf(fh, " --> Not displaying %d trailing zero-bytes", type.length-(lastPrintedCharacter+1));
+	}
 }
 
 

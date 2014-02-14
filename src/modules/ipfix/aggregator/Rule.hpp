@@ -77,6 +77,7 @@ class Rule : private PrintHelpers {
 		uint16_t preceding;
 		int fieldCount;
 		uint32_t biflowAggregation;	/**< true if biflows have to be aggregated */
+		uint32_t httpPipeliningAggregation;	/**< true if pipelined http-flows have to be aggregated */
 		Rule::Field* field[MAX_RULE_FIELDS];
 		BaseHashtable* hashtable;
 

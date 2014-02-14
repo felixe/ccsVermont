@@ -131,7 +131,7 @@ struct ipfix_identifier ipfixids[] = {
  { IPFIX_ETYPEID_maxPacketGap, IPFIX_ELENGTH_maxPacketGap, IPFIX_PEN_vermont|IPFIX_PEN_reverse, "revMaxPacketGap" },
 // { IPFIX_ETYPEID_maxPacketGap|IPFIX_ETYPE_reverse_bit, IPFIX_ELENGTH_maxPacketGap, IPFIX_PEN_vermont, "revMaxPacketGap" },
  { IPFIX_ETYPEID_frontPayloadPktCount, IPFIX_ELENGTH_frontPayloadPktCount, IPFIX_PEN_vermont, "frontPayloadPktCount" },
- { IPFIX_ETYPEID_frontPayloadPktCount, IPFIX_ELENGTH_frontPayloadPktCount, IPFIX_PEN_vermont|IPFIX_PEN_reverse, "frontPayloadPktCount" },
+ { IPFIX_ETYPEID_frontPayloadPktCount, IPFIX_ELENGTH_frontPayloadPktCount, IPFIX_PEN_vermont|IPFIX_PEN_reverse, "revFrontPayloadPktCount" },
 // { IPFIX_ETYPEID_frontPayloadPktCount|IPFIX_ETYPE_reverse_bit, IPFIX_ELENGTH_frontPayloadPktCount, IPFIX_PEN_vermont, "frontPayloadPktCount" },
  { IPFIX_ETYPEID_dpaFlowCount, IPFIX_ELENGTH_dpaFlowCount, IPFIX_PEN_vermont, "dpaFlowCount" },
  { IPFIX_ETYPEID_dpaForcedExport, IPFIX_ELENGTH_dpaForcedExport, IPFIX_PEN_vermont, "dpaForcedExport" },
@@ -140,6 +140,10 @@ struct ipfix_identifier ipfixids[] = {
  { IPFIX_ETYPEID_transportOctetDeltaCount, IPFIX_ELENGTH_transportOctetDeltaCount, IPFIX_PEN_vermont|IPFIX_PEN_reverse, "revTransportOctetDeltaCount" },
 // { IPFIX_ETYPEID_transportOctetDeltaCount|IPFIX_ETYPE_reverse_bit, IPFIX_ELENGTH_transportOctetDeltaCount, IPFIX_PEN_vermont, "revTransportOctetDeltaCount" },
  { IPFIX_ETYPEID_anonymisationType, IPFIX_ELENGTH_anonymisationType, IPFIX_PEN_vermont, "anonymisationType" },
+ { IPFIX_ETYPEID_httpMethod, IPFIX_ELENGTH_httpMethod, IPFIX_PEN_vermont, "httpMethod" },
+ { IPFIX_ETYPEID_httpMethod, IPFIX_ELENGTH_httpMethod, IPFIX_PEN_vermont|IPFIX_PEN_reverse, "revHttpMethod" },
+ { IPFIX_ETYPEID_httpType, IPFIX_ELENGTH_httpType, IPFIX_PEN_vermont, "httpType" },
+ { IPFIX_ETYPEID_httpType, IPFIX_ELENGTH_httpType, IPFIX_PEN_vermont|IPFIX_PEN_reverse, "revHttpType" }
 };
 
 

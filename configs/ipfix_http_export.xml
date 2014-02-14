@@ -1,0 +1,131 @@
+<ipfixConfig xmlns="urn:ietf:params:xml:ns:ipfix-config">
+	<sensorManager id="99">
+		<checkinterval>1</checkinterval>
+		<outputfile>sensor_output.xml</outputfile>
+	</sensorManager>
+	<observer id="1">
+		<!--<interface>eth0</interface>-->
+		<!-- filename>dumps/stol-pipelining-single-stream.pcap</filename -->
+		<filename>dumps/stol-pipelining2-single-stream.pcap</filename>
+		<pcap_filter>ip and tcp</pcap_filter>
+		<offlineAutoExit>1</offlineAutoExit>
+		<offlineSpeed>0</offlineSpeed>
+		<captureLength>2000</captureLength>
+		<next>2</next>
+	</observer>
+	
+	<packetAggregator id="2">
+		<rule>
+			<templateId>999</templateId>
+			<biflowAggregation>1</biflowAggregation>
+			<httpPipeliningAggregation>1</httpPipeliningAggregation>
+			<flowKey>
+				<ieName>sourceIPv4Address</ieName>
+			</flowKey>
+			<flowKey>
+				<ieName>destinationIPv4Address</ieName>
+			</flowKey>
+			<flowKey>
+				<ieName>protocolIdentifier</ieName>
+			</flowKey>
+			<flowKey>
+				<ieName>sourceTransportPort</ieName>
+			</flowKey>
+			<flowKey>
+				<ieName>destinationTransportPort</ieName>
+			</flowKey>
+			<nonFlowKey>
+				<ieName>flowStartNanoSeconds</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>flowEndNanoSeconds</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>octetDeltaCount</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>packetDeltaCount</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>tcpControlBits</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>frontPayload</ieName>
+				<ieLength>2000</ieLength>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>frontPayloadLen</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>revflowStartNanoSeconds</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>revflowEndNanoSeconds</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>revoctetDeltaCount</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>revpacketDeltaCount</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>revtcpControlBits</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>revFrontPayload</ieName>
+				<ieLength>2000</ieLength>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>revFrontPayloadLen</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>dpaForcedExport</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>dpaFlowCount</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>dpaReverseStart</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>transportOctetDeltaCount</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>revTransportOctetDeltaCount</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>httpMethod</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>revHttpMethod</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>httpType</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>revHttpType</ieName>
+			</nonFlowKey>
+		</rule>
+		<expiration>
+			<inactiveTimeout unit="sec">60</inactiveTimeout>
+			<activeTimeout unit="sec">300</activeTimeout>
+		</expiration>
+		<pollInterval unit="msec">100</pollInterval>
+		<next>3</next>
+	</packetAggregator>
+
+	<ipfixPrinter id="3">
+		<!--<outputType>table</outputType>-->
+		<outputType>tree</outputType>
+		<filename>flows.dat</filename>
+	</ipfixPrinter>
+
+	<!--ipfixFileWriter id="5">
+		<observationDomainId>99</observationDomainId>
+		<maximumFilesize>1024000</maximumFilesize>
+		<destinationPath>.</destinationPath>
+		<filenamePrefix>ipfixdump</filenamePrefix>
+	</ipfixFileWriter-->
+
+
+</ipfixConfig>
