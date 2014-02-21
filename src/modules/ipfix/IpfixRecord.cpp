@@ -127,8 +127,9 @@ namespace InformationElement {
 				case IPFIX_ETYPEID_transportOctetDeltaCount:
 					return Packet::IPProtocolType(Packet::UDP|Packet::TCP);
 
-				case IPFIX_ETYPEID_httpMethod:
-				case IPFIX_ETYPEID_httpType:
+				case IPFIX_ETYPEID_httpRequestMethod:
+				case IPFIX_ETYPEID_httpRequestUri:
+				case IPFIX_ETYPEID_httpResponseCode:
 					return Packet::IPProtocolType(Packet::TCP);
 			}
 			if (enterprise==IPFIX_PEN_vermont) {

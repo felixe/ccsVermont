@@ -5,8 +5,15 @@
 	</sensorManager>
 	<observer id="1">
 		<!--<interface>eth0</interface>-->
+		
 		<!-- filename>dumps/stol-pipelining-single-stream.pcap</filename -->
-		<filename>dumps/stol-pipelining2-single-stream.pcap</filename>
+		<!-- <filename>dumps/stol-pipelining2-single-stream.pcap</filename> -->
+		<!-- <filename>dumps/random.pcap</filename> -->
+		<!-- <filename>dumps/http.pcap</filename> -->
+		<!-- <filename>dumps/apt-pipelining.pcap</filename> -->
+		<!-- <filename>dumps/mtu-300.pcap</filename> -->
+		<filename>dumps/c05-http-reply-r1.pcap</filename>
+		
 		<pcap_filter>ip and tcp</pcap_filter>
 		<offlineAutoExit>1</offlineAutoExit>
 		<offlineSpeed>0</offlineSpeed>
@@ -94,16 +101,14 @@
 				<ieName>revTransportOctetDeltaCount</ieName>
 			</nonFlowKey>
 			<nonFlowKey>
-				<ieName>httpMethod</ieName>
+				<ieName>httpRequestMethod</ieName>
 			</nonFlowKey>
 			<nonFlowKey>
-				<ieName>revHttpMethod</ieName>
+				<ieName>httpRequestUri</ieName>
+				<ieLength>150</ieLength>
 			</nonFlowKey>
 			<nonFlowKey>
-				<ieName>httpType</ieName>
-			</nonFlowKey>
-			<nonFlowKey>
-				<ieName>revHttpType</ieName>
+				<ieName>httpResponseCode</ieName>
 			</nonFlowKey>
 		</rule>
 		<expiration>

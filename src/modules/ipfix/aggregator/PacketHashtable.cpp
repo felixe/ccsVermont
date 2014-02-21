@@ -100,8 +100,8 @@ void PacketHashtable::copyDataSetZero(CopyFuncParameters* cfp)
 void PacketHashtable::copyDataFrontPayload(CopyFuncParameters* cfp)
 {
 	ExpFieldData* efd = cfp->efd;
-	if (efd->httpFlowData) {
-		aggregateHttp(cfp->dst, NULL, reinterpret_cast<const Packet*>(cfp->src), efd, true, false);
+	if (efd->typeSpecData.http.aggregate) {
+		aggregateHttp(cfp->dst, *cfp->hbucket, reinterpret_cast<const Packet*>(cfp->src), efd, true, false);
 	}
 	else
 		aggregateFrontPayload(cfp->dst, NULL, reinterpret_cast<const Packet*>(cfp->src), efd, true, false);
@@ -109,8 +109,8 @@ void PacketHashtable::copyDataFrontPayload(CopyFuncParameters* cfp)
 void PacketHashtable::copyDataFrontPayloadNoInit(CopyFuncParameters* cfp)
 {
 	ExpFieldData* efd = cfp->efd;
-	if (efd->httpFlowData) {
-		aggregateHttp(cfp->dst, NULL, reinterpret_cast<const Packet*>(cfp->src), efd, true, true);
+	if (efd->typeSpecData.http.aggregate) {
+		aggregateHttp(cfp->dst, *cfp->hbucket, reinterpret_cast<const Packet*>(cfp->src), efd, true, true);
 	}
 	else
 		aggregateFrontPayload(cfp->dst, NULL, reinterpret_cast<const Packet*>(cfp->src), efd, true, true);
@@ -290,9 +290,12 @@ void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* 
 	DPRINTFL(MSG_VDEBUG, "called (%s, %hhu, %hhu)", efd->typeId.toString().c_str(), firstpacket, initialize);
 
 	PayloadPrivateData* ppd = reinterpret_cast<PayloadPrivateData*>(bucket+efd->privDataOffset);
-	FlowData* flowData = reinterpret_cast<FlowData*>(bucket+efd->httpFlowDataOffset);
+	FlowData* flowData = reinterpret_cast<FlowData*>(bucket+efd->typeSpecData.http.flowDataOffset);
 
 	bool revdir = efd->typeId.isReverseField();
+
+	if (firstpacket)
+		ppd->byteCount = 0;
 
 	if (initialize) {
 		ASSERT(firstpacket, "firstpacket must be set to 1 when onlyinit==1!");
@@ -304,30 +307,18 @@ void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* 
 	if (p->payloadOffset==0 || p->payloadOffset==p->transportHeaderOffset) payloadLength = 0;
 
 	IpfixRecord::Data* dst = bucket+efd->dstIndex;
-	uint32_t seq = 0;
-	if (p->ipProtocolType==Packet::TCP)
-		seq = ntohl(*reinterpret_cast<const uint32_t*>(p->data.netHeader+p->transportHeaderOffset+4));
-	DPRINTFL(MSG_VDEBUG, "seq:%u, len:%u, udp:%u", seq, ppd->byteCount, p->ipProtocolType==Packet::UDP);
 
-	if (firstpacket || !ppd->initialized) {
-		if (p->ipProtocolType==Packet::TCP && p->data.netHeader[p->transportHeaderOffset+13] & 0x02) {
-			// SYN packet, so sequence number will be increased without any payload
-			seq++;
-		}
-		// store sequence number and length of captured payload in private data
-		ppd->seq = seq;
-		ppd->byteCount = 0;
-		ppd->initialized = 1;
-		//return;
-	}
+	const char* data = reinterpret_cast<const char*>(p->data.netHeader+p->payloadOffset);
+	const char* dataEnd = data+payloadLength;
 
 	const char* aggregationStart = 0;
 	const char* aggregationEnd = 0;
 
-	detectHttp(p, payloadLength, flowData, revdir, &aggregationStart, &aggregationEnd);
+	detectHttp(&data, &dataEnd, flowData, revdir, &aggregationStart, &aggregationEnd);
 
 	if (!aggregationStart || !aggregationEnd || aggregationEnd <= aggregationStart) {
-		msg(MSG_INFO, "no payload has to be aggregated");
+		printf("%p %p\n", aggregationStart, aggregationEnd);
+		msg(MSG_INFO, "no payload has to be aggregated, skip packet payload");
 		return;
 	}
 
@@ -335,27 +326,59 @@ void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* 
 	if (avail>0) {
 		uint32_t size = aggregationEnd - aggregationStart;
 		size = min(avail, size);
-		//printRange(reinterpret_cast<const char*>(dst), efd->dstLength);
-		memcpy(dst+ppd->byteCount, p->data.netHeader+p->payloadOffset, size);
+		memcpy(dst+ppd->byteCount, aggregationStart, size);
 		ppd->byteCount+=size;
-		msg(MSG_INFO, "aggregated %u bytes of payload. %u bytes free.", size, avail);
+		msg(MSG_INFO, "aggregated %u bytes of payload. %u bytes free.", size, efd->dstLength - ppd->byteCount);
 		msg(MSG_DEBUG, "payload aggregated = '%.*s'", size, aggregationStart);
 	} else msg(MSG_INFO, "not aggregating payload, no space left.");
 
 	// increase packet counter (if available)
 	if (efd->typeSpecData.frontPayload.pktCountOffset != ExpHelperTable::UNUSED)
 		(*reinterpret_cast<uint32_t*>(bucket+efd->typeSpecData.frontPayload.pktCountOffset))++;
-	// copy current length to corresponding inforamtion element
+	// copy current length to corresponding information element
 	if (efd->typeSpecData.frontPayload.fpaLenOffset != ExpHelperTable::UNUSED)
 		(*reinterpret_cast<uint32_t*>(bucket+efd->typeSpecData.frontPayload.fpaLenOffset)) = htonl(ppd->byteCount);
 
-	if (!hbucket)
-		return;
+	if (!hbucket) {
+		THROWEXCEPTION("should never happen");
+	}
 
 	// TODO force expiry if the connection closes
 	if (flowData->request->status == MESSAGE_END && flowData->response->status == MESSAGE_END) {
 		msg(MSG_INFO, "forcing expiry of http flow");
 		hbucket->forceExpiry=true;
+		if (flowData->streamInfo->responseFirst)
+			flowData->streamInfo = NULL;
+
+		// aggregate http request method
+		if (flowData->request->method && efd->typeSpecData.http.requestMethodOffset != ExpHelperTable::UNUSED) {
+		    char* dst = reinterpret_cast<char*>(bucket+efd->typeSpecData.http.requestMethodOffset);
+		    int len = strnlen(flowData->request->method, IPFIX_ELENGTH_httpRequestMethod);
+		    memcpy(dst, flowData->request->method, len);
+		}
+		// aggregate http request uri
+        if (flowData->request->uri && efd->typeSpecData.http.requestUriOffset != ExpHelperTable::UNUSED) {
+            char* dst = reinterpret_cast<char*>(bucket+efd->typeSpecData.http.requestUriOffset);
+            int len = strnlen(flowData->request->uri, efd->typeSpecData.http.requestUriLength);
+            memcpy(dst, flowData->request->uri, len);
+        }
+        
+        // aggregate http response code
+        if (flowData->response->statusCode && efd->typeSpecData.http.responseCodeOffset != ExpHelperTable::UNUSED) {
+            int responseCode = strtol(flowData->response->statusCode, NULL, 10);
+            (*reinterpret_cast<uint16_t*>(bucket+efd->typeSpecData.http.responseCodeOffset)) = htons(responseCode);
+        }
+	}
+
+	http_type_t type = revdir ? flowData->reverseType : flowData->forwardType;
+
+	if (type == HTTP_TYPE_REQUEST && flowData->request->status == MESSAGE_END && aggregationEnd < dataEnd) {
+		// multiple requests are in this request, store the offset to the position and mark the request as pipelined
+		uint16_t bufferOffset = 0;
+		if (dataEnd-data > payloadLength)
+			bufferOffset = (dataEnd-data) - payloadLength;
+		flowData->request->pipelinedRequestOffsetEnd = (aggregationEnd - data) - bufferOffset;
+		flowData->streamInfo->pipelinedRequest = true;
 	}
 }
 
@@ -443,11 +466,16 @@ void (*PacketHashtable::getCopyDataFunction(const ExpFieldData* efd))(CopyFuncPa
 			switch (efd->typeId.id) {
 				case IPFIX_ETYPEID_dpaForcedExport:
 				case IPFIX_ETYPEID_dpaReverseStart:
-				case IPFIX_ETYPEID_httpType:
 					if (efd->dstLength != 1) {
 						THROWEXCEPTION("unsupported length %d for type %s", efd->dstLength, efd->typeId.toString().c_str());
 					}
 					break;
+
+				case IPFIX_ETYPEID_httpResponseCode:
+				    if (efd->dstLength != 2) {
+                        THROWEXCEPTION("unsupported length %d for type %s", efd->dstLength, efd->typeId.toString().c_str());
+                    }
+                    break;
 
 				case IPFIX_ETYPEID_frontPayloadLen:
 				case IPFIX_ETYPEID_frontPayloadPktCount:
@@ -465,12 +493,13 @@ void (*PacketHashtable::getCopyDataFunction(const ExpFieldData* efd))(CopyFuncPa
 					break;
 
 				case IPFIX_ETYPEID_frontPayload:
+				case IPFIX_ETYPEID_httpRequestUri:
 					if (efd->dstLength < 5) {
 						THROWEXCEPTION("unsupported length %d for type %s", efd->dstLength, efd->typeId.toString().c_str());
 					}
 					break;
 
-				case IPFIX_ETYPEID_httpMethod:
+				case IPFIX_ETYPEID_httpRequestMethod:
 					if (efd->dstLength < 16) {
 						THROWEXCEPTION("unsupported length %d for type %s", efd->dstLength, efd->typeId.toString().c_str());
 					}
@@ -502,10 +531,9 @@ void (*PacketHashtable::getCopyDataFunction(const ExpFieldData* efd))(CopyFuncPa
 			   efd->typeId == IeInfo(IPFIX_ETYPEID_dpaReverseStart, IPFIX_PEN_vermont) ||
 			   efd->typeId == IeInfo(IPFIX_ETYPEID_dpaForcedExport, IPFIX_PEN_vermont)) {
 		return copyDataDummy;
-	} else if (efd->typeId == IeInfo(IPFIX_ETYPEID_httpMethod, IPFIX_PEN_vermont) ||
-			efd->typeId == IeInfo(IPFIX_ETYPEID_httpMethod, IPFIX_PEN_vermont|IPFIX_PEN_reverse) ||
-			efd->typeId == IeInfo(IPFIX_ETYPEID_httpType, IPFIX_PEN_vermont) ||
-			efd->typeId == IeInfo(IPFIX_ETYPEID_httpType, IPFIX_PEN_vermont|IPFIX_PEN_reverse)) {
+	} else if (efd->typeId == IeInfo(IPFIX_ETYPEID_httpRequestMethod, IPFIX_PEN_vermont) ||
+			efd->typeId == IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont) ||
+			efd->typeId == IeInfo(IPFIX_ETYPEID_httpResponseCode, IPFIX_PEN_vermont)) {
 		return copyDataDummy;
 	}else if (efd->typeId == IeInfo(IPFIX_TYPEID_flowStartNanoSeconds, 0) ||
 			efd->typeId == IeInfo(IPFIX_TYPEID_flowEndNanoSeconds, 0)) {
@@ -586,8 +614,6 @@ uint16_t PacketHashtable::getRawPacketFieldLength(const IeInfo& type)
 		switch (type.id) {
 			case IPFIX_ETYPEID_dpaForcedExport:
 			case IPFIX_ETYPEID_dpaReverseStart:
-			case IPFIX_ETYPEID_httpMethod:
-			case IPFIX_ETYPEID_httpType:
 				return 1;
 
 			case IPFIX_ETYPEID_frontPayloadLen:
@@ -600,7 +626,12 @@ uint16_t PacketHashtable::getRawPacketFieldLength(const IeInfo& type)
 				return 8;
 
 			case IPFIX_ETYPEID_frontPayload:
+            case IPFIX_ETYPEID_httpRequestUri:
 				return type.length;				// length is variable and is set in configuration
+
+            case IPFIX_ETYPEID_httpRequestMethod:
+            case IPFIX_ETYPEID_httpResponseCode:
+                return 0;                       // length is variable, but this value should not matter
 
 			default:
 				THROWEXCEPTION("PacketHashtable: unknown typeid %s, failed to determine raw packet field length", type.toString().c_str());
@@ -715,9 +746,10 @@ uint16_t PacketHashtable::getRawPacketFieldOffset(const IeInfo& type, const Pack
 				// this  field isn't part of the raw packet and is stored in the expHelperTable.
 				// so the offset to the zeroBytes pointer should be returned here
 				break;
-			case IPFIX_ETYPEID_httpMethod:
-			case IPFIX_ETYPEID_httpType:
-				// these fields aren't part of the raw packet
+			case IPFIX_ETYPEID_httpRequestMethod:
+			case IPFIX_ETYPEID_httpRequestUri:
+			case IPFIX_ETYPEID_httpResponseCode:
+				// these fields do not have fixed positions in the raw packet
 				break;
 			default:
 
@@ -773,8 +805,9 @@ bool PacketHashtable::isRawPacketPtrVariable(const IeInfo& type)
 				case IPFIX_ETYPEID_dpaForcedExport:
 				case IPFIX_ETYPEID_dpaFlowCount:
 				case IPFIX_ETYPEID_dpaReverseStart:
-				case IPFIX_ETYPEID_httpMethod:
-				case IPFIX_ETYPEID_httpType:
+				case IPFIX_ETYPEID_httpRequestMethod:
+				case IPFIX_ETYPEID_httpRequestUri:
+				case IPFIX_ETYPEID_httpResponseCode:
 					return false;
 
 				case IPFIX_ETYPEID_frontPayload:
@@ -804,8 +837,12 @@ void PacketHashtable::fillExpFieldData(ExpFieldData* efd, TemplateInfo::FieldInf
 	efd->modifier = fieldModifier;
 	efd->varSrcIdx = isRawPacketPtrVariable(hfi->type);
 	efd->privDataOffset = hfi->privDataOffset;
-	efd->httpFlowData = false;
-	efd->httpFlowDataOffset = 0;
+	efd->typeSpecData.http.aggregate = false;
+	efd->typeSpecData.http.flowDataOffset = ExpHelperTable::UNUSED;
+	efd->typeSpecData.http.requestMethodOffset = ExpHelperTable::UNUSED;
+	efd->typeSpecData.http.requestUriOffset = ExpHelperTable::UNUSED;
+	efd->typeSpecData.http.requestUriLength = 0;
+	efd->typeSpecData.http.responseCodeOffset = ExpHelperTable::UNUSED;
 
 	if (efd->varSrcIdx)
 		printf("    varying in positions | ");
@@ -910,8 +947,9 @@ bool PacketHashtable::typeAvailable(const IeInfo& type)
 				case IPFIX_ETYPEID_dpaFlowCount:
 				case IPFIX_ETYPEID_dpaReverseStart:
 				case IPFIX_ETYPEID_transportOctetDeltaCount:
-				case IPFIX_ETYPEID_httpMethod:
-				case IPFIX_ETYPEID_httpType:
+				case IPFIX_ETYPEID_httpRequestMethod:
+				case IPFIX_ETYPEID_httpRequestUri:
+				case IPFIX_ETYPEID_httpResponseCode:
 					return true;
 			}
 			break;
@@ -1069,6 +1107,7 @@ void PacketHashtable::buildExpHelperTable()
 
 	uint16_t httpFlowDataOffset = 0;
 	if (httpPipeliningAggregation) {
+	    // add space for the FlowData structure at the end of the private data
 		httpFlowDataOffset=fieldLength + privDataLength;
 		privDataLength += sizeof(FlowData);
 	}
@@ -1085,8 +1124,11 @@ void PacketHashtable::buildExpHelperTable()
 			efd->typeSpecData.frontPayload.dpaRevStartOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_dpaReverseStart, IPFIX_PEN_vermont));
 			efd->typeSpecData.frontPayload.dpa = expHelperTable.useDPA;
 
-			efd->httpFlowDataOffset = httpFlowDataOffset;
-			efd->httpFlowData = httpPipeliningAggregation;
+			efd->typeSpecData.http.flowDataOffset = httpFlowDataOffset; // both directions share the same FlowData information
+			efd->typeSpecData.http.aggregate = httpPipeliningAggregation;
+			efd->typeSpecData.http.requestMethodOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestMethod, IPFIX_PEN_vermont));
+			efd->typeSpecData.http.requestUriOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont));
+			efd->typeSpecData.http.responseCodeOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpResponseCode, IPFIX_PEN_vermont));
 
 			efd->typeSpecData.frontPayload.dpaPrivDataOffset = ExpHelperTable::UNUSED;
 			if (expHelperTable.useDPA) {
@@ -1098,6 +1140,16 @@ void PacketHashtable::buildExpHelperTable()
 					}
 				}
 			}
+
+            if (efd->typeSpecData.http.requestUriOffset != ExpHelperTable::UNUSED) {
+                for (uint32_t i=0; i<expHelperTable.noAggFields; i++) {
+                    ExpFieldData* efd2 = &expHelperTable.aggFields[i];
+                    if (efd2->typeId==IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont)) {
+                        efd->typeSpecData.http.requestUriLength = efd2->dstLength;
+                        break;
+                    }
+                }
+            }
 		}
 	}
 	for (uint32_t i=0; i<expHelperTable.noRevAggFields; i++) {
@@ -1109,8 +1161,12 @@ void PacketHashtable::buildExpHelperTable()
 			efd->typeSpecData.frontPayload.dpaRevStartOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_dpaReverseStart, IPFIX_PEN_vermont));
 			efd->typeSpecData.frontPayload.dpa = expHelperTable.useDPA;
 
-			efd->httpFlowDataOffset = httpFlowDataOffset;
-			efd->httpFlowData = httpPipeliningAggregation;
+            efd->typeSpecData.http.flowDataOffset = httpFlowDataOffset; // both directions share the same FlowData information
+            efd->typeSpecData.http.aggregate = httpPipeliningAggregation;
+            efd->typeSpecData.http.requestMethodOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestMethod, IPFIX_PEN_vermont));
+            efd->typeSpecData.http.requestUriOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont));
+            efd->typeSpecData.http.requestUriLength = getRawPacketFieldLength(IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont));
+            efd->typeSpecData.http.responseCodeOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpResponseCode, IPFIX_PEN_vermont));
 
 			efd->typeSpecData.frontPayload.dpaPrivDataOffset = ExpHelperTable::UNUSED;
 			if (expHelperTable.useDPA) {
@@ -1122,6 +1178,16 @@ void PacketHashtable::buildExpHelperTable()
 					}
 				}
 			}
+
+            if (efd->typeSpecData.http.requestUriOffset != ExpHelperTable::UNUSED) {
+                for (uint32_t i=0; i<expHelperTable.noAggFields; i++) {
+                    ExpFieldData* efd2 = &expHelperTable.aggFields[i];
+                    if (efd2->typeId==IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont)) {
+                        efd->typeSpecData.http.requestUriLength = efd2->dstLength;
+                        break;
+                    }
+                }
+            }
 		}
 	}
 }
@@ -1182,7 +1248,7 @@ uint32_t PacketHashtable::calculateHashRev(const IpfixRecord::Data* data, uint32
  * copies data from raw packet to a bucket which will be inserted into the hashtable
  * for aggregation (part of express aggregator)
  */
-boost::shared_array<IpfixRecord::Data> PacketHashtable::buildBucketData(Packet* p, StreamData* streamData)
+boost::shared_array<IpfixRecord::Data> PacketHashtable::buildBucketData(Packet* p, StreamData* streamData, HashtableBucket** hbucket)
 {
 	printf("building bucket data\n");
 	// new field for insertion into hashtable
@@ -1194,6 +1260,7 @@ boost::shared_array<IpfixRecord::Data> PacketHashtable::buildBucketData(Packet* 
 
 	cfp.dst = data;
 	cfp.packet = p;
+	cfp.hbucket = hbucket;
 
 	bool flowDataInitialized = false;
 
@@ -1201,15 +1268,56 @@ boost::shared_array<IpfixRecord::Data> PacketHashtable::buildBucketData(Packet* 
 	for (vector<ExpFieldData*>::const_iterator iter=expHelperTable.allFields.begin(); iter!=expHelperTable.allFields.end(); iter++) {
 		ExpFieldData* efd = *iter;
 		
-		if (efd->httpFlowData && !flowDataInitialized) {
+		if (efd->typeSpecData.http.aggregate && !flowDataInitialized) {
 			msg(MSG_INFO, "initializing flow data");
-			initializeFlowData(reinterpret_cast<FlowData*> (data+efd->httpFlowDataOffset), streamData);
+			initializeFlowData(reinterpret_cast<FlowData*> (data+efd->typeSpecData.http.flowDataOffset), streamData);
 			flowDataInitialized = true;
 		}
 
 		cfp.src = reinterpret_cast<IpfixRecord::Data*>(p->data.netHeader)+efd->srcIndex;
 		cfp.efd = efd;
 		efd->copyDataFunc(&cfp);
+	}
+	return htdata;
+}
+
+/**
+ * This functions copies data from an existing bucket to a new memory area. The reason for this is
+ * that when http aggregation is performed and a packet with multiple http requests arrives we need
+ * to create a flow for each request, i.e. one bucket for each request. Those buckets mainly share
+ * the same information. But data like FlowData has to be reset and the right payload offset has to
+ * be set. The
+ * @param srcData Source data from a bucket
+ * @param streamData Pointer to the proper StreamData
+ * @param srcFlowData Source flow information. Used to calculate payload offset
+ * @return Returns the newly created copy of the
+ */
+boost::shared_array<IpfixRecord::Data> PacketHashtable::createBucketDataCopy(const IpfixRecord::Data* srcData, StreamData* streamData, FlowData* srcFlowData)
+{
+	printf("copying bucket data\n");
+	// new field for insertion into hashtable
+	boost::shared_array<IpfixRecord::Data> htdata(new IpfixRecord::Data[fieldLength+privDataLength]);
+	IpfixRecord::Data* data = htdata.get();
+	bzero(data+fieldLength, privDataLength); // reset private data fields
+	memcpy(data, srcData, fieldLength); // copy all the other fields
+
+	// initialize flowdata
+	for (vector<ExpFieldData*>::const_iterator iter=expHelperTable.allFields.begin(); iter!=expHelperTable.allFields.end(); iter++) {
+		ExpFieldData* efd = *iter;
+		if (efd->typeSpecData.http.aggregate) {
+			msg(MSG_INFO, "initializing flow data");
+			FlowData* flowData = reinterpret_cast<FlowData*> (data+efd->typeSpecData.http.flowDataOffset);
+			initializeFlowData(flowData, streamData);
+
+			// each request of a packet which contains multiple requests is processed separately. this offset
+			// specifies the position at which the last request of a message ended or rather the position
+			// the new request starts
+			flowData->request->pipelinedRequestOffset = srcFlowData->request->pipelinedRequestOffsetEnd;
+
+			flowData->forwardType = HTTP_TYPE_REQUEST;
+			flowData->reverseType = HTTP_TYPE_RESPONSE;
+			break;
+		}
 	}
 	return htdata;
 }
@@ -1417,8 +1525,9 @@ void PacketHashtable::aggregateField(const ExpFieldData* efd, HashtableBucket* h
 						*reinterpret_cast<uint64_t*>(data+efd->privDataOffset) = *(uint64_t*)deltaData;
 						break;
 
-					case IPFIX_ETYPEID_httpMethod:
-					case IPFIX_ETYPEID_httpType:
+					case IPFIX_ETYPEID_httpRequestMethod:
+					case IPFIX_ETYPEID_httpRequestUri:
+					case IPFIX_ETYPEID_httpResponseCode:
 					case IPFIX_ETYPEID_frontPayloadLen:
 						// ignore these fields, as FPA aggregation does everything needed
 						break;
@@ -1447,8 +1556,9 @@ void PacketHashtable::aggregateField(const ExpFieldData* efd, HashtableBucket* h
 						*reinterpret_cast<uint64_t*>(data+efd->privDataOffset) = *(uint64_t*)deltaData;
 						break;
 
-					case IPFIX_ETYPEID_httpMethod:
-					case IPFIX_ETYPEID_httpType:
+                    case IPFIX_ETYPEID_httpRequestMethod:
+                    case IPFIX_ETYPEID_httpRequestUri:
+                    case IPFIX_ETYPEID_httpResponseCode:
 					case IPFIX_ETYPEID_frontPayloadLen:
 						// ignore these fields, as FPA aggregation does everything needed
 						break;
@@ -1683,18 +1793,22 @@ void PacketHashtable::aggregatePacket(Packet* p)
 	createMaskedFields(p);
 
 	bool createAfterExpiry = true;
+	bool createFlowData = false;
 
-	// is only relevant for NEW http streams for which no bucket was created yet.
-	// before a new bucket gets created streamBuckets[streamDataIndex] is initialized.
-	//
+	/*
+	 * streamDataIndex is only relevant for http aggregation. it represents the index to the proper
+	 * streamBuckets entry for the current tcp stream. it's value is defined by calculating the hash
+	 * in FORWARD direction.
+	 */
 	uint32_t streamDataIndex = 0;
 	uint32_t hash = calculateHash(p->data.netHeader, &streamDataIndex);
 
-	if (streamBuckets[streamDataIndex]) {
-	printf("forward flows %u\n", streamBuckets[streamDataIndex]->forwardFlows);
-	printf("reverse flows %u\n", streamBuckets[streamDataIndex]->reverseFlows);
-	} else printf("no matching stream bucket, ");
-
+	if (httpPipeliningAggregation) {
+		if (streamBuckets[streamDataIndex]) {
+		printf("forward flows %u\n", streamBuckets[streamDataIndex]->forwardFlows);
+		printf("reverse flows %u\n", streamBuckets[streamDataIndex]->reverseFlows);
+		} else printf("no matching stream bucket, ");
+	}
 	DPRINTFL(MSG_VDEBUG, "packet hash=%u", hash);
 
 
@@ -1768,26 +1882,40 @@ void PacketHashtable::aggregatePacket(Packet* p)
 		}
 	}
 
+	if (expiryforced && httpPipeliningAggregation && streamBuckets[streamDataIndex]) {
+		if (streamBuckets[streamDataIndex]->responseFirst) {
+			printf("resetting stream data with index %u\n", streamDataIndex);
+			streamBuckets[streamDataIndex] = NULL;
+		}
+	}
+
 	if (createAfterExpiry && (!flowfound || expiryforced)) {
 		// create new flow
 		printf("creating new bucket for hash: %u\n", hash);
+		printf("stream data index for bucket: %u\n", streamDataIndex);
 
 		if (httpPipeliningAggregation) {
 			// When httpPipeliningAggregation is used, the private data which is used to store the FlowData,
 			// is added to the end of the IPFIX_ETYPEID_frontPayload field's private data.
 			// FlowData holds a pointer to the corresponding StreamData structure, which belongs to the proper flow.
-			// We initialize the StreamData structure here and pass the pointer to buildBucketData(...), where it
-			// is stored in the private data of the new bucket
-			if (!streamBuckets[streamDataIndex]) {
+			// We initialize the StreamData structure here, if it was not initialized yet. Then we pass the pointer
+			// to buildBucketData(...), where it is stored in the private data of the new bucket.
+			if (!streamBuckets[streamDataIndex] || createFlowData) {
 				printf("setting stream data\n");
 				streamBuckets[streamDataIndex]=initStreamBucket();
 			}
-		}
 		printf("forward flows %u\n", streamBuckets[streamDataIndex]->forwardFlows);
 		printf("reverse flows %u\n", streamBuckets[streamDataIndex]->reverseFlows);
+		}
 
 		HashtableBucket* firstbucket = buckets[hash];
-		buckets[hash] = createBucket(buildBucketData(p, streamBuckets[streamDataIndex]), p->observationDomainID, firstbucket, 0, hash);
+		if (httpPipeliningAggregation) {
+			boost::shared_array<IpfixRecord::Data> htdata; // just a temporary stopgap
+			buckets[hash] = createBucket(htdata, p->observationDomainID, firstbucket, 0, hash);
+			buckets[hash]->data = buildBucketData(p, streamBuckets[streamDataIndex], &buckets[hash]);
+		}
+		else
+			buckets[hash] = createBucket(buildBucketData(p, NULL, NULL), p->observationDomainID, firstbucket, 0, hash);
 		if (firstbucket) {
 			firstbucket->prev = buckets[hash];
 			statMultiEntries++;
@@ -1795,12 +1923,59 @@ void PacketHashtable::aggregatePacket(Packet* p)
 			statEmptyBuckets--;
 		}
 		buckets[hash]->inTable = true;
-		*reinterpret_cast<uint32_t*>(buckets[hash]->data.get()+expHelperTable.dpaFlowCountOffset) = htonl(processedPackages);
+		*reinterpret_cast<uint32_t*>(buckets[hash]->data.get()+expHelperTable.dpaFlowCountOffset) = htonl(processedPackages); // FIXME
 		if (oldflowcount) {
 			DPRINTFL(MSG_VDEBUG, "oldflowcount: %u", ntohl(*oldflowcount));
-			*reinterpret_cast<uint32_t*>(buckets[hash]->data.get()+expHelperTable.dpaFlowCountOffset) = htonl(processedPackages);
+			*reinterpret_cast<uint32_t*>(buckets[hash]->data.get()+expHelperTable.dpaFlowCountOffset) = htonl(processedPackages); // FIXME
 		}
 		updateBucketData(buckets[hash]);
+	}
+
+	if (httpPipeliningAggregation && streamBuckets[streamDataIndex] && streamBuckets[streamDataIndex]->pipelinedRequest) {
+		// the packet we are currently processing contains at least one more request or part of a request.
+		// so we have to create a new flow for the next request in the payload and continue aggregating
+
+		// first lookup the right FlowData
+		ExpFieldData* efd = 0;
+		for (int i=0;i<expHelperTable.noAggFields;i++) {
+			ExpFieldData* tefd = &expHelperTable.aggFields[i];
+			if (tefd->typeSpecData.http.aggregate) {
+				efd = tefd;
+				break;
+			}
+		}
+		if (!efd)
+			THROWEXCEPTION("could not find http flow data");
+
+		// there can be multiple requests in one message
+		while (streamBuckets[streamDataIndex]->pipelinedRequest) {
+			streamBuckets[streamDataIndex]->pipelinedRequest = false;
+			FlowData* srcFlowData = reinterpret_cast<FlowData*>(buckets[hash]->data.get()+efd->typeSpecData.http.flowDataOffset);
+			StreamData* data = srcFlowData->streamInfo;
+			IpfixRecord::Data* srcData = buckets[hash]->data.get();
+
+			hash = calculateHash(p->data.netHeader, &streamDataIndex);
+
+			if (data!=streamBuckets[streamDataIndex]) {
+				THROWEXCEPTION("wrong stream data"); //FIXME
+			}
+
+			HashtableBucket* firstbucket = buckets[hash];
+
+			boost::shared_array<IpfixRecord::Data> htdata = createBucketDataCopy(srcData, streamBuckets[streamDataIndex], srcFlowData);
+			buckets[hash] = createBucket(htdata, p->observationDomainID, firstbucket, 0, hash);
+
+			aggregateHttp(htdata.get(), buckets[hash], p, efd, true, false);
+
+			if (firstbucket) {
+				firstbucket->prev = buckets[hash];
+				statMultiEntries++;
+			} else {
+				statEmptyBuckets--;
+			}
+			buckets[hash]->inTable = true;
+			updateBucketData(buckets[hash]);
+		}
 	}
 
 	//if (!snapshotWritten && (time(0)- 300 > starttime)) writeHashtable();

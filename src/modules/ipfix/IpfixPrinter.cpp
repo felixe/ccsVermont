@@ -293,8 +293,12 @@ void PrintHelpers::printFieldData(InformationElement::IeInfo type, IpfixRecord::
 		{
 			if (type==InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload, IPFIX_PEN_vermont) ||
 				type==InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload, IPFIX_PEN_vermont|IPFIX_PEN_reverse)) {
-				printFrontPayload(type, pattern);
+				printFrontPayload(type, pattern, true);
 				return;
+			} else if (type==InformationElement::IeInfo(IPFIX_ETYPEID_httpRequestMethod, IPFIX_PEN_vermont) ||
+                type==InformationElement::IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont)) {
+			    printFrontPayload(type, pattern, false);
+			    return;
 			}
 		}
 	}
@@ -302,8 +306,7 @@ void PrintHelpers::printFieldData(InformationElement::IeInfo type, IpfixRecord::
 	printUint(type, pattern);
 }
 
-
-void PrintHelpers::printFrontPayload(InformationElement::IeInfo type, IpfixRecord::Data* data)
+void PrintHelpers::printFrontPayload(InformationElement::IeInfo type, IpfixRecord::Data* data, bool showOmittedZeroBytes)
 {
 	int lastPrintedCharacter = -1;
 	fprintf(fh, "'");
@@ -333,7 +336,7 @@ void PrintHelpers::printFrontPayload(InformationElement::IeInfo type, IpfixRecor
 		}
 	}
 	fprintf(fh, "'");
-	if (lastPrintedCharacter+1<type.length) {
+	if (showOmittedZeroBytes && lastPrintedCharacter+1<type.length) {
 		fprintf(fh, " --> Not displaying %d trailing zero-bytes", type.length-(lastPrintedCharacter+1));
 	}
 }

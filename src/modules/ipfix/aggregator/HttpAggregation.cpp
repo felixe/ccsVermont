@@ -23,32 +23,73 @@
 /**
  * Parses a given TCP payload and tries to detect HTTP traffic information. With the gathered knowledge it is
  * possible to match HTTP requests and responses, which are belonging to each other. All relevant information
- * is stored in the FlowData structure which is passed as an argument. After the parsing process, the start end end position
- * which should be used for aggregating the payload is stored in @p aggregationStart and @p aggregationEnd.
- * @param p Packet which contains the payload to process
- * @param plen Length of the payload
+ * is stored in the FlowData structure which is passed as an argument. After the parsing process, the start and
+ * end position which should be used for aggregating the payload is stored in @p aggregationStart and @p
+ * aggregationEnd. It's possible that some are bytes left over when processing the payload. This happens if the
+ * parsing process cannot proceed because relevant information is missing. In that case the remaining payload
+ * which could not be processed is copied into a buffer. When the next packet payload is processed this buffer
+ * gets combined with the payload of the next packet. In that case the end of the payload gets stored in @p
+ * dataEnd.
+ * @param data Position at which the payload to be processed starts. It points to the new start afterwards, if the payload to be aggregated changes.
+ * @param dataEnd Position at which the payload to be processed ends. It points to the new end afterwards, if the payload to be aggregated changes.
  * @param flowData Pointer to the FlowData structure which which is used to store and get flow related information
  * @param reverseDirection Whether the current flow is in reverse direction or not
- * @param aggregationStart Used to store the position in the payload from which the aggregation should start
+ * @param aggregationStart Used to store the position in the payload from which the aggregation should start.
  * @param aggregationEnd Used to store the position in the payload at which the aggregation should stop.
- * @return
  */
-int HttpAggregation::detectHttp(const Packet* p, uint16_t plen, FlowData* flowData, bool reverseDirection, const char** aggregationStart, const char** aggregationEnd) {
+void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowData* flowData, bool reverseDirection, const char** aggregationStart, const char** aggregationEnd) {
 	msg(MSG_DEBUG, "detectHttp(): START in %s direction", reverseDirection ? "reverse" : "forward");
 	msg(MSG_DEBUG, "detectHttp(): forward type = %s --- reverse type = %s", toString(flowData->forwardType), toString(flowData->reverseType));
-	msg(MSG_DEBUG, "detectHttp(): forward Flows#=%d, request status=%X", flowData->streamInfo->forwardFlows, flowData->request->status);
-	msg(MSG_DEBUG, "detectHttp(): reverse Flows#=%d, response status=%X", flowData->streamInfo->reverseFlows, flowData->response->status);
+	msg(MSG_DEBUG, "detectHttp(): forward Flows#=%d, reverse Flows#=%d", flowData->streamInfo->forwardFlows, flowData->streamInfo->reverseFlows);
+	msg(MSG_DEBUG, "detectHttp(): request status=%X, response status=%X", flowData->request->status, flowData->response->status);
 
-	const char* data = reinterpret_cast<const char*>(p->data.netHeader+p->payloadOffset);
-	const char* dataEnd = data+plen;
+	*aggregationStart = *data;
 
-	if (*aggregationStart && *aggregationStart > data && *aggregationStart < dataEnd) {
-		data = *aggregationStart;
-	} else {
-		*aggregationStart = data;
+	if (flowData->request->pipelinedRequestOffset && !reverseDirection) {
+	    // we are continuing to process a packets payload which has been processed before.
+	    // this means this packet contains multiple requests
+		msg(MSG_INFO, "detectHttp(): http detection is starting with %u bytes offset", flowData->request->pipelinedRequestOffset);
+		*aggregationStart = *data+flowData->request->pipelinedRequestOffset;
+		flowData->request->pipelinedRequestOffset = 0;
+	} else if (!flowData->request->pipelinedRequestOffset) {
+		uint16_t plen = *dataEnd - *data;
+
+		// check if the last processed packet in this direction has some left over bytes of payload which
+		// have to be reconsidered in combination with the current payload
+		if (reverseDirection && flowData->streamInfo->reverseLength>0 && flowData->streamInfo->reverseLine) {
+		    // combine the bytes left over with the current payload
+			char *combined = 0;
+			copyToCharPointer(&combined, flowData->streamInfo->reverseLine, flowData->streamInfo->reverseLength, false);
+			addToCharPointer(&combined, *data, flowData->streamInfo->reverseLength, plen);
+
+			// set the pointers to the new memory area
+			*data = combined;
+			*aggregationStart = combined;
+			*dataEnd = combined+flowData->streamInfo->reverseLength+plen;
+
+			msg(MSG_INFO, "detectHttp(): %u bytes of previously buffered payload are combined with the current payload. new payload size: %u bytes", flowData->streamInfo->reverseLength, *dataEnd-*data);
+
+			flowData->streamInfo->reverseLength = 0;
+			free(flowData->streamInfo->reverseLine);
+		} else if (!reverseDirection && flowData->streamInfo->forwardLength>0 && flowData->streamInfo->forwardLine) {
+		    // combine the bytes left over with the current payload
+			char* combined;
+			copyToCharPointer(&combined, flowData->streamInfo->forwardLine, flowData->streamInfo->forwardLength, false);
+			addToCharPointer(&combined, *data, flowData->streamInfo->forwardLength, plen);
+
+			// set the pointers to the new memory area
+			*data = combined;
+			*aggregationStart = combined;
+			*dataEnd = combined+flowData->streamInfo->forwardLength+plen;
+
+			msg(MSG_INFO, "detectHttp(): %u bytes of previously buffered payload are combined with the current payload. new payload size: %u bytes", flowData->streamInfo->forwardLength, *dataEnd-*data);
+
+			flowData->streamInfo->forwardLength = 0;
+			free(flowData->streamInfo->forwardLine);
+		}
 	}
 
-	if (!flowData->request->status && !flowData->response->status) {
+	if (!flowData->request->status && !flowData->response->status && flowData->forwardType == HTTP_TYPE_UNKNOWN) {
 		/*
 		 *  fresh start, no request or response has been detected yet.
 		 *  if we start with a http request it should be possible to detect pipelined requests,
@@ -57,24 +98,8 @@ int HttpAggregation::detectHttp(const Packet* p, uint16_t plen, FlowData* flowDa
 
 		msg(MSG_INFO, "detectHttp(): processing new http traffic");
 
-		processNewHttpTraffic(data, dataEnd, flowData, reverseDirection, aggregationStart, aggregationEnd);
-
-		http_type_t type = reverseDirection ? flowData->reverseType : flowData->forwardType;
-		if (type == HTTP_TYPE_RESPONSE) {
-			if (flowData->response->status == MESSAGE_END) {
-				msg(MSG_INFO, "detectHttp(): http response ended");
-				testFinishedMessage(flowData, reverseDirection);
-				if (reverseDirection) flowData->streamInfo->reverseFlows++;
-				else flowData->streamInfo->forwardFlows++;
-			}
-		} else {
-			if (flowData->request->status == MESSAGE_END) {
-				msg(MSG_INFO, "detectHttp(): http request ended");
-				testFinishedMessage(flowData, reverseDirection);
-				if (reverseDirection) flowData->streamInfo->reverseFlows++;
-				else flowData->streamInfo->forwardFlows++;
-			}
-		}
+		if (!processNewHttpTraffic(*aggregationStart, *dataEnd, flowData, reverseDirection, aggregationStart, aggregationEnd))
+		    return; // this message is not a start of a http request or response
 
 	} else {
 		if (flowData->request->status == MESSAGE_END && flowData->response->status == MESSAGE_END)
@@ -85,30 +110,41 @@ int HttpAggregation::detectHttp(const Packet* p, uint16_t plen, FlowData* flowDa
 
 		http_type_t type = reverseDirection ? flowData->reverseType : flowData->forwardType;
 
-		if (type == HTTP_TYPE_RESPONSE) {
-			processHttpResponse(data, dataEnd, flowData, reverseDirection, aggregationStart, aggregationEnd);
-
-			if (flowData->response->status == MESSAGE_END) {
-				msg(MSG_INFO, "detectHttp(): http response ended");
-				testFinishedMessage(flowData, reverseDirection);
-				if (reverseDirection) flowData->streamInfo->reverseFlows++;
-				else flowData->streamInfo->forwardFlows++;
-			}
-		} else {
-			processHttpRequest(data, dataEnd, flowData, reverseDirection, aggregationStart, aggregationEnd);
-
-			if (flowData->request->status == MESSAGE_END) {
-				msg(MSG_INFO, "detectHttp(): http request ended");
-				testFinishedMessage(flowData, reverseDirection);
-				if (reverseDirection) flowData->streamInfo->reverseFlows++;
-				else flowData->streamInfo->forwardFlows++;
-			}
-		}
+		if (type == HTTP_TYPE_RESPONSE)
+			processHttpResponse(*aggregationStart, *dataEnd, flowData, reverseDirection, aggregationStart, aggregationEnd);
+		else if (type == HTTP_TYPE_REQUEST)
+			processHttpRequest(*aggregationStart, *dataEnd, flowData, reverseDirection, aggregationStart, aggregationEnd);
 	}
+
+    http_type_t type = reverseDirection ? flowData->reverseType : flowData->forwardType;
+
+    if (type == HTTP_TYPE_RESPONSE) {
+        if (flowData->response->status & MESSAGE_FLAG_WAITING) { // more payload required to finish processing
+            // copy the bytes left over (i.e. the bytes of payload which could not be parsed) into the buffer
+            storeDataLeftOver(*aggregationEnd, *dataEnd, flowData, reverseDirection);
+            flowData->response->status &= ~MESSAGE_FLAG_WAITING;
+        } else if (flowData->response->status == MESSAGE_END) { // response message ended
+            msg(MSG_INFO, "detectHttp(): http response ended");
+            testFinishedMessage(flowData, reverseDirection);
+            if (reverseDirection) flowData->streamInfo->reverseFlows++;
+            else flowData->streamInfo->forwardFlows++;
+        }
+    } else if (type == HTTP_TYPE_REQUEST) {
+        if (flowData->request->status & MESSAGE_FLAG_WAITING) { // more payload required to finish processing
+            // copy the bytes left over (i.e. the bytes of payload which could not be parsed) into the buffer
+            storeDataLeftOver(*aggregationEnd, *dataEnd, flowData, reverseDirection);
+            flowData->request->status &= ~MESSAGE_FLAG_WAITING;
+        } else if (flowData->request->status == MESSAGE_END) { // request message ended
+            msg(MSG_INFO, "detectHttp(): http request ended");
+            testFinishedMessage(flowData, reverseDirection);
+            if (reverseDirection) flowData->streamInfo->reverseFlows++;
+            else flowData->streamInfo->forwardFlows++;
+        }
+    }
+
 	msg(MSG_DEBUG, "detectHttp(): END");
-	msg(MSG_DEBUG, "detectHttp(): forward Flows#=%d, request status=%X", flowData->streamInfo->forwardFlows, flowData->request->status);
-	msg(MSG_DEBUG, "detectHttp(): reverse Flows#=%d, response status=%X", flowData->streamInfo->reverseFlows, flowData->response->status);
-	return 0;
+	msg(MSG_DEBUG, "detectHttp(): forward Flows#=%d, reverse Flows#=%d", flowData->streamInfo->forwardFlows, flowData->streamInfo->reverseFlows);
+	msg(MSG_DEBUG, "detectHttp(): request status=%X, response status=%X", flowData->request->status, flowData->response->status);
 }
 
 /**
@@ -122,7 +158,6 @@ int HttpAggregation::detectHttp(const Packet* p, uint16_t plen, FlowData* flowDa
  * @param reverseDirection Whether the current flow is in reverse direction or not
  * @param aggregationStart Used to store the position in the payload from which the aggregation should start
  * @param aggregationEnd Used to store the position in the payload at which the aggregation should stop.
- * @return
  */
 int HttpAggregation::processNewHttpTraffic(const char* data, const char* dataEnd, FlowData* flowData, bool reverseDirection, const char** aggregationStart, const char** aggregationEnd) {
 	const char* start = data;
@@ -135,7 +170,7 @@ int HttpAggregation::processNewHttpTraffic(const char* data, const char* dataEnd
 		msg(MSG_INFO, "detectHttp(): payload contains a http %s: '%.*s'", toString(type), end-start, start);
 		if (type == HTTP_TYPE_REQUEST) {
 			flowData->request->status = MESSAGE_REQ_METHOD;
-			copyToCharPointer(&flowData->request->method, start, end-start);
+			copyToCharPointer(&flowData->request->method, start, end-start, true);
 
 			if (reverseDirection) {
 				flowData->reverseType = HTTP_TYPE_REQUEST;
@@ -145,22 +180,11 @@ int HttpAggregation::processNewHttpTraffic(const char* data, const char* dataEnd
 				flowData->reverseType = HTTP_TYPE_RESPONSE;
 			}
 
-			if (processHttpRequest(end, dataEnd, flowData, reverseDirection, aggregationStart, aggregationEnd)) {
-				// http request ended successfully
-
-				if (*aggregationEnd < dataEnd) {
-					// still payload remaining
-					msg(MSG_INFO, "detectHttp(): message end hasnt been reached yet");
-					return 0;
-				} else
-					return 1;
-			} else {
-				THROWEXCEPTION("error"); // FIXME
-			}
-
+			processHttpRequest(end, dataEnd, flowData, reverseDirection, aggregationStart, aggregationEnd);
 		} else if (type == HTTP_TYPE_RESPONSE) {
+			flowData->streamInfo->responseFirst = true;
 			flowData->response->status = MESSAGE_RES_VERSION;
-			copyToCharPointer(&flowData->response->version, start, end-start);
+			copyToCharPointer(&flowData->response->version, start, end-start, true);
 
 			if (reverseDirection) {
 				flowData->reverseType = HTTP_TYPE_RESPONSE;
@@ -171,37 +195,27 @@ int HttpAggregation::processNewHttpTraffic(const char* data, const char* dataEnd
 			}
 
 			// since we started with a response the next request should be put into a new flow
+			flowData->request->status = MESSAGE_END;
 			if (reverseDirection) flowData->streamInfo->forwardFlows++;
 			else flowData->streamInfo->reverseFlows++;
 
 			processHttpResponse(end, dataEnd, flowData, reverseDirection, aggregationStart, aggregationEnd);
-
-			// end of response hasnt been reached yet
-			*aggregationEnd = dataEnd;
-			return 1;
 		}
+
+		return 1;
 	}
 
 	/*
-	 * cannot be the start of a http request or response, we assume the packet size i
+	 * this packet is not the start of a http request or response, this can have several reasons:
 	 *  - this isn't a http stream
-	 *  - this packet is a subsequent packet of a previous unreceived http request
-	 *  - this packet is a subsequent packet of a previous unreceived http request
+	 *  - this packet is a subsequent packet of a previous unreceived http request/response
 	 *  - the payload in the packet is too short, but that is unlikely
-	 * so the one option would be to check for a http delimiter (<CRLF> or <CRLF CRLF>) followed
-	 * by an optional request keyword to determine if this could be a http request or response
 	 */
 
-	if (start >= dataEnd && end >= dataEnd) {
-		// skip package, do not aggregate anything
-		msg(MSG_INFO, "detectHttp(): no http traffic in this flow yet!");
-		*aggregationStart = dataEnd;
-		*aggregationEnd = dataEnd;
-		return 0;
-	}
-
-	// TODO this packet should not be skipped, instead the remaining payload should be copied into a buffer
-	msg(MSG_FATAL, "detectHttp(): skipping payload which eventual should not be skipped?");
+	// skip package, do not aggregate anything
+	msg(MSG_INFO, "detectHttp(): no http traffic in this flow direction yet!");
+	*aggregationStart = dataEnd;
+	*aggregationEnd = dataEnd;
 	return 0;
 }
 
@@ -241,7 +255,7 @@ int HttpAggregation::processHttpRequest(const char* data, const char* dataEnd, F
 			if (getRequestMethod(start, dataEnd, &start, &end)) {
 				msg(MSG_INFO, "detectHttp(): request method = '%.*s'", end-start, start);
 				flowData->request->status = MESSAGE_REQ_METHOD;
-				copyToCharPointer(&flowData->request->version, start, end-start);
+				copyToCharPointer(&flowData->request->method, start, end-start, true);
 			} else {
 				// the message seems not to start with a valid http request version identifier.
 				// we assume this packet is not a http packet, therefore skip it
@@ -252,13 +266,10 @@ int HttpAggregation::processHttpRequest(const char* data, const char* dataEnd, F
 			break;
 		}
 		case MESSAGE_REQ_METHOD: {
-			int code = getRequestUri(start, dataEnd, &start, &end);
-			if (code) {
-				if (isMessageEntityForbidden(code))
-					flowData->request->entityTransfer = TRANSFER_NO_ENTITY;
-				flowData->request->status = MESSAGE_REQ_URI;
+			if (getRequestUri(start, dataEnd, &start, &end)) {
 				msg(MSG_INFO, "detectHttp(): request uri = '%.*s'", end-start, start);
-				copyToCharPointer(&flowData->request->uri, start, end-start);
+				flowData->request->status = MESSAGE_REQ_URI;
+				copyToCharPointer(&flowData->request->uri, start, end-start, true);
 			} else {
 				// first line of a request should be processed without problems, even with smaller packet sizes.
 				// therefore skip this packet. // TODO stimmt nicht bei multiple requests
@@ -272,7 +283,7 @@ int HttpAggregation::processHttpRequest(const char* data, const char* dataEnd, F
 			if (getRequestVersion(start, dataEnd, &start, &end)) {
 				flowData->request->status = MESSAGE_REQ_VERSION;
 				msg(MSG_INFO, "detectHttp(): request version = '%.*s'", end-start, start);
-				copyToCharPointer(&flowData->request->version, start, end-start);
+				copyToCharPointer(&flowData->request->version, start, end-start, true);
 			} else {
 				// first line of a request should be processed without problems, even with smaller packet sizes.
 				// therefore skip this packet. // TODO stimmt nicht bei multiple requests
@@ -298,9 +309,9 @@ int HttpAggregation::processHttpRequest(const char* data, const char* dataEnd, F
 				}
 				//msg(MSG_VDEBUG, "detectHttp(): message header fields = \n'%.*s'", end-start, start);
 			} else {
-				// FIXME
-				msg(MSG_INFO, "detectHttp(): something went wrong...");
-				*aggregationEnd = dataEnd;
+				msg(MSG_INFO, "detectHttp(): request header did not end yet, wait for new payload");
+				*aggregationEnd = start;
+				flowData->request->status = flowData->request->status | MESSAGE_FLAG_WAITING;
 				return 0;
 			}
 			break;
@@ -316,31 +327,13 @@ int HttpAggregation::processHttpRequest(const char* data, const char* dataEnd, F
 			break;
 		}
 		default:
-			THROWEXCEPTION("unhandled or unknown http response status: 0x%x", flowData->response->status);
+			THROWEXCEPTION("unhandled or unknown http request status: 0x%x", flowData->response->status);
 		}
 	}
 
 	// end of the request hasnt been reached yet, aggregation of the
 	*aggregationEnd = dataEnd;
 	return 0;
-}
-
-void HttpAggregation::storeDataLeftOver(const char* data, const char* dataEnd, FlowData* flowData, bool reverseDirection) {
-			// not enough characters remaining to proceed processing now.
-			// put remaining characters in the buffer and wait for new data to arrive.
-//			if (dataEnd-data > 0) {
-//				char *dst = reverseDirection ? flowData->reverseLine : flowData->forwardLine;
-//				uint16_t size = reverseDirection ? flowData->reverseLength : flowData->forwardLength;
-//				addToCharPointer(&dst, end, size, dataEnd-start);
-//				size+=(dataEnd-start);
-//				if (reverseDirection) flowData->reverseLength = size;
-//				else flowData->forwardLength = size;
-//				*aggregationEnd = dataEnd; // FIXME check if correct
-//			} else {
-//				msg(MSG_FATAL, "detectHttp(): something went wrong!");
-//			}
-//			*aggregationEnd = 0;
-//			return 0;
 }
 
 /**
@@ -378,7 +371,7 @@ int HttpAggregation::processHttpResponse(const char* data, const char* dataEnd, 
 			if (getResponseVersion(start, dataEnd, &start, &end)) {
 				msg(MSG_INFO, "detectHttp(): response version = '%.*s'", end-start, start);
 				flowData->response->status = MESSAGE_RES_VERSION;
-				copyToCharPointer(&flowData->response->version, start, end-start);
+				copyToCharPointer(&flowData->response->version, start, end-start, true);
 			} else {
 				// the message seems not to start with a valid http response version identifier.
 				// we assume this packet is not a http packet, therefore skip it
@@ -395,7 +388,7 @@ int HttpAggregation::processHttpResponse(const char* data, const char* dataEnd, 
 					flowData->response->entityTransfer = TRANSFER_NO_ENTITY;
 				flowData->response->status = MESSAGE_RES_CODE;
 				msg(MSG_INFO, "detectHttp(): response status code = '%.*s'", end-start, start);
-				copyToCharPointer(&flowData->response->statusCode, start, end-start);
+				copyToCharPointer(&flowData->response->statusCode, start, end-start, true);
 			} else {
 				// first line of a response should be processed without problems, even with smaller packet sizes.
 				// therefore skip this packet.
@@ -410,7 +403,7 @@ int HttpAggregation::processHttpResponse(const char* data, const char* dataEnd, 
 			if (getResponsePhrase(start, dataEnd, &start, &end)) {
 				flowData->response->status = MESSAGE_RES_PHRASE;
 				msg(MSG_INFO, "detectHttp(): response phrase = '%.*s'", end-start, start);
-				copyToCharPointer(&flowData->response->responsePhrase, start, end-start);
+				copyToCharPointer(&flowData->response->responsePhrase, start, end-start, true);
 			} else {
 				// first line of a response should be processed without problems, even with smaller packet sizes.
 				// therefore skip this packet.
@@ -435,8 +428,9 @@ int HttpAggregation::processHttpResponse(const char* data, const char* dataEnd, 
 				}
 				//msg(MSG_VDEBUG, "detectHttp(): message header fields = \n'%.*s'", end-start, start);
 			} else {
-				msg(MSG_INFO, "detectHttp(): not enough!!!!");
-				*aggregationEnd = dataEnd;
+				msg(MSG_INFO, "detectHttp(): response header did not end yet, wait for new payload");
+				*aggregationEnd = start;
+				flowData->response->status = flowData->response->status | MESSAGE_FLAG_WAITING;
 				return 0;
 			}
 			break;
@@ -503,7 +497,6 @@ int HttpAggregation::processMessageHeader(const char* data, const char* dataEnd,
 		else
 			data = *end;
 	}
-
 	*end = dataEnd;
 	return 0;
 }
@@ -646,7 +639,7 @@ void HttpAggregation::setContentLength(const char* data, const char* dataEnd, Fl
 	} else {
 		flowData->response->entityTransfer = TRANSFER_CONTENT_LENGTH;
 		flowData->response->contentLength = strtol(data, NULL, 10);
-		msg(MSG_INFO, "detectHttp(): set response content-length to %u", flowData->response->contentLength);
+		msg(MSG_INFO, "detectHttp(): set response content-length to %u (parsed string = %.*s)", flowData->response->contentLength, dataEnd-data, data);
 	}
 }
 
@@ -676,14 +669,14 @@ int HttpAggregation::processEntity(const char* data, const char* dataEnd, const 
 			*end = dataEnd;
 			return 0;
 		}
-		uint16_t* contentLength;
+		uint32_t* contentLength;
 		const char* start = data;
 
 		if (type == HTTP_TYPE_REQUEST) contentLength = &flowData->request->contentLength;
 		else contentLength = &flowData->response->contentLength;
 
 		while (start<dataEnd) {
-			uint16_t len = dataEnd-start;
+			uint32_t len = dataEnd-start;
 
 			if (*contentLength<=0) {
 				*contentLength = getChunkLength(start, dataEnd, end);
@@ -692,7 +685,7 @@ int HttpAggregation::processEntity(const char* data, const char* dataEnd, const 
 			}
 
 			if (*contentLength>0) {
-				if (*contentLength-len < 0) {
+				if (*contentLength < len) {
 					msg(MSG_INFO, "detectHttp(): this payload contains multiple chunks or multiple parts of chunks. current part range: %u to %u (%u bytes)", *end-data, (*end+*contentLength)-data, *contentLength);
 					start = *end + *contentLength;
 					*contentLength = 0;
@@ -739,7 +732,7 @@ int HttpAggregation::processEntity(const char* data, const char* dataEnd, const 
 		}
 		return 0;
 	} else if (transfer == TRANSFER_CONTENT_LENGTH) {
-		uint16_t* contentLength = 0;
+		uint32_t* contentLength = 0;
 		if (type == HTTP_TYPE_REQUEST) {
 			contentLength = &flowData->request->contentLength;
 		} else {
@@ -875,7 +868,7 @@ int HttpAggregation::eatCRLF(const char* data, const char* dataEnd, const char**
  * @param end Used to store the position at which the parsing process stopped
  * @return Returns the size of the chunk in bytes
  */
-uint16_t HttpAggregation::getChunkLength(const char* data, const char* dataEnd, const char** end) {
+uint32_t HttpAggregation::getChunkLength(const char* data, const char* dataEnd, const char** end) {
 	/*
 	 * From RFC 2616, Section 3.6
 	 * chunk          = chunk-size [ chunk-extension ] CRLF
@@ -885,7 +878,7 @@ uint16_t HttpAggregation::getChunkLength(const char* data, const char* dataEnd, 
 	while (data<dataEnd) {
 		if (*data == '\r') {
 			if (data+1<dataEnd && *(data+1) == '\n') {
-				uint16_t length = strtol(start, NULL, 16); // works also if chunk extensions are present
+				uint32_t length = strtol(start, NULL, 16); // works also if chunk extensions are present
 				msg(MSG_INFO, "detectHttp(): start of a new chunk. chunk length = %u\n", length);
 				*end = data+2; // FIXME to check
 				return length;
@@ -956,6 +949,7 @@ int HttpAggregation::getRequestUri(const char* data, const char* dataEnd, const 
 int HttpAggregation::getRequestVersion(const char* data, const char* dataEnd, const char** start, const char** end) {
 	if (getDelimitedText(data, dataEnd, start, end)) {
 		if (isVersion(*start, *end)) {
+		    eatCRLF(*end, dataEnd, end);
 			return 1;
 		}
 		msg(MSG_INFO, "detectHttp(): invalid http version specifier : %.*s", *end-*start, *start);
@@ -1006,12 +1000,12 @@ int HttpAggregation::getResponseVersion(const char* data, const char* dataEnd, c
  * @param end Used to store the position at which the parsed text ends
  * @return Returns the response code if the string is valid, 0 otherwise
  */
-int HttpAggregation::getResponseCode(const char* data, const char* dataEnd, const char** start, const char** end) {
+uint16_t HttpAggregation::getResponseCode(const char* data, const char* dataEnd, const char** start, const char** end) {
 	if (getSpaceDelimitedText(data, dataEnd, start, end)) {
 		if (*end-*start!=3)
 			return 0;
 		const char *codeEnd = *end;
-		int code = strtol(*start, NULL, 10); // we now that our text is delimited by some space
+		uint16_t code = strtol(*start, NULL, 10); // we now that our text is delimited by some space
 		if (code>=100 && code <= 600)
 			return code;
 		else return 1;
@@ -1028,7 +1022,11 @@ int HttpAggregation::getResponseCode(const char* data, const char* dataEnd, cons
  * @return Returns 1 if the identifier is valid, 0 otherwise
  */
 int HttpAggregation::getResponsePhrase(const char* data, const char* dataEnd, const char** start, const char** end) {
-	return getDelimitedText(data, dataEnd, start, end);
+    if (getDelimitedText(data, dataEnd, start, end)) {
+        eatCRLF(*end, dataEnd, end);
+        return 1;
+    }
+	return 0;
 }
 
 /**
@@ -1304,11 +1302,16 @@ int HttpAggregation::isMessageEntityForbidden(const int statusCode) {
  * @param dst Destination
  * @param src Source
  * @param size Number of bytes to copy
+ * @param terminator Specifies if the string terminator '\0' should be added at the end
  */
-void HttpAggregation::copyToCharPointer(char** dst, const char* src, size_t size) {
-	*dst = (char*)malloc(sizeof(char)*(size+1));
+void HttpAggregation::copyToCharPointer(char** dst, const char* src, size_t size, bool terminator) {
+	if (terminator)
+		*dst = (char*)malloc(sizeof(char)*(size+1));
+	else
+		*dst = (char*)malloc(sizeof(char)*(size));;
 	memcpy(*dst, src, size);
-	(*dst)[size]='\0';
+	if (terminator)
+		(*dst)[size]='\0';
 }
 
 /*
@@ -1324,7 +1327,31 @@ void HttpAggregation::copyToCharPointer(char** dst, const char* src, size_t size
  */
 void HttpAggregation::addToCharPointer(char **dst, const char* src, size_t dstLenth, size_t size) {
 	*dst = (char*)realloc(*dst, dstLenth+size);
-	memcpy(*dst+size, src, size);
+	memcpy(*dst+dstLenth, src, size);
+}
+
+/**
+ * Stores the given payload in the proper buffer. When the next packet arrives the content
+ * of the buffer will be combined with the payload of the new packet.
+ * @param data Pointer to the payload to be stored
+ * @param dataEnd Pointer to the end of the payload to be stored
+ * @param flowData Pointer to the FlowData structure which contains information about the current flow
+ * @param reverseDirection Whether the current flow is in reverse direction or not
+ */
+void HttpAggregation::storeDataLeftOver(const char* data, const char* dataEnd, FlowData* flowData, bool reverseDirection) {
+    // not enough characters remaining to proceed processing now.
+    // put remaining characters in the buffer and wait for new data to arrive.
+    if (dataEnd-data > 0) {
+        char **dst = reverseDirection ? &flowData->streamInfo->reverseLine : &flowData->streamInfo->forwardLine;
+        uint16_t size = dataEnd-data;
+        copyToCharPointer(dst, data, size, false);
+        if (reverseDirection) flowData->streamInfo->reverseLength = size;
+        else flowData->streamInfo->forwardLength = size;
+        msg(MSG_INFO, "detectHttp(): copying %u bytes of left over payload to buffer.", size);
+        msg(MSG_INFO, "detectHttp(): storing message : %.*s", size, data);
+    } else {
+        msg(MSG_FATAL, "detectHttp(): something went wrong!");
+    }
 }
 
 /**
@@ -1334,10 +1361,6 @@ void HttpAggregation::initializeFlowData(FlowData* flowData, StreamData* streamD
 	flowData->streamInfo = streamData;
 	flowData->forwardType = HTTP_TYPE_UNKNOWN;
 	flowData->reverseType = HTTP_TYPE_UNKNOWN;
-	flowData->forwardLine = 0;
-	flowData->reverseLine = 0;
-	flowData->forwardLength = 0;
-	flowData->reverseLength = 0;
 
 	flowData->request = new RequestData;
 	flowData->request->method = 0;
@@ -1346,6 +1369,8 @@ void HttpAggregation::initializeFlowData(FlowData* flowData, StreamData* streamD
 	flowData->request->status = NO_MESSAGE;
 	flowData->request->entityTransfer = TRANSFER_UNKNOWN;
 	flowData->request->contentLength = 0;
+	flowData->request->pipelinedRequestOffset = 0;
+	flowData->request->pipelinedRequestOffsetEnd = 0;
 
 	flowData->response = new ResponseData;
 	flowData->response->version = 0;
@@ -1363,6 +1388,14 @@ HttpAggregation::StreamData* HttpAggregation::initStreamBucket() {
 	StreamData* streamBucket = new StreamData;
 	streamBucket->forwardFlows = 0;
 	streamBucket->reverseFlows = 0;
+
+	streamBucket->responseFirst = false;
+	streamBucket->pipelinedRequest = false;
+
+	streamBucket->forwardLine = 0;
+	streamBucket->reverseLine = 0;
+	streamBucket->forwardLength = 0;
+	streamBucket->reverseLength = 0;
 	return streamBucket;
 }
 
@@ -1422,7 +1455,7 @@ const HttpAggregation::value_string vals_status_code[] = {
 	{ 205, "Reset Content"},
 	{ 206, "Partial Content"},
 	{ 207, "Multi-Status"},                    /* RFC 4918 */
-        { 226, "IM Used"},                         /* RFC 3229 */
+    { 226, "IM Used"},                         /* RFC 3229 */
 	{ 299, "Success - Others"},
 
 	{ 300, "Multiple Choices"},
@@ -1456,10 +1489,10 @@ const HttpAggregation::value_string vals_status_code[] = {
 	{ 422, "Unprocessable Entity"},            /* RFC 4918 */
 	{ 423, "Locked"},                          /* RFC 4918 */
 	{ 424, "Failed Dependency"},               /* RFC 4918 */
-        { 426, "Upgrade Required"},                /* RFC 2817 */
-        { 428, "Precondition Required"},           /* RFC 6585 */
-        { 429, "Too Many Requests"},               /* RFC 6585 */
-        { 431, "Request Header Fields Too Large"}, /* RFC 6585 */
+    { 426, "Upgrade Required"},                /* RFC 2817 */
+    { 428, "Precondition Required"},           /* RFC 6585 */
+    { 429, "Too Many Requests"},               /* RFC 6585 */
+    { 431, "Request Header Fields Too Large"}, /* RFC 6585 */
 	{ 499, "Client Error - Others"},
 
 	{ 500, "Internal Server Error"},
@@ -1469,7 +1502,7 @@ const HttpAggregation::value_string vals_status_code[] = {
 	{ 504, "Gateway Time-out"},
 	{ 505, "HTTP Version not supported"},
 	{ 507, "Insufficient Storage"},            /* RFC 4918 */
-        { 511, "Network Authentication Required"}, /* RFC 6585 */
+    { 511, "Network Authentication Required"}, /* RFC 6585 */
 	{ 599, "Server Error - Others"},
 
 	{ 0, 	NULL}
@@ -1482,7 +1515,7 @@ void HttpAggregation::testFinishedMessage(FlowData* flowData, bool reverseDirect
 
 	if (type==HTTP_TYPE_REQUEST) {
 		ASSERT_(flowData->request->status == MESSAGE_END, "message did not end");
-		ASSERT_(!(flowData->request->status & MESSAGE_FAILURE), "message end cannot be reached if a parsing error occurs");
+		ASSERT_(!(flowData->request->status & MESSAGE_FLAG_FAILURE), "message end cannot be reached if a parsing error occurs");
 		ASSERT_(flowData->request->entityTransfer!=TRANSFER_UNKNOWN, "transfer type unknown");
 		ASSERT_(flowData->request->method != 0, "request method is NULL");
 		ASSERT_(flowData->request->uri != 0, "request uri is NULL");
@@ -1491,7 +1524,7 @@ void HttpAggregation::testFinishedMessage(FlowData* flowData, bool reverseDirect
 		ASSERT_(flowData->response->status != MESSAGE_END, "response must not end before request");
 	} else {
 		ASSERT_(flowData->response->status == MESSAGE_END, "message did not end");
-		ASSERT_(!(flowData->response->status & MESSAGE_FAILURE), "message end cannot be reached if a parsing error occurs");
+		ASSERT_(!(flowData->response->status & MESSAGE_FLAG_FAILURE), "message end cannot be reached if a parsing error occurs");
 		ASSERT_(flowData->response->entityTransfer!=TRANSFER_UNKNOWN, "transfer type unknown");
 		ASSERT_(flowData->response->version != 0, "response version is NULL");
 		ASSERT_(flowData->response->statusCode != 0, "response status code is NULL");

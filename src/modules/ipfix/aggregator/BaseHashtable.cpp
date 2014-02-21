@@ -394,8 +394,9 @@ int BaseHashtable::isToBeAggregated(InformationElement::IeInfo& type)
 				case IPFIX_ETYPEID_dpaFlowCount:
 				case IPFIX_ETYPEID_dpaReverseStart:
 				case IPFIX_ETYPEID_transportOctetDeltaCount:
-				case IPFIX_ETYPEID_httpMethod:
-				case IPFIX_ETYPEID_httpType:
+				case IPFIX_ETYPEID_httpRequestMethod:
+				case IPFIX_ETYPEID_httpRequestUri:
+				case IPFIX_ETYPEID_httpResponseCode:
 					return 1;
 			}
 			break;
@@ -410,8 +411,9 @@ int BaseHashtable::isToBeAggregated(InformationElement::IeInfo& type)
 				case IPFIX_ETYPEID_dpaFlowCount:
 				case IPFIX_ETYPEID_dpaReverseStart:
 				case IPFIX_ETYPEID_transportOctetDeltaCount:
-				case IPFIX_ETYPEID_httpMethod:
-				case IPFIX_ETYPEID_httpType:
+                case IPFIX_ETYPEID_httpRequestMethod:
+                case IPFIX_ETYPEID_httpRequestUri:
+                case IPFIX_ETYPEID_httpResponseCode:
 					return 1;
 			}
 			break;
@@ -567,6 +569,9 @@ void BaseHashtable::genBiflowStructs()
 					case IPFIX_ETYPEID_dpaFlowCount:
 					case IPFIX_ETYPEID_dpaReverseStart:
 					case IPFIX_ETYPEID_anonymisationType:
+					case IPFIX_ETYPEID_httpRequestMethod:
+					case IPFIX_ETYPEID_httpRequestUri:
+					case IPFIX_ETYPEID_httpResponseCode:
 						mapReverseElement(fi->type);
 						break;
 

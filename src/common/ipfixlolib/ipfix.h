@@ -194,8 +194,9 @@ extern "C" {
  * 1: the preceding information element in the data record was anonymised
  */
 #define IPFIX_ETYPEID_anonymisationType				9
-#define IPFIX_ETYPEID_httpMethod					10
-#define IPFIX_ETYPEID_httpType						11
+#define IPFIX_ETYPEID_httpRequestMethod             10
+#define IPFIX_ETYPEID_httpRequestUri                11
+#define IPFIX_ETYPEID_httpResponseCode              12
 
 #define IPFIX_LENGTH_ipVersion                      IPFIX_LENGTH_octet
 #define IPFIX_LENGTH_sourceIPv4Address              IPFIX_LENGTH_ipv4Address
@@ -308,8 +309,8 @@ extern "C" {
 #define IPFIX_ELENGTH_maxPacketGap					IPFIX_LENGTH_unsigned32
 #define IPFIX_ELENGTH_frontPayloadPktCount			IPFIX_LENGTH_unsigned32
 #define IPFIX_ELENGTH_anonymisationType				IPFIX_LENGTH_octet
-#define IPFIX_ELENGTH_httpMethod					16
-#define IPFIX_ELENGTH_httpType						IPFIX_LENGTH_octet
+#define IPFIX_ELENGTH_httpRequestMethod             16
+#define IPFIX_ELENGTH_httpResponseCode				IPFIX_LENGTH_unsigned16
 
 #define MAX_MSG_LEN   65536
 

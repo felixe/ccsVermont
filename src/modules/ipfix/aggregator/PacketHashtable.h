@@ -55,6 +55,7 @@ private:
 		IpfixRecord::Data* dst;
 		IpfixRecord::Data* src;
 		ExpFieldData* efd;
+		HashtableBucket** hbucket;
 	};
 
 	/**
@@ -96,7 +97,7 @@ private:
 		/**
 		 * contains type specific data that is needed for aggregation
 		 */
-		union TypeSpecificData {
+		struct TypeSpecificData {
 			struct FrontPayloadData {
 				uint32_t pktCountOffset; /**< offset from start of record data to IPFIX_ETYPE_FRONTPAYLOADPKTCOUNT, 0xFFFFFFFF if not used */
 				uint32_t dpaForcedExportOffset; /**< for DPA: offset from start of record data to IPFIX_ETYPE_DPAFORCEDEXPORT, ::UNUSED if not used */
@@ -105,10 +106,17 @@ private:
 				uint32_t fpaLenOffset; /**< offset from start of record data to IPFIX_ETYPE_FRONTPAYLOADLEN, 0xFFFFFFFF if not used */
 				bool dpa; /**< set to true, if DPA was activated */
 			} frontPayload;
+			struct HttpAggregationData {
+			    uint32_t flowDataOffset;        /**< offset from start of record data to @c FlowData structure*/
+			    uint32_t requestMethodOffset;   /**< offset from start of record data to IPFIX_ETYPEID_httpRequestMethod */
+			    uint32_t requestUriOffset;      /**< offset from start of record data to IPFIX_ETYPEID_httpRequestUri */
+			    uint16_t requestUriLength;      /**< max length of the http request uri field */
+			    uint32_t responseCodeOffset;    /**< offset from start of record data to IPFIX_ETYPEID_httpResponseCode */
+			    bool aggregate;                 /**< set to true, if http aggregation was activated */
+			} http;
 		} typeSpecData;
 
-		bool httpFlowData;
-		uint32_t httpFlowDataOffset;
+
 	};
 	struct ExpHelperTable
 	{
@@ -135,7 +143,7 @@ private:
 
 	ExpHelperTable expHelperTable;
 
-	StreamData** streamBuckets;
+	StreamData** streamBuckets; /**< This array contains http related information about tcp streams. */
 
 	bool snapshotWritten; /**< set to true, if snapshot of hashtable was already written */
 	time_t startTime; /**< if a snapshot of the hashtable should be performed, this variable is used and stores initialization time of this hashtable */
@@ -164,7 +172,8 @@ private:
 	void fillExpFieldData(ExpFieldData* efd, TemplateInfo::FieldInfo* hfi, Rule::Field::Modifier fieldModifier, uint16_t index);
 	uint32_t calculateHash(const IpfixRecord::Data* data, uint32_t* streamDataIndex);
 	uint32_t calculateHashRev(const IpfixRecord::Data* data, uint32_t* streamDataIndex);
-	boost::shared_array<IpfixRecord::Data> buildBucketData(Packet* p, StreamData* streamData);
+	boost::shared_array<IpfixRecord::Data> buildBucketData(Packet* p, StreamData* streamData, HashtableBucket** hbucket);
+	boost::shared_array<IpfixRecord::Data> createBucketDataCopy(const IpfixRecord::Data* srcData, StreamData* streamData, FlowData* srcFlowData);
 	void aggregateField(const ExpFieldData* efd, HashtableBucket* hbucket,
 					    const IpfixRecord::Data* deltaData, IpfixRecord::Data* data);
 	void aggregateFlow(HashtableBucket* bucket, const Packet* p, bool reverse);

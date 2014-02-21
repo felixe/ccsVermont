@@ -39,7 +39,7 @@ class PrintHelpers
 		void printUint(InformationElement::IeInfo type, IpfixRecord::Data* data);
 		void printUint(char* buf, InformationElement::IeInfo type, IpfixRecord::Data* data);
 		void printLocaltime(InformationElement::IeInfo type, IpfixRecord::Data* data);
-		void printFrontPayload(InformationElement::IeInfo type, IpfixRecord::Data* data);
+		void printFrontPayload(InformationElement::IeInfo type, IpfixRecord::Data* data, bool showOmittedZeroBytes);
 
 	protected:
 		FILE* fh;

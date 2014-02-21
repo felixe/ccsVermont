@@ -140,10 +140,9 @@ struct ipfix_identifier ipfixids[] = {
  { IPFIX_ETYPEID_transportOctetDeltaCount, IPFIX_ELENGTH_transportOctetDeltaCount, IPFIX_PEN_vermont|IPFIX_PEN_reverse, "revTransportOctetDeltaCount" },
 // { IPFIX_ETYPEID_transportOctetDeltaCount|IPFIX_ETYPE_reverse_bit, IPFIX_ELENGTH_transportOctetDeltaCount, IPFIX_PEN_vermont, "revTransportOctetDeltaCount" },
  { IPFIX_ETYPEID_anonymisationType, IPFIX_ELENGTH_anonymisationType, IPFIX_PEN_vermont, "anonymisationType" },
- { IPFIX_ETYPEID_httpMethod, IPFIX_ELENGTH_httpMethod, IPFIX_PEN_vermont, "httpMethod" },
- { IPFIX_ETYPEID_httpMethod, IPFIX_ELENGTH_httpMethod, IPFIX_PEN_vermont|IPFIX_PEN_reverse, "revHttpMethod" },
- { IPFIX_ETYPEID_httpType, IPFIX_ELENGTH_httpType, IPFIX_PEN_vermont, "httpType" },
- { IPFIX_ETYPEID_httpType, IPFIX_ELENGTH_httpType, IPFIX_PEN_vermont|IPFIX_PEN_reverse, "revHttpType" }
+ { IPFIX_ETYPEID_httpRequestMethod, IPFIX_ELENGTH_httpRequestMethod, IPFIX_PEN_vermont, "httpRequestMethod" },
+ { IPFIX_ETYPEID_httpRequestUri, 0, IPFIX_PEN_vermont, "httpRequestUri" },
+ { IPFIX_ETYPEID_httpResponseCode, IPFIX_ELENGTH_httpResponseCode, IPFIX_PEN_vermont, "httpResponseCode" }
 };
 
 
