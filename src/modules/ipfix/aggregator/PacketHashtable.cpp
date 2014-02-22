@@ -32,7 +32,7 @@
 using namespace InformationElement;
 
 const uint32_t PacketHashtable::ExpHelperTable::UNUSED = 0xFFFFFFFF;
-long long int processedPackages = 0;
+long long int processedPackets = 0;
 
 PacketHashtable::PacketHashtable(Source<IpfixRecord*>* recordsource, Rule* rule,
 		uint16_t minBufferTime, uint16_t maxBufferTime, uint8_t hashbits)
@@ -286,7 +286,7 @@ void PacketHashtable::aggregateFrontPayload(IpfixRecord::Data* bucket, Hashtable
 void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* hbucket, const Packet* p,
 		const ExpFieldData* efd, bool firstpacket, bool initialize)
 {
-	printf("aggregateHttp() of type: %s, firstpacket:%s, onlyinit:%s\n", efd->typeId.toString().c_str(), firstpacket ? "true" : "false", initialize ? "true" : "false");
+	DPRINTFL(MSG_INFO, "aggregateHttp() of type: %s, firstpacket:%s, onlyinit:%s", efd->typeId.toString().c_str(), firstpacket ? "true" : "false", initialize ? "true" : "false");
 	DPRINTFL(MSG_VDEBUG, "called (%s, %hhu, %hhu)", efd->typeId.toString().c_str(), firstpacket, initialize);
 
 	PayloadPrivateData* ppd = reinterpret_cast<PayloadPrivateData*>(bucket+efd->privDataOffset);
@@ -317,8 +317,7 @@ void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* 
 	detectHttp(&data, &dataEnd, flowData, revdir, &aggregationStart, &aggregationEnd);
 
 	if (!aggregationStart || !aggregationEnd || aggregationEnd <= aggregationStart) {
-		printf("%p %p\n", aggregationStart, aggregationEnd);
-		msg(MSG_INFO, "no payload has to be aggregated, skip packet payload");
+		DPRINTFL(MSG_INFO, "no payload has to be aggregated, skip packet payload");
 		return;
 	}
 
@@ -328,9 +327,9 @@ void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* 
 		size = min(avail, size);
 		memcpy(dst+ppd->byteCount, aggregationStart, size);
 		ppd->byteCount+=size;
-		msg(MSG_INFO, "aggregated %u bytes of payload. %u bytes free.", size, efd->dstLength - ppd->byteCount);
-		msg(MSG_DEBUG, "payload aggregated = '%.*s'", size, aggregationStart);
-	} else msg(MSG_INFO, "not aggregating payload, no space left.");
+		DPRINTFL(MSG_INFO, "aggregated %u bytes of payload. %u bytes free.", size, efd->dstLength - ppd->byteCount);
+		DPRINTFL(MSG_DEBUG, "payload aggregated = '%.*s'", size, aggregationStart);
+	} else DPRINTFL(MSG_INFO, "not aggregating payload, no space left.");
 
 	// increase packet counter (if available)
 	if (efd->typeSpecData.frontPayload.pktCountOffset != ExpHelperTable::UNUSED)
@@ -345,7 +344,7 @@ void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* 
 
 	// TODO force expiry if the connection closes
 	if (flowData->request->status == MESSAGE_END && flowData->response->status == MESSAGE_END) {
-		msg(MSG_INFO, "forcing expiry of http flow");
+		DPRINTFL(MSG_INFO, "forcing expiry of http flow");
 		hbucket->forceExpiry=true;
 		if (flowData->streamInfo->responseFirst)
 			flowData->streamInfo = NULL;
@@ -844,21 +843,11 @@ void PacketHashtable::fillExpFieldData(ExpFieldData* efd, TemplateInfo::FieldInf
 	efd->typeSpecData.http.requestUriLength = 0;
 	efd->typeSpecData.http.responseCodeOffset = ExpHelperTable::UNUSED;
 
-	if (efd->varSrcIdx)
-		printf("    varying in positions | ");
-	else
-		printf("NOT varying in positions | ");
-	printf("%-67s | ", hfi->type.toString().c_str());
-	printf("dstLength: %d, srcLength: %d, offset/dstIndex: %d", efd->dstLength, efd->srcLength, efd->dstIndex);
-
 	// initialize static source index, if current field does not have a variable pointer
 	if (!efd->varSrcIdx) {
 		Packet p; // not good: create temporary packet just for initializing our optimization structure
 		efd->srcIndex = getRawPacketFieldOffset(hfi->type, &p);
-		if (efd->srcIndex == (reinterpret_cast<const unsigned char*>(&p.zeroBytes) - p.data.netHeader))
-			printf(" | zero pointer");
 	}
-	printf("\n");
 
 	// special case for masked IPs: those contain variable pointers, if they are masked
 	if ((efd->typeId==IeInfo(IPFIX_TYPEID_sourceIPv4Address, 0) || efd->typeId==IeInfo(IPFIX_TYPEID_destinationIPv4Address, 0)) &&
@@ -1032,7 +1021,7 @@ void PacketHashtable::buildExpHelperTable()
 		ExpFieldData* efd = &expHelperTable.aggFields[expHelperTable.noAggFields++];
 		fillExpFieldData(efd, hfi, fieldModifier[i], expHelperTable.noAggFields-1);
 		if (hfi->type==IeInfo(IPFIX_ETYPEID_dpaForcedExport, IPFIX_PEN_vermont)) {
-			msg(MSG_INFO, "activated dialog-based payload aggregation");
+			DPRINTFL(MSG_INFO, "activated dialog-based payload aggregation");
 			expHelperTable.useDPA = true;
 		}
 	}
@@ -1202,12 +1191,13 @@ uint32_t PacketHashtable::calculateHash(const IpfixRecord::Data* data, uint32_t*
 	uint32_t hash = 0xAAAAAAAA;
 	for (int i=0; i<expHelperTable.noKeyFields; i++) {
 		ExpFieldData* efd = &expHelperTable.keyFields[i];
+		printf("%s\n", efd->typeId.toString().c_str());
 		DPRINTFL(MSG_VDEBUG, "hash for i=%u, typeid=%s, srcpointer=%X", i, efd->typeId.toString().c_str(),
 				efd->srcLength, reinterpret_cast<const char*>(data)+efd->srcIndex);
 		hash = crc32(hash, efd->srcLength, reinterpret_cast<const char*>(data)+efd->srcIndex);
 	}
 	if (httpPipeliningAggregation) {
-		printf("streamBuckets hash =    %8u, ", hash & (htableSize-1));
+		DPRINTFL(MSG_DEBUG, "streamBuckets hash =    %8u, ", hash & (htableSize-1));
 		int index = hash & (htableSize-1);
 		if (streamDataIndex)
 			*streamDataIndex = index;
@@ -1215,7 +1205,7 @@ uint32_t PacketHashtable::calculateHash(const IpfixRecord::Data* data, uint32_t*
 			hash = crc32(hash, sizeof(uint8_t), &streamBuckets[index]->forwardFlows);
 		}
 	}
-	printf("buckets hash =    %8u\n", hash & (htableSize-1));
+	DPRINTFL(MSG_DEBUG, "buckets hash =    %8u", hash & (htableSize-1));
 	return hash & (htableSize-1);
 }
 
@@ -1232,7 +1222,7 @@ uint32_t PacketHashtable::calculateHashRev(const IpfixRecord::Data* data, uint32
 		hash = crc32(hash, efd->srcLength, reinterpret_cast<const char*>(data)+efd->srcIndex);
 	}
 	if (httpPipeliningAggregation) {
-		printf("streamBuckets revhash = %8u, ", hash & (htableSize-1));
+	    DPRINTFL(MSG_DEBUG, "streamBuckets revhash = %8u, ", hash & (htableSize-1));
 		int index = hash & (htableSize-1);
 		if (streamDataIndex)
 			*streamDataIndex = index;
@@ -1240,7 +1230,7 @@ uint32_t PacketHashtable::calculateHashRev(const IpfixRecord::Data* data, uint32
 			hash = crc32(hash, sizeof(uint8_t), &streamBuckets[index]->reverseFlows);
 		}
 	}
-	printf("buckets revhash = %8u\n", hash & (htableSize-1));
+	DPRINTFL(MSG_DEBUG, "buckets revhash = %8u", hash & (htableSize-1));
 	return hash & (htableSize-1);
 }
 
@@ -1250,11 +1240,10 @@ uint32_t PacketHashtable::calculateHashRev(const IpfixRecord::Data* data, uint32
  */
 boost::shared_array<IpfixRecord::Data> PacketHashtable::buildBucketData(Packet* p, StreamData* streamData, HashtableBucket** hbucket)
 {
-	printf("building bucket data\n");
+    DPRINTFL(MSG_DEBUG, "building bucket data");
 	// new field for insertion into hashtable
 	boost::shared_array<IpfixRecord::Data> htdata(new IpfixRecord::Data[fieldLength+privDataLength]);
 	IpfixRecord::Data* data = htdata.get();
-	//msg(MSG_INFO, "fieldLength=%u, privDataLength=%u, bucketdata=%X\n", fieldLength, privDataLength, data);
 	bzero(data, fieldLength+privDataLength);
 	CopyFuncParameters cfp;
 
@@ -1269,7 +1258,7 @@ boost::shared_array<IpfixRecord::Data> PacketHashtable::buildBucketData(Packet* 
 		ExpFieldData* efd = *iter;
 		
 		if (efd->typeSpecData.http.aggregate && !flowDataInitialized) {
-			msg(MSG_INFO, "initializing flow data");
+			DPRINTFL(MSG_INFO, "initializing flow data");
 			initializeFlowData(reinterpret_cast<FlowData*> (data+efd->typeSpecData.http.flowDataOffset), streamData);
 			flowDataInitialized = true;
 		}
@@ -1294,7 +1283,7 @@ boost::shared_array<IpfixRecord::Data> PacketHashtable::buildBucketData(Packet* 
  */
 boost::shared_array<IpfixRecord::Data> PacketHashtable::createBucketDataCopy(const IpfixRecord::Data* srcData, StreamData* streamData, FlowData* srcFlowData)
 {
-	printf("copying bucket data\n");
+    DPRINTFL(MSG_DEBUG, "copying bucket data");
 	// new field for insertion into hashtable
 	boost::shared_array<IpfixRecord::Data> htdata(new IpfixRecord::Data[fieldLength+privDataLength]);
 	IpfixRecord::Data* data = htdata.get();
@@ -1305,7 +1294,7 @@ boost::shared_array<IpfixRecord::Data> PacketHashtable::createBucketDataCopy(con
 	for (vector<ExpFieldData*>::const_iterator iter=expHelperTable.allFields.begin(); iter!=expHelperTable.allFields.end(); iter++) {
 		ExpFieldData* efd = *iter;
 		if (efd->typeSpecData.http.aggregate) {
-			msg(MSG_INFO, "initializing flow data");
+			DPRINTFL(MSG_INFO, "initializing flow data");
 			FlowData* flowData = reinterpret_cast<FlowData*> (data+efd->typeSpecData.http.flowDataOffset);
 			initializeFlowData(flowData, streamData);
 
@@ -1616,11 +1605,11 @@ bool PacketHashtable::equalFlow(IpfixRecord::Data* bucket, const Packet* p)
 		DPRINTFL(MSG_VDEBUG, "equal for i=%u, typeid=%s, length=%u, srcpointer=%X", i, efd->typeId.toString().c_str(), efd->srcLength, p->data.netHeader+efd->srcIndex);
 		// just compare srcLength bytes, as we still have our original packet data
 		if (memcmp(bucket+efd->dstIndex, p->data.netHeader+efd->srcIndex, efd->srcLength)!=0) {
-			printf("equalFlow = false\n");
+		    DPRINTFL(MSG_DEBUG, "equalFlow = false");
 			return false;
 		}
 	}
-	printf("equalFlow = true\n");
+	DPRINTFL(MSG_DEBUG, "equalFlow = true");
 	return true;
 }
 
@@ -1638,11 +1627,11 @@ bool PacketHashtable::equalFlowRev(IpfixRecord::Data* bucket, const Packet* p)
 		DPRINTFL(MSG_VDEBUG, "equalrev for i=%u, typeid=%s, length=%u, srcpointer=%X", i, efdsrc->typeId.toString().c_str(), efdsrc->srcLength, p->data.netHeader+efdsrc->srcIndex);
 		// just compare srcLength bytes, as we still have our original packet data
 		if (memcmp(bucket+efddst->dstIndex, p->data.netHeader+efdsrc->srcIndex, efdsrc->srcLength)!=0) {
-			printf("equalFlowRev = false\n");
+		    DPRINTFL(MSG_DEBUG, "equalFlowRev = false");
 			return false;
 		}
 	}
-	printf("equalFlowRev = true\n");
+	DPRINTFL(MSG_DEBUG, "equalFlowRev = true");
 	return true;
 }
 
@@ -1767,23 +1756,22 @@ void PacketHashtable::aggregatePacket(Packet* p)
 		req.tv_nsec = 50000000;
 		nanosleep(&req, &req);
 	}
+    ++processedPackets;
 
-	printf("\n-----------------------------------------------------------------\n\nnew packet #%lu| ", ++processedPackages);
-
-	int capturedPayload = 0;
+	long capturedPayload = 0;
 	if (p->data_length < p->pcapPacketLength) {
-		capturedPayload = p->data_length - p->payloadOffset - p->layer2HeaderLen;
+		capturedPayload = (long)p->data_length - (long)p->payloadOffset - (long)p->layer2HeaderLen;
 		if (capturedPayload < 0) {
 			capturedPayload = 0;
 		}
 	} else {
 		capturedPayload = p->pcapPacketLength - p->payloadOffset - p->layer2HeaderLen;
 	}
-	printf("orig.packet.len = %u, capured.len = %u, payload.len = %u, payload.captured.len = %u\n",
-			p->pcapPacketLength, p->data_length, p->pcapPacketLength - p->payloadOffset - p->layer2HeaderLen, capturedPayload);
+	DPRINTFL(MSG_INFO, "\n-----------------------------------------------------------------\n\nnew packet #%lu| orig.packet.len = %u, capured.len = %u, payload.len = %u, payload.captured.len = %u", processedPackets,
+            p->pcapPacketLength, p->data_length, p->pcapPacketLength - p->payloadOffset - p->layer2HeaderLen, capturedPayload);
 
 	if (httpPipeliningAggregation && capturedPayload <= 0) {
-		msg(MSG_INFO, "captured payload for packet is 0 bytes. skipping packet!");
+		DPRINTFL(MSG_INFO, "captured payload for packet is 0 bytes. skipping packet!");
 		atomic_release(&aggInProgress);
 		return;
 	}
@@ -1805,12 +1793,11 @@ void PacketHashtable::aggregatePacket(Packet* p)
 
 	if (httpPipeliningAggregation) {
 		if (streamBuckets[streamDataIndex]) {
-		printf("forward flows %u\n", streamBuckets[streamDataIndex]->forwardFlows);
-		printf("reverse flows %u\n", streamBuckets[streamDataIndex]->reverseFlows);
-		} else printf("no matching stream bucket, ");
+		DPRINTFL(MSG_DEBUG, "forward flows %u", streamBuckets[streamDataIndex]->forwardFlows);
+		DPRINTFL(MSG_DEBUG,"reverse flows %u", streamBuckets[streamDataIndex]->reverseFlows);
+		} else DPRINTFL(MSG_DEBUG,"no matching stream bucket, ");
 	}
 	DPRINTFL(MSG_VDEBUG, "packet hash=%u", hash);
-
 
 	// search bucket inside hashtable
 	HashtableBucket* bucket = buckets[hash];
@@ -1819,17 +1806,15 @@ void PacketHashtable::aggregatePacket(Packet* p)
 	bool flowfound = false;
 	bool expiryforced = false;
 	if (bucket != 0) {
-		printf("bucket found for hash!\n");
+	    DPRINTFL(MSG_INFO, "bucket found for hash!");
 		// This slot is already used, search spill chain for equal flow
 		while (1) {
 			if (equalFlow(bucket->data.get(), p)) {
-				printf("aggregate flow in normal direction\n");
 				DPRINTF("aggregate flow in normal direction");
 				aggregateFlow(bucket, p, 0);
 				if (!bucket->forceExpiry) {
 					flowfound = true;
 				} else {
-					printf("forced expiry of bucket\n");
 					DPRINTFL(MSG_VDEBUG, "forced expiry of bucket");
 					removeBucket(bucket);
 					expiryforced = true;
@@ -1849,23 +1834,21 @@ void PacketHashtable::aggregatePacket(Packet* p)
 			}
 			bucket = (HashtableBucket*)bucket->next;
 		}
-	} else printf("no bucket found for hash!\n");
+	} else DPRINTFL(MSG_INFO,"no bucket found for hash!");
 	if (biflowAggregation && !flowfound && !expiryforced) {
 		// search for reverse direction
 		uint32_t rhash = calculateHashRev(p->data.netHeader, NULL);
 		DPRINTFL(MSG_VDEBUG, "rev packet hash=%u", rhash);
 		HashtableBucket* bucket = buckets[rhash];
-		if (bucket != 0) printf("revbucket found for hash!\n");
-		else printf("no revbucket found for hash!\n");
+		if (bucket != 0) DPRINTFL(MSG_INFO, "revbucket found for hash!");
+		else DPRINTFL(MSG_INFO, "no revbucket found for hash!");
 		while (bucket!=0) {
 			if (equalFlowRev(bucket->data.get(), p)) {
-				printf("aggregate flow in reverse direction\n");
 				DPRINTF("aggregate flow in reverse direction");
 				aggregateFlow(bucket, p, 1);
 				if (!bucket->forceExpiry) {
 					flowfound = true;
 				} else {
-					printf("forced expiry of bucket\n");
 					DPRINTFL(MSG_VDEBUG, "forced expiry of bucket");
 					removeBucket(bucket);
 					expiryforced = true;
@@ -1884,15 +1867,16 @@ void PacketHashtable::aggregatePacket(Packet* p)
 
 	if (expiryforced && httpPipeliningAggregation && streamBuckets[streamDataIndex]) {
 		if (streamBuckets[streamDataIndex]->responseFirst) {
-			printf("resetting stream data with index %u\n", streamDataIndex);
+		    DPRINTFL(MSG_INFO, "resetting stream data with index %u", streamDataIndex);
 			streamBuckets[streamDataIndex] = NULL;
 		}
 	}
 
 	if (createAfterExpiry && (!flowfound || expiryforced)) {
 		// create new flow
-		printf("creating new bucket for hash: %u\n", hash);
-		printf("stream data index for bucket: %u\n", streamDataIndex);
+	    DPRINTFL(MSG_INFO, "the packet contains multiple requests");
+	    DPRINTFL(MSG_INFO, "creating new bucket for hash: %u", hash);
+	    DPRINTFL(MSG_INFO, "stream data index for bucket: %u", streamDataIndex);
 
 		if (httpPipeliningAggregation) {
 			// When httpPipeliningAggregation is used, the private data which is used to store the FlowData,
@@ -1901,11 +1885,11 @@ void PacketHashtable::aggregatePacket(Packet* p)
 			// We initialize the StreamData structure here, if it was not initialized yet. Then we pass the pointer
 			// to buildBucketData(...), where it is stored in the private data of the new bucket.
 			if (!streamBuckets[streamDataIndex] || createFlowData) {
-				printf("setting stream data\n");
+			    DPRINTFL(MSG_INFO, "setting stream data");
 				streamBuckets[streamDataIndex]=initStreamBucket();
 			}
-		printf("forward flows %u\n", streamBuckets[streamDataIndex]->forwardFlows);
-		printf("reverse flows %u\n", streamBuckets[streamDataIndex]->reverseFlows);
+		DPRINTFL(MSG_INFO, "forward flows %u", streamBuckets[streamDataIndex]->forwardFlows);
+		DPRINTFL(MSG_INFO, "reverse flows %u", streamBuckets[streamDataIndex]->reverseFlows);
 		}
 
 		HashtableBucket* firstbucket = buckets[hash];
@@ -1923,10 +1907,9 @@ void PacketHashtable::aggregatePacket(Packet* p)
 			statEmptyBuckets--;
 		}
 		buckets[hash]->inTable = true;
-		*reinterpret_cast<uint32_t*>(buckets[hash]->data.get()+expHelperTable.dpaFlowCountOffset) = htonl(processedPackages); // FIXME
 		if (oldflowcount) {
 			DPRINTFL(MSG_VDEBUG, "oldflowcount: %u", ntohl(*oldflowcount));
-			*reinterpret_cast<uint32_t*>(buckets[hash]->data.get()+expHelperTable.dpaFlowCountOffset) = htonl(processedPackages); // FIXME
+			*reinterpret_cast<uint32_t*>(buckets[hash]->data.get()+expHelperTable.dpaFlowCountOffset) = htonl(processedPackets); // FIXME
 		}
 		updateBucketData(buckets[hash]);
 	}
@@ -1977,7 +1960,6 @@ void PacketHashtable::aggregatePacket(Packet* p)
 			updateBucketData(buckets[hash]);
 		}
 	}
-
 	//if (!snapshotWritten && (time(0)- 300 > starttime)) writeHashtable();
 	// FIXME: enable snapshots again by configuration
 	atomic_release(&aggInProgress);

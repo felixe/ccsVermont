@@ -38,17 +38,17 @@
  * @param aggregationEnd Used to store the position in the payload at which the aggregation should stop.
  */
 void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowData* flowData, bool reverseDirection, const char** aggregationStart, const char** aggregationEnd) {
-	msg(MSG_DEBUG, "detectHttp(): START in %s direction", reverseDirection ? "reverse" : "forward");
-	msg(MSG_DEBUG, "detectHttp(): forward type = %s --- reverse type = %s", toString(flowData->forwardType), toString(flowData->reverseType));
-	msg(MSG_DEBUG, "detectHttp(): forward Flows#=%d, reverse Flows#=%d", flowData->streamInfo->forwardFlows, flowData->streamInfo->reverseFlows);
-	msg(MSG_DEBUG, "detectHttp(): request status=%X, response status=%X", flowData->request->status, flowData->response->status);
+	DPRINTFL(MSG_DEBUG, "detectHttp(): START in %s direction", reverseDirection ? "reverse" : "forward");
+	DPRINTFL(MSG_DEBUG, "detectHttp(): forward type = %s --- reverse type = %s", toString(flowData->forwardType), toString(flowData->reverseType));
+	DPRINTFL(MSG_DEBUG, "detectHttp(): forward Flows#=%d, reverse Flows#=%d", flowData->streamInfo->forwardFlows, flowData->streamInfo->reverseFlows);
+	DPRINTFL(MSG_DEBUG, "detectHttp(): request status=%X, response status=%X", flowData->request->status, flowData->response->status);
 
 	*aggregationStart = *data;
 
 	if (flowData->request->pipelinedRequestOffset && !reverseDirection) {
 	    // we are continuing to process a packets payload which has been processed before.
 	    // this means this packet contains multiple requests
-		msg(MSG_INFO, "detectHttp(): http detection is starting with %u bytes offset", flowData->request->pipelinedRequestOffset);
+		DPRINTFL(MSG_INFO, "detectHttp(): http detection is starting with %u bytes offset", flowData->request->pipelinedRequestOffset);
 		*aggregationStart = *data+flowData->request->pipelinedRequestOffset;
 		flowData->request->pipelinedRequestOffset = 0;
 	} else if (!flowData->request->pipelinedRequestOffset) {
@@ -67,7 +67,7 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
 			*aggregationStart = combined;
 			*dataEnd = combined+flowData->streamInfo->reverseLength+plen;
 
-			msg(MSG_INFO, "detectHttp(): %u bytes of previously buffered payload are combined with the current payload. new payload size: %u bytes", flowData->streamInfo->reverseLength, *dataEnd-*data);
+			DPRINTFL(MSG_INFO, "detectHttp(): %u bytes of previously buffered payload are combined with the current payload. new payload size: %u bytes", flowData->streamInfo->reverseLength, *dataEnd-*data);
 
 			flowData->streamInfo->reverseLength = 0;
 			free(flowData->streamInfo->reverseLine);
@@ -82,7 +82,7 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
 			*aggregationStart = combined;
 			*dataEnd = combined+flowData->streamInfo->forwardLength+plen;
 
-			msg(MSG_INFO, "detectHttp(): %u bytes of previously buffered payload are combined with the current payload. new payload size: %u bytes", flowData->streamInfo->forwardLength, *dataEnd-*data);
+			DPRINTFL(MSG_INFO, "detectHttp(): %u bytes of previously buffered payload are combined with the current payload. new payload size: %u bytes", flowData->streamInfo->forwardLength, *dataEnd-*data);
 
 			flowData->streamInfo->forwardLength = 0;
 			free(flowData->streamInfo->forwardLine);
@@ -96,7 +96,7 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
 		 *  provided this is the first transmitted request.
 		 */
 
-		msg(MSG_INFO, "detectHttp(): processing new http traffic");
+		DPRINTFL(MSG_INFO, "detectHttp(): processing new http traffic");
 
 		if (!processNewHttpTraffic(*aggregationStart, *dataEnd, flowData, reverseDirection, aggregationStart, aggregationEnd))
 		    return; // this message is not a start of a http request or response
@@ -124,7 +124,7 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
             storeDataLeftOver(*aggregationEnd, *dataEnd, flowData, reverseDirection);
             flowData->response->status &= ~MESSAGE_FLAG_WAITING;
         } else if (flowData->response->status == MESSAGE_END) { // response message ended
-            msg(MSG_INFO, "detectHttp(): http response ended");
+            DPRINTFL(MSG_INFO, "detectHttp(): http response ended");
             testFinishedMessage(flowData, reverseDirection);
             if (reverseDirection) flowData->streamInfo->reverseFlows++;
             else flowData->streamInfo->forwardFlows++;
@@ -135,16 +135,16 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
             storeDataLeftOver(*aggregationEnd, *dataEnd, flowData, reverseDirection);
             flowData->request->status &= ~MESSAGE_FLAG_WAITING;
         } else if (flowData->request->status == MESSAGE_END) { // request message ended
-            msg(MSG_INFO, "detectHttp(): http request ended");
+            DPRINTFL(MSG_INFO, "detectHttp(): http request ended");
             testFinishedMessage(flowData, reverseDirection);
             if (reverseDirection) flowData->streamInfo->reverseFlows++;
             else flowData->streamInfo->forwardFlows++;
         }
     }
 
-	msg(MSG_DEBUG, "detectHttp(): END");
-	msg(MSG_DEBUG, "detectHttp(): forward Flows#=%d, reverse Flows#=%d", flowData->streamInfo->forwardFlows, flowData->streamInfo->reverseFlows);
-	msg(MSG_DEBUG, "detectHttp(): request status=%X, response status=%X", flowData->request->status, flowData->response->status);
+	DPRINTFL(MSG_DEBUG, "detectHttp(): END");
+	DPRINTFL(MSG_DEBUG, "detectHttp(): forward Flows#=%d, reverse Flows#=%d", flowData->streamInfo->forwardFlows, flowData->streamInfo->reverseFlows);
+	DPRINTFL(MSG_DEBUG, "detectHttp(): request status=%X, response status=%X", flowData->request->status, flowData->response->status);
 }
 
 /**
@@ -167,7 +167,7 @@ int HttpAggregation::processNewHttpTraffic(const char* data, const char* dataEnd
 
 	// check for a request or response at the beginning.
 	if (getRequestOrResponse(data, dataEnd, &start, &end, &type)) {
-		msg(MSG_INFO, "detectHttp(): payload contains a http %s: '%.*s'", toString(type), end-start, start);
+		DPRINTFL(MSG_INFO, "detectHttp(): payload contains a http %s: '%.*s'", toString(type), end-start, start);
 		if (type == HTTP_TYPE_REQUEST) {
 			flowData->request->status = MESSAGE_REQ_METHOD;
 			copyToCharPointer(&flowData->request->method, start, end-start, true);
@@ -206,14 +206,14 @@ int HttpAggregation::processNewHttpTraffic(const char* data, const char* dataEnd
 	}
 
 	/*
-	 * this packet is not the start of a http request or response, this can have several reasons:
+	 * this packet seems not the start of a http request or response, this can have several reasons:
 	 *  - this isn't a http stream
 	 *  - this packet is a subsequent packet of a previous unreceived http request/response
 	 *  - the payload in the packet is too short, but that is unlikely
 	 */
 
 	// skip package, do not aggregate anything
-	msg(MSG_INFO, "detectHttp(): no http traffic in this flow direction yet!");
+	DPRINTFL(MSG_INFO, "detectHttp(): no http traffic in this flow direction yet!");
 	*aggregationStart = dataEnd;
 	*aggregationEnd = dataEnd;
 	return 0;
@@ -246,20 +246,20 @@ int HttpAggregation::processHttpRequest(const char* data, const char* dataEnd, F
 		case MESSAGE_ENTITY:
 		case MESSAGE_END: {
 			// nothing to do here, message was parsed completely. but it seems the message was malformed
-			msg(MSG_INFO, "detectHttp(): invalid http request data! unexpected end of payload");
+			DPRINTFL(MSG_INFO, "detectHttp(): invalid http request data! unexpected end of payload");
 			stop = true;
 			THROWEXCEPTION("hada");
 			break;
 		}
 		case NO_MESSAGE: {
 			if (getRequestMethod(start, dataEnd, &start, &end)) {
-				msg(MSG_INFO, "detectHttp(): request method = '%.*s'", end-start, start);
+				DPRINTFL(MSG_INFO, "detectHttp(): request method = '%.*s'", end-start, start);
 				flowData->request->status = MESSAGE_REQ_METHOD;
 				copyToCharPointer(&flowData->request->method, start, end-start, true);
 			} else {
 				// the message seems not to start with a valid http request version identifier.
 				// we assume this packet is not a http packet, therefore skip it
-				msg(MSG_INFO, "detectHttp(): warning: potential http request packet has been skipped. reason: packet did not start with a valid request method identfier");
+				DPRINTFL(MSG_INFO, "detectHttp(): warning: potential http request packet has been skipped. reason: packet did not start with a valid request method identfier");
 				*aggregationEnd = dataEnd;
 				return 0;
 			}
@@ -267,13 +267,13 @@ int HttpAggregation::processHttpRequest(const char* data, const char* dataEnd, F
 		}
 		case MESSAGE_REQ_METHOD: {
 			if (getRequestUri(start, dataEnd, &start, &end)) {
-				msg(MSG_INFO, "detectHttp(): request uri = '%.*s'", end-start, start);
+				DPRINTFL(MSG_INFO, "detectHttp(): request uri = '%.*s'", end-start, start);
 				flowData->request->status = MESSAGE_REQ_URI;
 				copyToCharPointer(&flowData->request->uri, start, end-start, true);
 			} else {
 				// first line of a request should be processed without problems, even with smaller packet sizes.
 				// therefore skip this packet. // TODO stimmt nicht bei multiple requests
-				msg(MSG_INFO, "detectHttp(): warning: potential http request packet has been skipped. reason: uri could not be parsed");
+				DPRINTFL(MSG_INFO, "detectHttp(): warning: potential http request packet has been skipped. reason: uri could not be parsed");
 				*aggregationEnd = dataEnd;
 				return 0;
 			}
@@ -282,12 +282,12 @@ int HttpAggregation::processHttpRequest(const char* data, const char* dataEnd, F
 		case MESSAGE_REQ_URI: {
 			if (getRequestVersion(start, dataEnd, &start, &end)) {
 				flowData->request->status = MESSAGE_REQ_VERSION;
-				msg(MSG_INFO, "detectHttp(): request version = '%.*s'", end-start, start);
+				DPRINTFL(MSG_INFO, "detectHttp(): request version = '%.*s'", end-start, start);
 				copyToCharPointer(&flowData->request->version, start, end-start, true);
 			} else {
 				// first line of a request should be processed without problems, even with smaller packet sizes.
 				// therefore skip this packet. // TODO stimmt nicht bei multiple requests
-				msg(MSG_INFO, "detectHttp(): warning: potential http request packet has been skipped. reason: http version could not be parsed");
+				DPRINTFL(MSG_INFO, "detectHttp(): warning: potential http request packet has been skipped. reason: http version could not be parsed");
 				*aggregationEnd = dataEnd;
 				return 0;
 			}
@@ -300,16 +300,16 @@ int HttpAggregation::processHttpRequest(const char* data, const char* dataEnd, F
 					flowData->request->status = MESSAGE_END;
 					*aggregationEnd = end;
 					if (end<dataEnd) {
-						msg(MSG_INFO, "detectHttp(): still %d bytes payload remaining, the packet may contain multiple requests", dataEnd-end);
+						DPRINTFL(MSG_INFO, "detectHttp(): still %d bytes payload remaining, the packet may contain multiple requests", dataEnd-end);
 						return 1;
 					}
 					return 1;
 				} else {
 					flowData->request->status = MESSAGE_HEADER;
 				}
-				//msg(MSG_VDEBUG, "detectHttp(): message header fields = \n'%.*s'", end-start, start);
+				//DPRINTFL(MSG_VDEBUG, "detectHttp(): message header fields = \n'%.*s'", end-start, start);
 			} else {
-				msg(MSG_INFO, "detectHttp(): request header did not end yet, wait for new payload");
+				DPRINTFL(MSG_INFO, "detectHttp(): request header did not end yet, wait for new payload");
 				*aggregationEnd = start;
 				flowData->request->status = flowData->request->status | MESSAGE_FLAG_WAITING;
 				return 0;
@@ -362,20 +362,20 @@ int HttpAggregation::processHttpResponse(const char* data, const char* dataEnd, 
 		case MESSAGE_ENTITY:
 		case MESSAGE_END: {
 			// nothing to do here, message was parsed completely. but it seems the message was malformed
-			msg(MSG_INFO, "detectHttp(): invalid http response data! unexpected end of payload");
+			DPRINTFL(MSG_INFO, "detectHttp(): invalid http response data! unexpected end of payload");
 			//THROWEXCEPTION("should not be reached");
 			return 1;
 			break;
 		}
 		case NO_MESSAGE: {
 			if (getResponseVersion(start, dataEnd, &start, &end)) {
-				msg(MSG_INFO, "detectHttp(): response version = '%.*s'", end-start, start);
+				DPRINTFL(MSG_INFO, "detectHttp(): response version = '%.*s'", end-start, start);
 				flowData->response->status = MESSAGE_RES_VERSION;
 				copyToCharPointer(&flowData->response->version, start, end-start, true);
 			} else {
 				// the message seems not to start with a valid http response version identifier.
 				// we assume this packet is not a http packet, therefore skip it
-				msg(MSG_INFO, "detectHttp(): warning: potential http response packet has been skipped. reason: packet did not start with a valid http version identfier");
+				DPRINTFL(MSG_INFO, "detectHttp(): warning: potential http response packet has been skipped. reason: packet did not start with a valid http version identfier");
 				*aggregationEnd = dataEnd;
 				return 0;
 			}
@@ -387,12 +387,12 @@ int HttpAggregation::processHttpResponse(const char* data, const char* dataEnd, 
 				if (isMessageEntityForbidden(code))
 					flowData->response->entityTransfer = TRANSFER_NO_ENTITY;
 				flowData->response->status = MESSAGE_RES_CODE;
-				msg(MSG_INFO, "detectHttp(): response status code = '%.*s'", end-start, start);
+				DPRINTFL(MSG_INFO, "detectHttp(): response status code = '%.*s'", end-start, start);
 				copyToCharPointer(&flowData->response->statusCode, start, end-start, true);
 			} else {
 				// first line of a response should be processed without problems, even with smaller packet sizes.
 				// therefore skip this packet.
-				msg(MSG_INFO, "detectHttp(): warning: potential http response packet has been skipped. reason: status code could not be parsed");
+				DPRINTFL(MSG_INFO, "detectHttp(): warning: potential http response packet has been skipped. reason: status code could not be parsed");
 				*aggregationEnd = dataEnd;
 				return 0;
 			}
@@ -402,12 +402,12 @@ int HttpAggregation::processHttpResponse(const char* data, const char* dataEnd, 
 		case MESSAGE_RES_CODE: {
 			if (getResponsePhrase(start, dataEnd, &start, &end)) {
 				flowData->response->status = MESSAGE_RES_PHRASE;
-				msg(MSG_INFO, "detectHttp(): response phrase = '%.*s'", end-start, start);
+				DPRINTFL(MSG_INFO, "detectHttp(): response phrase = '%.*s'", end-start, start);
 				copyToCharPointer(&flowData->response->responsePhrase, start, end-start, true);
 			} else {
 				// first line of a response should be processed without problems, even with smaller packet sizes.
 				// therefore skip this packet.
-				msg(MSG_INFO, "detectHttp(): warning: potential http response packet has been skipped. reason: response phrase could not be parsed");
+				DPRINTFL(MSG_INFO, "detectHttp(): warning: potential http response packet has been skipped. reason: response phrase could not be parsed");
 				*aggregationEnd = dataEnd;
 				return 0;
 			}
@@ -419,16 +419,16 @@ int HttpAggregation::processHttpResponse(const char* data, const char* dataEnd, 
 					// we are finished here since the message should not contain an entity
 					flowData->response->status = MESSAGE_END;
 					if (end!=dataEnd) {
-						msg(MSG_INFO, "detectHttp(): skipped %d bytes of the packet payload, because the http response was malformed.", dataEnd-data);
+						DPRINTFL(MSG_INFO, "detectHttp(): skipped %d bytes of the packet payload, because the http response was malformed.", dataEnd-data);
 					}
 					*aggregationEnd = end;
 					return 1;
 				} else {
 					flowData->response->status = MESSAGE_HEADER;
 				}
-				//msg(MSG_VDEBUG, "detectHttp(): message header fields = \n'%.*s'", end-start, start);
+				//DPRINTFL(MSG_VDEBUG, "detectHttp(): message header fields = \n'%.*s'", end-start, start);
 			} else {
-				msg(MSG_INFO, "detectHttp(): response header did not end yet, wait for new payload");
+				DPRINTFL(MSG_INFO, "detectHttp(): response header did not end yet, wait for new payload");
 				*aggregationEnd = start;
 				flowData->response->status = flowData->response->status | MESSAGE_FLAG_WAITING;
 				return 0;
@@ -485,7 +485,7 @@ int HttpAggregation::processMessageHeader(const char* data, const char* dataEnd,
 				*transferType = TRANSFER_NO_ENTITY;
 			return 1;
 		} else {
-			if (!processMessageHeaderField(data, dataEnd, end, flowData, transferType, reverseDirection) && *end == dataEnd) {
+			if (*transferType != TRANSFER_CHUNKED && !processMessageHeaderField(data, dataEnd, end, flowData, transferType, reverseDirection) && *end == dataEnd) {
 				// too few characters left, stop processing
 				*end = start;
 				return 0;
@@ -615,10 +615,10 @@ void HttpAggregation::setTransferEncoding(const char* data, const char* dataEnd,
 
 	if (type == HTTP_TYPE_REQUEST) {
 		flowData->request->entityTransfer = TRANSFER_CHUNKED;
-		msg(MSG_INFO, "detectHttp(): the request transfer-length is defined by use of the \"chunked\" transfer-coding");
+		DPRINTFL(MSG_INFO, "detectHttp(): the request transfer-length is defined by use of the \"chunked\" transfer-coding");
 	} else {
 		flowData->response->entityTransfer = TRANSFER_CHUNKED;
-		msg(MSG_INFO, "detectHttp(): the response transfer-length is defined by use of the \"chunked\" transfer-coding");
+		DPRINTFL(MSG_INFO, "detectHttp(): the response transfer-length is defined by use of the \"chunked\" transfer-coding");
 	}
 }
 
@@ -635,11 +635,11 @@ void HttpAggregation::setContentLength(const char* data, const char* dataEnd, Fl
 	if (type == HTTP_TYPE_REQUEST) {
 		flowData->request->entityTransfer = TRANSFER_CONTENT_LENGTH;
 		flowData->request->contentLength = strtol(data, NULL, 10);
-		msg(MSG_INFO, "detectHttp(): set request content-length to %u", flowData->request->contentLength);
+		DPRINTFL(MSG_INFO, "detectHttp(): set request content-length to %u", flowData->request->contentLength);
 	} else {
 		flowData->response->entityTransfer = TRANSFER_CONTENT_LENGTH;
 		flowData->response->contentLength = strtol(data, NULL, 10);
-		msg(MSG_INFO, "detectHttp(): set response content-length to %u (parsed string = %.*s)", flowData->response->contentLength, dataEnd-data, data);
+		DPRINTFL(MSG_INFO, "detectHttp(): set response content-length to %u (parsed string = %.*s)", flowData->response->contentLength, dataEnd-data, data);
 	}
 }
 
@@ -686,24 +686,24 @@ int HttpAggregation::processEntity(const char* data, const char* dataEnd, const 
 
 			if (*contentLength>0) {
 				if (*contentLength < len) {
-					msg(MSG_INFO, "detectHttp(): this payload contains multiple chunks or multiple parts of chunks. current part range: %u to %u (%u bytes)", *end-data, (*end+*contentLength)-data, *contentLength);
+					DPRINTFL(MSG_INFO, "detectHttp(): this payload contains multiple chunks or multiple parts of chunks. current part range: %u to %u (%u bytes)", *end-data, (*end+*contentLength)-data, *contentLength);
 					start = *end + *contentLength;
 					*contentLength = 0;
 					if (!eatCRLF(start, dataEnd, &start)) {
-						msg(MSG_INFO, "detectHttp(): chunk did not end with a CRLF", *end-data, *end-data+len, len);
+						DPRINTFL(MSG_INFO, "detectHttp(): chunk did not end with a CRLF", *end-data, *end-data+len, len);
 					}
 				} else {
-					msg(MSG_INFO, "detectHttp(): this payload contains a part of a chunk. current part range: %u to %u (%u bytes)", *end-data, *end-data+len, len);
+					DPRINTFL(MSG_INFO, "detectHttp(): this payload contains a part of a chunk. current part range: %u to %u (%u bytes)", *end-data, *end-data+len, len);
 					*contentLength = *contentLength-len;
 					start = *end + len;
 				}
-				msg(MSG_INFO, "detectHttp(): current remaining chunk size: %u", *contentLength);
+				DPRINTFL(MSG_INFO, "detectHttp(): current remaining chunk size: %u", *contentLength);
 			} else {
 				start = *end;
 
 				if (!eatCRLF(start, dataEnd, &start)) {
 					// every chunk has to end with CRLF
-					msg(MSG_INFO, "detectHttp(): error parsing chunked message");
+					DPRINTFL(MSG_INFO, "detectHttp(): error parsing chunked message");
 					return 0;
 				} else {
 					// skip trailing entity-header fields
@@ -719,12 +719,12 @@ int HttpAggregation::processEntity(const char* data, const char* dataEnd, const 
 							start++;
 					}
 					if (!endWithCRLF) {
-						msg(MSG_INFO, "detectHttp(): error parsing chunked message");
+						DPRINTFL(MSG_INFO, "detectHttp(): error parsing chunked message");
 
 					}
 				}
 
-				msg(MSG_INFO, "detectHttp(): end of chunked message");
+				DPRINTFL(MSG_INFO, "detectHttp(): end of chunked message");
 
 				*end = start;
 				return 1;
@@ -739,7 +739,7 @@ int HttpAggregation::processEntity(const char* data, const char* dataEnd, const 
 			contentLength = &flowData->response->contentLength;
 		}
 		if (*contentLength<dataEnd-data) {
-			msg(MSG_INFO, "detectHttp(): warning: the payload of the http response stream is bigger than specified in the header field! stopping here!");
+			DPRINTFL(MSG_INFO, "detectHttp(): warning: the payload of the http response stream is bigger than specified in the header field! stopping here!");
 			if (*contentLength>0) {
 				*end = data + *contentLength;
 				*contentLength = 0;
@@ -750,7 +750,7 @@ int HttpAggregation::processEntity(const char* data, const char* dataEnd, const 
 		} else {
 			*contentLength = *contentLength - (dataEnd-data);
 			*end = dataEnd;
-			msg(MSG_INFO, "detectHttp(): processed %u bytes of the http entity, %u bytes left", dataEnd-data, *contentLength);
+			DPRINTFL(MSG_INFO, "detectHttp(): processed %u bytes of the http entity, %u bytes left", dataEnd-data, *contentLength);
 			if (*contentLength<=0)
 				return 1; // we are finished
 			else
@@ -758,11 +758,11 @@ int HttpAggregation::processEntity(const char* data, const char* dataEnd, const 
 		}
 	} else if (transfer == TRANSFER_NO_ENTITY) {
 		// the http message contains no entitiy
-		msg(MSG_INFO, "detectHttp(): http message contains no entity");
+		DPRINTFL(MSG_INFO, "detectHttp(): http message contains no entity");
 		return 1;
 	} else {
 		ASSERT_(transfer != TRANSFER_UNKNOWN, "transfer type was not set, should never happen");
-		msg(MSG_INFO, "detectHttp(): no entity length was specified in the header fields");
+		DPRINTFL(MSG_INFO, "detectHttp(): no entity length was specified in the header fields");
 	}
 
 	return 1;
@@ -879,7 +879,7 @@ uint32_t HttpAggregation::getChunkLength(const char* data, const char* dataEnd, 
 		if (*data == '\r') {
 			if (data+1<dataEnd && *(data+1) == '\n') {
 				uint32_t length = strtol(start, NULL, 16); // works also if chunk extensions are present
-				msg(MSG_INFO, "detectHttp(): start of a new chunk. chunk length = %u\n", length);
+				DPRINTFL(MSG_INFO, "detectHttp(): start of a new chunk. chunk length = %u\n", length);
 				*end = data+2; // FIXME to check
 				return length;
 			}
@@ -888,7 +888,7 @@ uint32_t HttpAggregation::getChunkLength(const char* data, const char* dataEnd, 
 		}
 		data++;
 	}
-	msg(MSG_INFO, "error parsing chunk size");
+	DPRINTFL(MSG_INFO, "error parsing chunk size");
 	*end=dataEnd;
 	return 0;
 }
@@ -920,7 +920,7 @@ int HttpAggregation::getRequestMethod(const char* data, const char* dataEnd, con
 		if (isRequest(*start, *end)) {
 			return 1;
 		}
-		msg(MSG_INFO, "detectHttp(): invalid http method identifier : %.*s", *end-*start, *start);
+		DPRINTFL(MSG_INFO, "detectHttp(): invalid http method identifier : %.*s", *end-*start, *start);
 	}
 
 	return 0;
@@ -952,7 +952,7 @@ int HttpAggregation::getRequestVersion(const char* data, const char* dataEnd, co
 		    eatCRLF(*end, dataEnd, end);
 			return 1;
 		}
-		msg(MSG_INFO, "detectHttp(): invalid http version specifier : %.*s", *end-*start, *start);
+		DPRINTFL(MSG_INFO, "detectHttp(): invalid http version specifier : %.*s", *end-*start, *start);
 	}
 	return 0;
 }
@@ -983,7 +983,7 @@ int HttpAggregation::getResponseVersion(const char* data, const char* dataEnd, c
 		if (isResponse(*start, *end)) {
 			return 1;
 		}
-		msg(MSG_INFO, "detectHttp(): invalid http version specifier : %.*s", *end-*start, *start);
+		DPRINTFL(MSG_INFO, "detectHttp(): invalid http version specifier : %.*s", *end-*start, *start);
 	}
 	// if nothing did match this payload is invalid
 	// skip this packet
@@ -1004,7 +1004,6 @@ uint16_t HttpAggregation::getResponseCode(const char* data, const char* dataEnd,
 	if (getSpaceDelimitedText(data, dataEnd, start, end)) {
 		if (*end-*start!=3)
 			return 0;
-		const char *codeEnd = *end;
 		uint16_t code = strtol(*start, NULL, 10); // we now that our text is delimited by some space
 		if (code>=100 && code <= 600)
 			return code;
@@ -1039,7 +1038,6 @@ int HttpAggregation::getResponsePhrase(const char* data, const char* dataEnd, co
  * @return Returns 1 if the passed payload starts with a request method or http version identifier, 0 otherwise
  */
 int HttpAggregation::getRequestOrResponse(const char* data, const char* dataEnd, const char** start, const char** end, http_type_t* type)  {
-	int isHttpRequestOrReply = 0;
 	*type = HTTP_TYPE_UNKNOWN;
 	*start = data;
 	*end = data;
@@ -1347,10 +1345,10 @@ void HttpAggregation::storeDataLeftOver(const char* data, const char* dataEnd, F
         copyToCharPointer(dst, data, size, false);
         if (reverseDirection) flowData->streamInfo->reverseLength = size;
         else flowData->streamInfo->forwardLength = size;
-        msg(MSG_INFO, "detectHttp(): copying %u bytes of left over payload to buffer.", size);
-        msg(MSG_INFO, "detectHttp(): storing message : %.*s", size, data);
+        DPRINTFL(MSG_INFO, "detectHttp(): copying %u bytes of left over payload to buffer.", size);
+        DPRINTFL(MSG_INFO, "detectHttp(): storing message : %.*s", size, data);
     } else {
-        msg(MSG_FATAL, "detectHttp(): something went wrong!");
+        DPRINTFL(MSG_FATAL, "detectHttp(): something went wrong!");
     }
 }
 
