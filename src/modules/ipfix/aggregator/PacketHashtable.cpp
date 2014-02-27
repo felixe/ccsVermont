@@ -1909,7 +1909,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
 		buckets[hash]->inTable = true;
 		if (oldflowcount) {
 			DPRINTFL(MSG_VDEBUG, "oldflowcount: %u", ntohl(*oldflowcount));
-			*reinterpret_cast<uint32_t*>(buckets[hash]->data.get()+expHelperTable.dpaFlowCountOffset) = htonl(processedPackets); // FIXME
+			*reinterpret_cast<uint32_t*>(buckets[hash]->data.get()+expHelperTable.dpaFlowCountOffset) = htonl(ntohl(*oldflowcount)+1);
 		}
 		updateBucketData(buckets[hash]);
 	}
