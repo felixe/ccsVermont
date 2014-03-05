@@ -1,6 +1,7 @@
 /*
  * Vermont Aggregator Subsystem
  * Copyright (C) 2014 Vermont Project
+ * Author: Wolfgang Estgfaeller <wolfgang@estgfaeller.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License

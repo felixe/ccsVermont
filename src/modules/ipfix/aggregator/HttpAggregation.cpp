@@ -1,6 +1,7 @@
 /*
  * Vermont Aggregator Subsystem
  * Copyright (C) 2014 Vermont Project
+ * Author: Wolfgang Estgfaeller <wolfgang@estgfaeller.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -1071,7 +1072,7 @@ int HttpAggregation::getRequestOrResponse(const char* data, const char* dataEnd,
 	return 0;
 }
 
-// HTTP Method Identifiers were taken from Wireshark
+// HTTP Method Identifiers were taken from Wireshark source code (see www.wireshark.org)
 /**
  * Checks if the passed char range is a valid HTTP request method
  * @param data Pointer to the payload to be parsed
