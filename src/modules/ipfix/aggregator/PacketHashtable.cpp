@@ -28,11 +28,12 @@
 #include "common/Misc.h"
 #include "common/Time.h"
 #include "HashtableBuckets.h"
+#include "HttpAggregation.h"
 
 using namespace InformationElement;
 
 const uint32_t PacketHashtable::ExpHelperTable::UNUSED = 0xFFFFFFFF;
-long long int processedPackets = 0;
+uint64_t processedPackets = 0;
 
 PacketHashtable::PacketHashtable(Source<IpfixRecord*>* recordsource, Rule* rule,
 		uint16_t minBufferTime, uint16_t maxBufferTime, uint8_t hashbits)
@@ -40,11 +41,8 @@ PacketHashtable::PacketHashtable(Source<IpfixRecord*>* recordsource, Rule* rule,
 	snapshotWritten(false), startTime(time(0))
 {
 	buildExpHelperTable();
-
 	if (httpPipeliningAggregation) {
-		streamBuckets = new StreamData*[htableSize];
-		for (uint32_t i = 0; i < htableSize; i++)
-			streamBuckets[i] = NULL;
+		tcpmon = new TcpStreamMonitor(htableSize);
 	}
 }
 
@@ -292,8 +290,6 @@ void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* 
 	PayloadPrivateData* ppd = reinterpret_cast<PayloadPrivateData*>(bucket+efd->privDataOffset);
 	FlowData* flowData = reinterpret_cast<FlowData*>(bucket+efd->typeSpecData.http.flowDataOffset);
 
-	bool revdir = efd->typeId.isReverseField();
-
 	if (firstpacket)
 		ppd->byteCount = 0;
 
@@ -314,7 +310,7 @@ void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* 
 	const char* aggregationStart = 0;
 	const char* aggregationEnd = 0;
 
-	detectHttp(&data, &dataEnd, flowData, revdir, &aggregationStart, &aggregationEnd);
+	detectHttp(&data, &dataEnd, flowData, &aggregationStart, &aggregationEnd);
 
 	if (!aggregationStart || !aggregationEnd || aggregationEnd <= aggregationStart) {
 		DPRINTFL(MSG_INFO, "no payload has to be aggregated, skip packet payload");
@@ -346,8 +342,8 @@ void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* 
 	if (flowData->request->status == MESSAGE_END && flowData->response->status == MESSAGE_END) {
 		DPRINTFL(MSG_INFO, "forcing expiry of http flow");
 		hbucket->forceExpiry=true;
-		if (flowData->streamInfo->responseFirst)
-			flowData->streamInfo = NULL;
+//		if (flowData->streamInfo->responseFirst)
+//			flowData->streamInfo = NULL;
 
 		// aggregate http request method
 		if (flowData->request->method && efd->typeSpecData.http.requestMethodOffset != ExpHelperTable::UNUSED) {
@@ -369,15 +365,28 @@ void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* 
         }
 	}
 
-	http_type_t type = revdir ? flowData->reverseType : flowData->forwardType;
+	http_type_t type = *flowData->getType();
+	uint32_t* pipelinedOffsetEnd = 0;
+	if (type == HTTP_TYPE_REQUEST && flowData->request->status == MESSAGE_END)
+	    pipelinedOffsetEnd = &flowData->request->pipelinedRequestOffsetEnd;
+	if (type == HTTP_TYPE_RESPONSE && flowData->response->status == MESSAGE_END)
+	        pipelinedOffsetEnd = &flowData->response->pipelinedResponseOffsetEnd;
 
-	if (type == HTTP_TYPE_REQUEST && flowData->request->status == MESSAGE_END && aggregationEnd < dataEnd) {
+	if (pipelinedOffsetEnd && aggregationEnd < dataEnd) {
 		// multiple requests are in this request, store the offset to the position and mark the request as pipelined
 		uint16_t bufferOffset = 0;
 		if (dataEnd-data > payloadLength)
 			bufferOffset = (dataEnd-data) - payloadLength;
-		flowData->request->pipelinedRequestOffsetEnd = (aggregationEnd - data) - bufferOffset;
-		flowData->streamInfo->pipelinedRequest = true;
+		*pipelinedOffsetEnd = (aggregationEnd - data) - bufferOffset;
+
+		if (type == HTTP_TYPE_REQUEST) {
+		    flowData->streamInfo->pipelinedRequest = true;
+		}
+		if (type == HTTP_TYPE_RESPONSE) {
+		    flowData->streamInfo->pipelinedResponse = true;
+		    // prevent expiry, since we need to access the bucket data when processing the pipelined respones
+		    hbucket->forceExpiry=false;
+		}
 	}
 }
 
@@ -995,7 +1004,6 @@ void PacketHashtable::buildExpHelperTable()
 	expHelperTable.dstIpEFieldIndex = false;
 	expHelperTable.srcIpEFieldIndex = false;
 
-	printf("----------------------------AggFields\n");
 	// at first, fill data structure with non-reversed aggregatable fields
 	expHelperTable.noAggFields = 0;
 	// special treatment of IPFIX_ETYPEID_frontPayload: for DPA, it must be the first element in the field
@@ -1027,7 +1035,6 @@ void PacketHashtable::buildExpHelperTable()
 	}
 	DPRINTF("got %u aggregated fields", expHelperTable.noAggFields);
 
-	printf("----------------------------KeyFields\n");
 	// now the key fields
 	expHelperTable.noKeyFields = 0;
 	for (int i=0; i<dataTemplate->fieldCount; i++) {
@@ -1040,7 +1047,6 @@ void PacketHashtable::buildExpHelperTable()
 	DPRINTF("got %u key fields", expHelperTable.noKeyFields);
 
 	// reversed aggregatable fields
-	printf("----------------------------RevAggFields\n");
 	expHelperTable.noRevAggFields = 0;
 	// special treatment of IPFIX_ETYPEID_frontPayload: for DPA, it must be the first element in the field
 	// reason: it may cause forced export of data records
@@ -1070,14 +1076,12 @@ void PacketHashtable::buildExpHelperTable()
 
 	// build helper structure for mapping key fields to their reversed elements
 	if (biflowAggregation) {
-		printf("----------------------------KeyFields Mappings from expHelperTable.revKeyFieldMapper to expHelperTable.keyFields\n");
 		for (uint32_t i=0; i<expHelperTable.noKeyFields; i++) {
 			uint32_t fid = revKeyMapper[expkey2field[i]];
 			vector<uint16_t>::iterator fit = find(expkey2field.begin(), expkey2field.end(), fid);
 			if (fit==expkey2field.end()) THROWEXCEPTION("Error when calculating biflow table. This should not happen. (DOH!)");
 			expHelperTable.revKeyFieldMapper[i] = &expHelperTable.keyFields[fit-expkey2field.begin()];
 			DPRINTF("mapping key exph id %hu to id %hu\n", fit-expkey2field.begin(), i);
-			printf("mapping key exph id %hu to id %hu\n", fit-expkey2field.begin(), i);
 		}
 	}
 	DPRINTF("got %u fields with variable source pointers", expHelperTable.noVarSrcPtrFields);
@@ -1094,10 +1098,10 @@ void PacketHashtable::buildExpHelperTable()
 	}
 	expHelperTable.dpaFlowCountOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_dpaFlowCount, IPFIX_PEN_vermont));
 
-	uint16_t httpFlowDataOffset = 0;
+	uint32_t flowDataOffset = 0;
 	if (httpPipeliningAggregation) {
 	    // add space for the FlowData structure at the end of the private data
-		httpFlowDataOffset=fieldLength + privDataLength;
+	    flowDataOffset=fieldLength + privDataLength;
 		privDataLength += sizeof(FlowData);
 	}
 
@@ -1113,7 +1117,7 @@ void PacketHashtable::buildExpHelperTable()
 			efd->typeSpecData.frontPayload.dpaRevStartOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_dpaReverseStart, IPFIX_PEN_vermont));
 			efd->typeSpecData.frontPayload.dpa = expHelperTable.useDPA;
 
-			efd->typeSpecData.http.flowDataOffset = httpFlowDataOffset; // both directions share the same FlowData information
+			efd->typeSpecData.http.flowDataOffset = flowDataOffset; // both directions share the same FlowData information
 			efd->typeSpecData.http.aggregate = httpPipeliningAggregation;
 			efd->typeSpecData.http.requestMethodOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestMethod, IPFIX_PEN_vermont));
 			efd->typeSpecData.http.requestUriOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont));
@@ -1150,7 +1154,7 @@ void PacketHashtable::buildExpHelperTable()
 			efd->typeSpecData.frontPayload.dpaRevStartOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_dpaReverseStart, IPFIX_PEN_vermont));
 			efd->typeSpecData.frontPayload.dpa = expHelperTable.useDPA;
 
-            efd->typeSpecData.http.flowDataOffset = httpFlowDataOffset; // both directions share the same FlowData information
+            efd->typeSpecData.http.flowDataOffset = flowDataOffset; // both directions share the same FlowData information
             efd->typeSpecData.http.aggregate = httpPipeliningAggregation;
             efd->typeSpecData.http.requestMethodOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestMethod, IPFIX_PEN_vermont));
             efd->typeSpecData.http.requestUriOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont));
@@ -1186,33 +1190,29 @@ void PacketHashtable::buildExpHelperTable()
 /**
  * calculates hash for given raw packet data in express aggregator
  */
-uint32_t PacketHashtable::calculateHash(const IpfixRecord::Data* data, uint32_t* streamDataIndex)
+uint32_t PacketHashtable::calculateHash(const IpfixRecord::Data* data, TcpStream* ts)
 {
 	uint32_t hash = 0xAAAAAAAA;
 	for (int i=0; i<expHelperTable.noKeyFields; i++) {
 		ExpFieldData* efd = &expHelperTable.keyFields[i];
-		printf("%s\n", efd->typeId.toString().c_str());
 		DPRINTFL(MSG_VDEBUG, "hash for i=%u, typeid=%s, srcpointer=%X", i, efd->typeId.toString().c_str(),
 				efd->srcLength, reinterpret_cast<const char*>(data)+efd->srcIndex);
 		hash = crc32(hash, efd->srcLength, reinterpret_cast<const char*>(data)+efd->srcIndex);
 	}
-	if (httpPipeliningAggregation) {
-		DPRINTFL(MSG_DEBUG, "streamBuckets hash =    %8u, ", hash & (htableSize-1));
-		int index = hash & (htableSize-1);
-		if (streamDataIndex)
-			*streamDataIndex = index;
-		if (streamBuckets[index] && streamBuckets[index]->forwardFlows > 0) {
-			hash = crc32(hash, sizeof(uint8_t), &streamBuckets[index]->forwardFlows);
-		}
-	}
-	DPRINTFL(MSG_DEBUG, "buckets hash =    %8u", hash & (htableSize-1));
+    if (ts) {
+        hash = crc32(hash, sizeof(uint32_t), &ts->streamNum);
+        uint8_t flows = ts->isForward() ? ts->httpData->forwardFlows : ts->httpData->reverseFlows;
+        if (flows > 0)
+            hash = crc32(hash, sizeof(uint8_t), &flows);
+    }
+	DPRINTFL(MSG_INFO, "buckets hash =    %8u", hash & (htableSize-1));
 	return hash & (htableSize-1);
 }
 
 /**
  * calculates hash for given raw packet data in express aggregator for reverse flows
  */
-uint32_t PacketHashtable::calculateHashRev(const IpfixRecord::Data* data, uint32_t* streamDataIndex)
+uint32_t PacketHashtable::calculateHashRev(const IpfixRecord::Data* data, TcpStream* ts)
 {
 	uint32_t hash = 0xAAAAAAAA;
 	for (int i=0; i<expHelperTable.noKeyFields; i++) {
@@ -1221,16 +1221,13 @@ uint32_t PacketHashtable::calculateHashRev(const IpfixRecord::Data* data, uint32
 				efd->typeId.toString().c_str(), efd->srcLength, reinterpret_cast<const char*>(data)+efd->srcIndex);
 		hash = crc32(hash, efd->srcLength, reinterpret_cast<const char*>(data)+efd->srcIndex);
 	}
-	if (httpPipeliningAggregation) {
-	    DPRINTFL(MSG_DEBUG, "streamBuckets revhash = %8u, ", hash & (htableSize-1));
-		int index = hash & (htableSize-1);
-		if (streamDataIndex)
-			*streamDataIndex = index;
-		if (streamBuckets[index] && streamBuckets[index]->reverseFlows > 0) {
-			hash = crc32(hash, sizeof(uint8_t), &streamBuckets[index]->reverseFlows);
-		}
-	}
-	DPRINTFL(MSG_DEBUG, "buckets revhash = %8u", hash & (htableSize-1));
+    if (ts) {
+        hash = crc32(hash, sizeof(uint32_t), &ts->streamNum);
+        uint8_t flows = ts->isForward() ? ts->httpData->forwardFlows : ts->httpData->reverseFlows;
+        if (flows > 0)
+            hash = crc32(hash, sizeof(uint8_t), &flows);
+    }
+	DPRINTFL(MSG_INFO, "buckets revhash = %8u", hash & (htableSize-1));
 	return hash & (htableSize-1);
 }
 
@@ -1238,7 +1235,7 @@ uint32_t PacketHashtable::calculateHashRev(const IpfixRecord::Data* data, uint32
  * copies data from raw packet to a bucket which will be inserted into the hashtable
  * for aggregation (part of express aggregator)
  */
-boost::shared_array<IpfixRecord::Data> PacketHashtable::buildBucketData(Packet* p, StreamData* streamData, HashtableBucket** hbucket)
+boost::shared_array<IpfixRecord::Data> PacketHashtable::buildBucketData(Packet* p, HttpStreamData* streamData, HashtableBucket** hbucket)
 {
     DPRINTFL(MSG_DEBUG, "building bucket data");
 	// new field for insertion into hashtable
@@ -1277,11 +1274,11 @@ boost::shared_array<IpfixRecord::Data> PacketHashtable::buildBucketData(Packet* 
  * the same information. But data like FlowData has to be reset and the right payload offset has to
  * be set. The
  * @param srcData Source data from a bucket
- * @param streamData Pointer to the proper StreamData
+ * @param streamData Pointer to the proper HttpStreamData
  * @param srcFlowData Source flow information. Used to calculate payload offset
  * @return Returns the newly created copy of the
  */
-boost::shared_array<IpfixRecord::Data> PacketHashtable::createBucketDataCopy(const IpfixRecord::Data* srcData, StreamData* streamData, FlowData* srcFlowData)
+boost::shared_array<IpfixRecord::Data> PacketHashtable::createBucketDataCopy(const IpfixRecord::Data* srcData, HttpStreamData* streamData, FlowData* srcFlowData)
 {
     DPRINTFL(MSG_DEBUG, "copying bucket data");
 	// new field for insertion into hashtable
@@ -1298,13 +1295,16 @@ boost::shared_array<IpfixRecord::Data> PacketHashtable::createBucketDataCopy(con
 			FlowData* flowData = reinterpret_cast<FlowData*> (data+efd->typeSpecData.http.flowDataOffset);
 			initializeFlowData(flowData, streamData);
 
-			// each request of a packet which contains multiple requests is processed separately. this offset
-			// specifies the position at which the last request of a message ended or rather the position
-			// the new request starts
-			flowData->request->pipelinedRequestOffset = srcFlowData->request->pipelinedRequestOffsetEnd;
+			// a TCP segment can contain multiple HTTP messages. each of these HTTP messages is processed separately. this offset
+			// specifies the position, in the current TCP segment payload, at which the last HTTP message ended or rather the position
+			// the new HTTP message starts
+			if (streamData->pipelinedRequest)
+			    flowData->request->pipelinedRequestOffset = srcFlowData->request->pipelinedRequestOffsetEnd;
+			else
+			    flowData->response->pipelinedResponseOffset = srcFlowData->response->pipelinedResponseOffsetEnd;
 
-			flowData->forwardType = HTTP_TYPE_REQUEST;
-			flowData->reverseType = HTTP_TYPE_RESPONSE;
+			flowData->forwardType = srcFlowData->forwardType;
+			flowData->reverseType = srcFlowData->reverseType;
 			break;
 		}
 	}
@@ -1601,7 +1601,6 @@ bool PacketHashtable::equalFlow(IpfixRecord::Data* bucket, const Packet* p)
 {
 	for (int i=0; i<expHelperTable.noKeyFields; i++) {
 		ExpFieldData* efd = &expHelperTable.keyFields[i];
-
 		DPRINTFL(MSG_VDEBUG, "equal for i=%u, typeid=%s, length=%u, srcpointer=%X", i, efd->typeId.toString().c_str(), efd->srcLength, p->data.netHeader+efd->srcIndex);
 		// just compare srcLength bytes, as we still have our original packet data
 		if (memcmp(bucket+efd->dstIndex, p->data.netHeader+efd->srcIndex, efd->srcLength)!=0) {
@@ -1756,213 +1755,293 @@ void PacketHashtable::aggregatePacket(Packet* p)
 		req.tv_nsec = 50000000;
 		nanosleep(&req, &req);
 	}
-    ++processedPackets;
 
-	long capturedPayload = 0;
-	if (p->data_length < p->pcapPacketLength) {
-		capturedPayload = (long)p->data_length - (long)p->payloadOffset - (long)p->layer2HeaderLen;
-		if (capturedPayload < 0) {
-			capturedPayload = 0;
-		}
-	} else {
-		capturedPayload = p->pcapPacketLength - p->payloadOffset - p->layer2HeaderLen;
-	}
-	DPRINTFL(MSG_INFO, "\n-----------------------------------------------------------------\n\nnew packet #%lu| orig.packet.len = %u, capured.len = %u, payload.len = %u, payload.captured.len = %u", processedPackets,
-            p->pcapPacketLength, p->data_length, p->pcapPacketLength - p->payloadOffset - p->layer2HeaderLen, capturedPayload);
+    uint32_t orig_slen = p->net_total_length - p->payloadOffset; // original TCP segment length
+    int cap_slen = orig_slen - (p->pcapPacketLength - p->data_length);  // captured bytes of TCP segment
 
-	if (httpPipeliningAggregation && capturedPayload <= 0) {
-		DPRINTFL(MSG_INFO, "captured payload for packet is 0 bytes. skipping packet!");
-		atomic_release(&aggInProgress);
-		return;
-	}
+	DPRINTFL(MSG_INFO, "new packet #%lu| orig.plen: %u, orig.slen = %u, cap.plen = %u, cap.slen = %d",
+	        ++processedPackets, p->pcapPacketLength, orig_slen, p->net_total_length, cap_slen);
 
-	DPRINTF("PacketHashtable::aggregatePacket()");
-	updatePointers(p);
-	createMaskedFields(p);
+    TcpStream* tcpStream =  0;
 
-	bool createAfterExpiry = true;
-	bool createFlowData = false;
+    if (httpPipeliningAggregation){
+        p->addReference();
+        tcpStream = tcpmon->dissect(p);
+        if (!tcpStream) {
+            DPRINTFL(MSG_INFO, "packet is out of order. skipping packet!");
+            atomic_release(&aggInProgress);
+            return;
+        }
+#ifdef DEBUG
+        if (!tcpStream->httpData)
+            THROWEXCEPTION("stream data is null");
+        if (!tcpStream->httpData->direction)
+                    THROWEXCEPTION("stream data is null");
+#endif
+    }
 
-	/*
-	 * streamDataIndex is only relevant for http aggregation. it represents the index to the proper
-	 * streamBuckets entry for the current tcp stream. it's value is defined by calculating the hash
-	 * in FORWARD direction.
-	 */
-	uint32_t streamDataIndex = 0;
-	uint32_t hash = calculateHash(p->data.netHeader, &streamDataIndex);
+    while (p) {
+        if (httpPipeliningAggregation && cap_slen <= 0) {
+            DPRINTFL(MSG_INFO, "captured payload for packet is 0 bytes. skipping packet!");
+            p->removeReference();
+            atomic_release(&aggInProgress);
+            return;
+        }
 
-	if (httpPipeliningAggregation) {
-		if (streamBuckets[streamDataIndex]) {
-		DPRINTFL(MSG_DEBUG, "forward flows %u", streamBuckets[streamDataIndex]->forwardFlows);
-		DPRINTFL(MSG_DEBUG,"reverse flows %u", streamBuckets[streamDataIndex]->reverseFlows);
-		} else DPRINTFL(MSG_DEBUG,"no matching stream bucket, ");
-	}
-	DPRINTFL(MSG_VDEBUG, "packet hash=%u", hash);
+        DPRINTF("PacketHashtable::aggregatePacket()");
+        updatePointers(p);
+        createMaskedFields(p);
 
-	// search bucket inside hashtable
-	HashtableBucket* bucket = buckets[hash];
-	HashtableBucket* appendbucket = NULL;
-	uint32_t* oldflowcount = NULL;
-	bool flowfound = false;
-	bool expiryforced = false;
-	if (bucket != 0) {
-	    DPRINTFL(MSG_INFO, "bucket found for hash!");
-		// This slot is already used, search spill chain for equal flow
-		while (1) {
-			if (equalFlow(bucket->data.get(), p)) {
-				DPRINTF("aggregate flow in normal direction");
-				aggregateFlow(bucket, p, 0);
-				if (!bucket->forceExpiry) {
-					flowfound = true;
-				} else {
-					DPRINTFL(MSG_VDEBUG, "forced expiry of bucket");
-					removeBucket(bucket);
-					expiryforced = true;
-					if (expHelperTable.dpaFlowCountOffset != ExpHelperTable::UNUSED)
-						oldflowcount = reinterpret_cast<uint32_t*>(bucket->data.get()+expHelperTable.dpaFlowCountOffset);
-					bucket = NULL;
-					if (httpPipeliningAggregation) {
-						createAfterExpiry = false;
-					}
-				}
-				break;
-			}
+        bool createAfterExpiry = true;
+        bool preventReverseMatch = false;
+        IpfixRecord::Data* tsrcData = 0;
 
-			if (bucket->next==NULL) {
-				appendbucket = bucket;
-				break;
-			}
-			bucket = (HashtableBucket*)bucket->next;
-		}
-	} else DPRINTFL(MSG_INFO,"no bucket found for hash!");
-	if (biflowAggregation && !flowfound && !expiryforced) {
-		// search for reverse direction
-		uint32_t rhash = calculateHashRev(p->data.netHeader, NULL);
-		DPRINTFL(MSG_VDEBUG, "rev packet hash=%u", rhash);
-		HashtableBucket* bucket = buckets[rhash];
-		if (bucket != 0) DPRINTFL(MSG_INFO, "revbucket found for hash!");
-		else DPRINTFL(MSG_INFO, "no revbucket found for hash!");
-		while (bucket!=0) {
-			if (equalFlowRev(bucket->data.get(), p)) {
-				DPRINTF("aggregate flow in reverse direction");
-				aggregateFlow(bucket, p, 1);
-				if (!bucket->forceExpiry) {
-					flowfound = true;
-				} else {
-					DPRINTFL(MSG_VDEBUG, "forced expiry of bucket");
-					removeBucket(bucket);
-					expiryforced = true;
-					if (expHelperTable.dpaFlowCountOffset != ExpHelperTable::UNUSED)
-						oldflowcount = reinterpret_cast<uint32_t*>(bucket->data.get()+expHelperTable.dpaFlowCountOffset);
-					bucket = NULL;
-					if (httpPipeliningAggregation) {
-						createAfterExpiry = false;
-					}
-				}
-				break;
-			}
-			bucket = (HashtableBucket*)bucket->next;
-		}
-	}
+        HttpStreamData* streamData = NULL;
 
-	if (expiryforced && httpPipeliningAggregation && streamBuckets[streamDataIndex]) {
-		if (streamBuckets[streamDataIndex]->responseFirst) {
-		    DPRINTFL(MSG_INFO, "resetting stream data with index %u", streamDataIndex);
-			streamBuckets[streamDataIndex] = NULL;
-		}
-	}
+        if (httpPipeliningAggregation) {
+            streamData = tcpStream->httpData;
+            DPRINTFL(MSG_INFO, "forward flows %u", httpData->forwardFlows);
+            DPRINTFL(MSG_INFO,"reverse flows %u", httpData->reverseFlows);
+            if (streamData->responseFirst)
+                preventReverseMatch = true;
+        }
 
-	if (createAfterExpiry && (!flowfound || expiryforced)) {
-		// create new flow
-	    DPRINTFL(MSG_INFO, "the packet contains multiple requests");
-	    DPRINTFL(MSG_INFO, "creating new bucket for hash: %u", hash);
-	    DPRINTFL(MSG_INFO, "stream data index for bucket: %u", streamDataIndex);
+        uint32_t hash = calculateHash(p->data.netHeader, tcpStream);
+        DPRINTFL(MSG_INFO, "packet hash=%u", hash);
 
-		if (httpPipeliningAggregation) {
-			// When httpPipeliningAggregation is used, the private data which is used to store the FlowData,
-			// is added to the end of the IPFIX_ETYPEID_frontPayload field's private data.
-			// FlowData holds a pointer to the corresponding StreamData structure, which belongs to the proper flow.
-			// We initialize the StreamData structure here, if it was not initialized yet. Then we pass the pointer
-			// to buildBucketData(...), where it is stored in the private data of the new bucket.
-			if (!streamBuckets[streamDataIndex] || createFlowData) {
-			    DPRINTFL(MSG_INFO, "setting stream data");
-				streamBuckets[streamDataIndex]=initStreamBucket();
-			}
-		DPRINTFL(MSG_INFO, "forward flows %u", streamBuckets[streamDataIndex]->forwardFlows);
-		DPRINTFL(MSG_INFO, "reverse flows %u", streamBuckets[streamDataIndex]->reverseFlows);
-		}
+        // search bucket inside hashtable
+        HashtableBucket* bucket = buckets[hash];
 
-		HashtableBucket* firstbucket = buckets[hash];
-		if (httpPipeliningAggregation) {
-			boost::shared_array<IpfixRecord::Data> htdata; // just a temporary stopgap
-			buckets[hash] = createBucket(htdata, p->observationDomainID, firstbucket, 0, hash);
-			buckets[hash]->data = buildBucketData(p, streamBuckets[streamDataIndex], &buckets[hash]);
-		}
-		else
-			buckets[hash] = createBucket(buildBucketData(p, NULL, NULL), p->observationDomainID, firstbucket, 0, hash);
-		if (firstbucket) {
-			firstbucket->prev = buckets[hash];
-			statMultiEntries++;
-		} else {
-			statEmptyBuckets--;
-		}
-		buckets[hash]->inTable = true;
-		if (oldflowcount) {
-			DPRINTFL(MSG_VDEBUG, "oldflowcount: %u", ntohl(*oldflowcount));
-			*reinterpret_cast<uint32_t*>(buckets[hash]->data.get()+expHelperTable.dpaFlowCountOffset) = htonl(ntohl(*oldflowcount)+1);
-		}
-		updateBucketData(buckets[hash]);
-	}
+        uint32_t* oldflowcount = NULL;
+        bool flowfound = false;
+        bool expiryforced = false;
+        if (bucket != 0) {
+            DPRINTFL(MSG_INFO, "bucket found for hash!");
+            // This slot is already used, search spill chain for equal flow
+            while (1) {
+                if (equalFlow(bucket->data.get(), p)) {
+                    DPRINTF("aggregate flow in normal direction");
+                    tsrcData = bucket->data.get();
+                    aggregateFlow(bucket, p, 0);
+                    if (!bucket->forceExpiry) {
+                        flowfound = true;
+                    } else {
+                        DPRINTFL(MSG_VDEBUG, "forced expiry of bucket");
+                        removeBucket(bucket);
+                        expiryforced = true;
+                        if (expHelperTable.dpaFlowCountOffset != ExpHelperTable::UNUSED)
+                            oldflowcount = reinterpret_cast<uint32_t*>(bucket->data.get()+expHelperTable.dpaFlowCountOffset);
+                        bucket = NULL;
+                        if (httpPipeliningAggregation) {
+                            createAfterExpiry = false;
+                        }
+                    }
+                    break;
+                }
 
-	if (httpPipeliningAggregation && streamBuckets[streamDataIndex] && streamBuckets[streamDataIndex]->pipelinedRequest) {
-		// the packet we are currently processing contains at least one more request or part of a request.
-		// so we have to create a new flow for the next request in the payload and continue aggregating
+                if (bucket->next==NULL) {
+                    break;
+                }
+                bucket = (HashtableBucket*)bucket->next;
+            }
+        } else DPRINTFL(MSG_INFO,"no bucket found for hash!");
+        if (biflowAggregation && !flowfound && !expiryforced && !preventReverseMatch) {
+            // search for reverse direction
+            uint32_t rhash = calculateHashRev(p->data.netHeader, tcpStream);
+            DPRINTFL(MSG_VDEBUG, "rev packet hash=%u", rhash);
+            bucket = buckets[rhash];
+            if (bucket != 0) DPRINTFL(MSG_INFO, "revbucket found for hash!");
+            else DPRINTFL(MSG_INFO, "no revbucket found for hash!");
+            while (bucket!=0) {
+                if (equalFlowRev(bucket->data.get(), p)) {
+                    DPRINTF("aggregate flow in reverse direction");
+                    tsrcData = bucket->data.get();
+                    aggregateFlow(bucket, p, 1);
+                    if (!bucket->forceExpiry) {
+                        flowfound = true;
+                    } else {
+                        DPRINTFL(MSG_VDEBUG, "forced expiry of bucket");
+                        removeBucket(bucket);
+                        expiryforced = true;
+                        if (expHelperTable.dpaFlowCountOffset != ExpHelperTable::UNUSED)
+                            oldflowcount = reinterpret_cast<uint32_t*>(bucket->data.get()+expHelperTable.dpaFlowCountOffset);
+                        bucket = NULL;
+                        if (httpPipeliningAggregation) {
+                            createAfterExpiry = false;
+                        }
+                    }
+                    break;
+                }
+                bucket = (HashtableBucket*)bucket->next;
+            }
+        }
 
-		// first lookup the right FlowData
-		ExpFieldData* efd = 0;
-		for (int i=0;i<expHelperTable.noAggFields;i++) {
-			ExpFieldData* tefd = &expHelperTable.aggFields[i];
-			if (tefd->typeSpecData.http.aggregate) {
-				efd = tefd;
-				break;
-			}
-		}
-		if (!efd)
-			THROWEXCEPTION("could not find http flow data");
+        if (createAfterExpiry && (!flowfound || expiryforced)) {
+            // create new flow
+            DPRINTFL(MSG_INFO, "creating new bucket for hash: %u", hash);
 
-		// there can be multiple requests in one message
-		while (streamBuckets[streamDataIndex]->pipelinedRequest) {
-			streamBuckets[streamDataIndex]->pipelinedRequest = false;
-			FlowData* srcFlowData = reinterpret_cast<FlowData*>(buckets[hash]->data.get()+efd->typeSpecData.http.flowDataOffset);
-			StreamData* data = srcFlowData->streamInfo;
-			IpfixRecord::Data* srcData = buckets[hash]->data.get();
+            HashtableBucket* firstbucket = buckets[hash];
+            if (httpPipeliningAggregation) {
+                boost::shared_array<IpfixRecord::Data> htdata; // just a temporary stopgap
+                buckets[hash] = createBucket(htdata, p->observationDomainID, firstbucket, 0, hash);
+                buckets[hash]->data = buildBucketData(p, streamData, &buckets[hash]);
+                tsrcData = buckets[hash]->data.get();
+            }
+            else
+                buckets[hash] = createBucket(buildBucketData(p), p->observationDomainID, firstbucket, 0, hash);
+            if (firstbucket) {
+                firstbucket->prev = buckets[hash];
+                statMultiEntries++;
+            } else {
+                statEmptyBuckets--;
+            }
+            buckets[hash]->inTable = true;
+            if (oldflowcount) {
+                DPRINTFL(MSG_VDEBUG, "oldflowcount: %u", ntohl(*oldflowcount));
+                *reinterpret_cast<uint32_t*>(buckets[hash]->data.get()+expHelperTable.dpaFlowCountOffset) = htonl(ntohl(*oldflowcount)+1);
+            }
+            updateBucketData(buckets[hash]);
+        }
 
-			hash = calculateHash(p->data.netHeader, &streamDataIndex);
+        if (httpPipeliningAggregation) {
+            if ((streamData->pipelinedRequest || streamData->pipelinedResponse))
+                processMultipleHttpMessages(tsrcData, streamData, p, tcpStream);
+            p->removeReference();
+            p = tcpmon->nextPacketForStream(tcpStream);
+        } else {
+            break;
+        }
+    }
 
-			if (data!=streamBuckets[streamDataIndex]) {
-				THROWEXCEPTION("wrong stream data"); //FIXME
-			}
+    if (tcpmon)
+        tcpmon->expireStreams();
+#ifdef DEBUG
+    tcpmon->printStreamCount();
+#endif
 
-			HashtableBucket* firstbucket = buckets[hash];
-
-			boost::shared_array<IpfixRecord::Data> htdata = createBucketDataCopy(srcData, streamBuckets[streamDataIndex], srcFlowData);
-			buckets[hash] = createBucket(htdata, p->observationDomainID, firstbucket, 0, hash);
-
-			aggregateHttp(htdata.get(), buckets[hash], p, efd, true, false);
-
-			if (firstbucket) {
-				firstbucket->prev = buckets[hash];
-				statMultiEntries++;
-			} else {
-				statEmptyBuckets--;
-			}
-			buckets[hash]->inTable = true;
-			updateBucketData(buckets[hash]);
-		}
-	}
 	//if (!snapshotWritten && (time(0)- 300 > starttime)) writeHashtable();
 	// FIXME: enable snapshots again by configuration
 	atomic_release(&aggInProgress);
+}
+
+/**
+ * Processes subsequent HTTP messages contained in a single Packet.
+ * A TCP segment can contain payload of different also multiple HTTP messages. If TCP segment
+ * payload was not parsed completely, this method processes the remaining TCP segment payload.
+ * Every HTTP messages discovered is put in a separate flow. If no flow exists yet a new one
+ * is created.
+ * @param srcData Source data, of the flow in which the initial part of the TCP segment payload was aggregated
+ * @param streamData TCP stream related HTTP data
+ * @param p The Packet whose TCP payload should be processed
+ * @param tcpStream TCP stream related to the Packet
+ */
+void PacketHashtable::processMultipleHttpMessages(IpfixRecord::Data* srcData,  HttpStreamData* streamData, Packet* p, TcpStream* tcpStream) {
+    if (streamData->pipelinedRequest && streamData->pipelinedResponse)
+        THROWEXCEPTION("error occurred");
+
+    // the packet we are currently processing contains at least one more request or part of a request.
+    // so we have to create a new flow for the next request in the payload and continue aggregating
+
+    // first lookup the right ExpFieldData field
+    ExpFieldData* efd = 0;
+    if (streamData->pipelinedResponse && !streamData->responseFirst) {
+        // if we are processing multiple responses and we did not start with one, then
+        // we have to aggregate the TCP payload into the reverse fields of the flow.
+        // this is a rare case and should only occur at the start of the Packet aggregation and
+        // we were not able to observe all Packets of a TCP connection.
+        for (int i=0;i<expHelperTable.noRevAggFields;i++) {
+            ExpFieldData* tefd = &expHelperTable.revAggFields[i];
+            if (tefd->typeSpecData.http.aggregate) {
+                efd = tefd;
+                break;
+            }
+        }
+    } else {
+        for (int i=0;i<expHelperTable.noAggFields;i++) {
+            ExpFieldData* tefd = &expHelperTable.aggFields[i];
+            if (tefd->typeSpecData.http.aggregate) {
+                efd = tefd;
+                break;
+            }
+        }
+    }
+    if (!efd)
+        THROWEXCEPTION("could not find the right ExpFieldData");
+
+    while (streamData->pipelinedResponse && !streamData->responseFirst) {
+        DPRINTFL(MSG_INFO, "the payload of the segment was not parsed completely, search for another http response");
+        // get the FlowData from the flow in which previous part of the TCP segment payload was aggregated
+        FlowData* srcFlowData = reinterpret_cast<FlowData*>(srcData+efd->typeSpecData.http.flowDataOffset);
+
+        // search for reverse direction
+         uint32_t rhash = calculateHashRev(p->data.netHeader, tcpStream);
+
+         bool found = false;
+         HashtableBucket* bucket = buckets[rhash];
+         if (bucket != 0) DPRINTFL(MSG_INFO, "revbucket found for hash!");
+         else DPRINTFL(MSG_INFO, "no revbucket found for hash!");
+         while (bucket!=0) {
+             if (equalFlowRev(bucket->data.get(), p)) {
+                 found = true;
+                 DPRINTF("aggregate flow in reverse direction");
+                 srcData = bucket->data.get();
+                 break;
+             }
+             bucket = (HashtableBucket*)bucket->next;
+         }
+
+         if (!found) {
+             DPRINTFL(MSG_INFO, "could not find reverse flow for a pipelined HTTP response. the HTTP response seems to be malformed.");
+             return;
+         }
+
+         FlowData* dstFlowData = reinterpret_cast<FlowData*>(srcData+efd->typeSpecData.http.flowDataOffset);
+         dstFlowData->response->pipelinedResponseOffset = srcFlowData->response->pipelinedResponseOffsetEnd;
+         streamData->pipelinedResponse = false;
+         aggregateHttp(srcData, bucket, p, efd, false, false);
+
+         if (bucket->forceExpiry) {
+             DPRINTFL(MSG_VDEBUG, "forced expiry of bucket");
+             removeBucket(bucket);
+         }
+    }
+
+    while (streamData->pipelinedRequest || (streamData->pipelinedResponse && streamData->responseFirst)) {
+        DPRINTFL(MSG_INFO, "the payload of the segment was not parsed completely, search for another http %s", streamData->pipelinedRequest ? "request" : "response");
+        // get the FlowData from the flow in which previous part of the TCP segment payload was aggregated
+        FlowData* srcFlowData = reinterpret_cast<FlowData*>(srcData+efd->typeSpecData.http.flowDataOffset);
+
+        // we need to create a new bucket/flow for the next HTTP message
+        uint32_t hash = calculateHash(p->data.netHeader, tcpStream);
+        HashtableBucket* firstbucket = buckets[hash];
+
+        // create a copy of the bucket from previous flow
+        boost::shared_array<IpfixRecord::Data> htdata = createBucketDataCopy(srcData, streamData, srcFlowData);
+        // create the new bucket
+        buckets[hash] = createBucket(htdata, p->observationDomainID, firstbucket, 0, hash);
+
+        // reset the pipelining status and start restart the HTTP aggregation for the remaining part of the payload
+        // if the payload still contains more then one HTTP message, this status will be reset to true
+        streamData->pipelinedRequest = false;
+        streamData->pipelinedResponse = false;
+
+        aggregateHttp(htdata.get(), buckets[hash], p, efd, true, false);
+
+        // statistics...
+        if (firstbucket) {
+            firstbucket->prev = buckets[hash];
+            statMultiEntries++;
+        } else {
+            statEmptyBuckets--;
+        }
+
+        // update bucket
+        buckets[hash]->inTable = true;
+        updateBucketData(buckets[hash]);
+        srcData = htdata.get();
+    }
+
+
 }
 
 void PacketHashtable::snapshotHashtable()

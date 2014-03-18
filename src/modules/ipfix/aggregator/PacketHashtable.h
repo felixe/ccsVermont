@@ -26,6 +26,7 @@
 #include "modules/packet/Packet.h"
 #include "BaseHashtable.h"
 #include "HttpAggregation.h"
+#include "TcpStream.h"
 #include <iostream>
 #include <fstream>
 
@@ -143,7 +144,7 @@ private:
 
 	ExpHelperTable expHelperTable;
 
-	StreamData** streamBuckets; /**< This array contains http related information about tcp streams. */
+	TcpStreamMonitor* tcpmon; /**< Manages and monitors TCP connections and performs packet analysis and TCP stream reassembly */
 
 	bool snapshotWritten; /**< set to true, if snapshot of hashtable was already written */
 	time_t startTime; /**< if a snapshot of the hashtable should be performed, this variable is used and stores initialization time of this hashtable */
@@ -170,13 +171,14 @@ private:
 									  const ExpFieldData* efd, bool firstpacket, bool onlyinit);
 	void (*getCopyDataFunction(const ExpFieldData* efd))(CopyFuncParameters*);
 	void fillExpFieldData(ExpFieldData* efd, TemplateInfo::FieldInfo* hfi, Rule::Field::Modifier fieldModifier, uint16_t index);
-	uint32_t calculateHash(const IpfixRecord::Data* data, uint32_t* streamDataIndex);
-	uint32_t calculateHashRev(const IpfixRecord::Data* data, uint32_t* streamDataIndex);
-	boost::shared_array<IpfixRecord::Data> buildBucketData(Packet* p, StreamData* streamData, HashtableBucket** hbucket);
-	boost::shared_array<IpfixRecord::Data> createBucketDataCopy(const IpfixRecord::Data* srcData, StreamData* streamData, FlowData* srcFlowData);
+	uint32_t calculateHash(const IpfixRecord::Data* data, TcpStream* ts);
+	uint32_t calculateHashRev(const IpfixRecord::Data* data, TcpStream* ts);
+	boost::shared_array<IpfixRecord::Data> buildBucketData(Packet* p, HttpStreamData* streamData = NULL, HashtableBucket** hbucket = NULL);
+	boost::shared_array<IpfixRecord::Data> createBucketDataCopy(const IpfixRecord::Data* srcData, HttpStreamData* streamData, FlowData* srcFlowData);
 	void aggregateField(const ExpFieldData* efd, HashtableBucket* hbucket,
 					    const IpfixRecord::Data* deltaData, IpfixRecord::Data* data);
 	void aggregateFlow(HashtableBucket* bucket, const Packet* p, bool reverse);
+	void processMultipleHttpMessages(IpfixRecord::Data* srcData, HttpStreamData* streamData, Packet* p, TcpStream* ts);
 	bool equalFlow(IpfixRecord::Data* bucket, const Packet* p);
 	bool equalFlowRev(IpfixRecord::Data* bucket, const Packet* p);
 	void createMaskedField(IpfixRecord::Data* address, uint8_t imask);

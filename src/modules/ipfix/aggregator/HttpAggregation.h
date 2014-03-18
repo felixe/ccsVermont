@@ -45,8 +45,8 @@ public:
 	static const http_status_t MESSAGE_RES_CODE     = 0x03; /**< http response status code was parsed successfully */
 	static const http_status_t MESSAGE_RES_PHRASE   = 0x07; /**< http response phrase was parsed successfully */
 	static const http_status_t MESSAGE_HEADER       = 0x0F; /**< http message header was parsed successfully */
-	static const http_status_t MESSAGE_ENTITY       = 0x1F; /**< http message body was parsed successfully */
-	static const http_status_t MESSAGE_END          = 0x3F; /**< http message was parsed succesfully, i.e. message end was reached */
+	static const http_status_t MESSAGE_PROTO_UPGR   = 0x1F; /**< protocol switch was initiated after a client upgrade request */
+	static const http_status_t MESSAGE_END          = 0x3F; /**< http message was parsed successfully, i.e. message end was reached */
 	static const http_status_t MESSAGE_FLAG_WAITING = 0x40; /**< http message was not parsed successful, wait for more payload */
 	static const http_status_t MESSAGE_FLAG_FAILURE = 0x80; /**< http message was not parsed successful, i.e. a parsing error occurred at some point */
 
@@ -61,22 +61,28 @@ public:
 	//! information about the transfer of a message's entity
 	typedef enum http_entity_transfer {
 		// see RFC 2616 Section 4.4 for Information about Message Length
-		TRANSFER_UNKNOWN,       /**< it's still unknown whether the http message has an entity */
-		TRANSFER_NO_ENTITY,     /**< the message does not transport an entity */
-		TRANSFER_CHUNKED,       /**< the entity is transported in chunked mode as specified by the header field 'Transfer-Encoding' */
-		TRANSFER_CONTENT_LENGTH /**< an entity is transported and the length is specified by the header field 'Content-Length' */
+		TRANSFER_UNKNOWN,           /**< it's still unknown whether the http message has an entity */
+		TRANSFER_NO_ENTITY,         /**< the message does not transport an entity */
+		TRANSFER_CHUNKED,           /**< the entity is transported in chunked mode as specified by the header field 'Transfer-Encoding' */
+		TRANSFER_CONTENT_LENGTH,    /**< an entity is transported and the length is specified by the header field 'Content-Length' */
+		TRANSFER_CONNECTION_BASED   /**< the entity is finished when the connection closes */
 	} http_entity_transfer_t;
 
 	/**
 	 * structure used for counting the number of http flows in both directions of a TCP stream
 	 * these values are used by the hash functions PacketAggregator to get the proper hash-bucket related to the current flow.
 	 */
-	struct StreamData {
+	struct HttpStreamData {
 		uint8_t forwardFlows;   /**< counter for the http flows in forward direction */
 		uint8_t reverseFlows;   /**< counter for the http flows in reverse direction */
+		uint8_t *direction;     /**< the direction of the current packet */
 
-		bool responseFirst;     /**< indicates if the first http message observed was a response */
+		bool responseFirst;     /**< indicates if the first http message observed was a response.
+		                             This value should only be set to true if we are at the start of the
+		                             overall Packet observation process, as it means that not all Packets
+		                             were observed. Because normal HTTP dialogs always start with a request. */
 		bool pipelinedRequest;  /**< indicates if the current processed packet contains multiple requests */
+		bool pipelinedResponse; /**< indicates if the current processed packet contains multiple responses */
 
 		// we assume that normally http requests should be in forward direction, because
 		// the logic in the PacketHashtable puts new flows in new buckets and therefore
@@ -85,7 +91,7 @@ public:
 		// work fine, as only one response or request is sent at the same time (per stream).
 		// it works also in the special case where the first message observed is a
 		// response (in that case the response is in forward direction) because if the first
-		// request appears new StreamData is generated. so the buffers should never conflict
+		// request appears new HttpStreamData is generated. so the buffers should never conflict
 
 		// used to buffer unfinished http messages
 		char *forwardLine;      /**< buffer for payload in forward direction */
@@ -104,9 +110,17 @@ public:
 		http_type_t forwardType; /**< http message typ in forward direction */
 		http_type_t reverseType; /**< http message typ in reverse direction */
 
-		StreamData* streamInfo; /**< pointer to tcp stream related information (flowcount) */
+		HttpStreamData* streamInfo; /**< pointer to tcp stream related information (flowcount) */
 		RequestData* request;   /**< pointer to flow related information of a http request */
 		ResponseData* response; /**< pointer to flow related information of a http request */
+
+		bool isForward();
+		bool isReverse();
+		bool isRequest();
+		bool isResponse();
+        uint8_t* getFlowcount(bool oppositeDirection = false);
+        http_type_t* getType(bool oppositeDirection = false);
+        http_entity_transfer_t* getTransferType();
 	};
 
 	/**
@@ -130,9 +144,9 @@ public:
 
 		http_status_t status;                   /**< current state in the request parsing process */
 		http_entity_transfer_t entityTransfer;  /**< information about a request's entity */
-		uint32_t contentLength;                 /**< stores either the remaining length of the current processed chunk or message body */
-		uint32_t pipelinedRequestOffset;        /**< a packet can contain multiple get requests. this offset indicates at which position the currently processed request starts */
-		uint32_t pipelinedRequestOffsetEnd;     /**< a packet can contain multiple get requests. this offset indicates at which position the currently processed request ends */
+		uint32_t contentLength;                 /**< stores either the remaining length of the current processed chunk or message body. max 4GB */
+		uint32_t pipelinedRequestOffset;        /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request starts */
+		uint32_t pipelinedRequestOffsetEnd;     /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request ends */
 	};
 
 	/**
@@ -153,9 +167,13 @@ public:
 		char *statusCode;       /**< http version of a http request */
 		char *responsePhrase;   /**< http version of a http request */
 
+		int statusCode_;
+
 		http_status_t status;                   /**< current state in the response parsing process */
 		http_entity_transfer_t entityTransfer;  /**< information about a response's entity */
-		uint32_t contentLength;                 /**< stores either the remaining length of the current processed chunk or message body */
+		uint32_t contentLength;                 /**< stores either the remaining length of the current processed chunk or message body. max 4GB */
+        uint32_t pipelinedResponseOffset;        /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request starts */
+        uint32_t pipelinedResponseOffsetEnd;     /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request ends */
 	};
 
 	typedef struct _value_string {
@@ -163,26 +181,27 @@ public:
 		const char* strptr;
 	} value_string;
 
+	static HttpStreamData* initHttpStreamData();
 protected:
 
-	static void detectHttp(const char** data, const char** dataEnd, FlowData* flowData, bool reverseDirection, const char** aggregationStart, const char** aggregationEnd);
-	static StreamData* initStreamBucket();
+	static void detectHttp(const char** data, const char** dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd);
 	static const char* toString(http_type_t type);
-	static void initializeFlowData(FlowData* flowData, StreamData* streamData);
+	static void initializeFlowData(FlowData* flowData, HttpStreamData* streamData);
 	static void printRange(const char* data, int range);
 
 private:
-	static int processNewHttpTraffic(const char* data, const char* dataEnd, FlowData* flowData, bool reverseDirection, const char** aggregationStart, const char** aggregationEnd);
-	static int processHttpResponse(const char* data, const char* dataEnd, FlowData* flowData, bool reverseDirection, const char** aggregationStart, const char** aggregationEnd);
-	static int processHttpRequest(const char* data, const char* dataEnd, FlowData* flowData, bool reverseDirection, const char** aggregationStart, const char** aggregationEnd);
-	static int getSpaceDelimitedText(const char* data, const char* dataEnd, const char** start, const char** end);
-	static int getDelimitedText(const char* data, const char* dataEnd, const char** start, const char** end);
+	static int processNewHttpTraffic(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd);
+	static int processHttpResponse(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd);
+	static int processHttpRequest(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd);
+	static int getSpaceDelimitedText(const char* data, const char* dataEnd, const char** start, const char** end, int max = 0);
+	static int getCRLFDelimitedText(const char* data, const char* dataEnd, const char** start, const char** end, int max = 0);
+	static int getDelimitedText(const char* data, const char* dataEnd, const char** start, const char** end, int max = 0);
 	static int eatCRLF(const char* data, const char* dataEnd, const char** end);
 	static uint32_t getChunkLength(const char* data, const char* dataEnd, const char** end);
 	static int getRequestOrResponse(const char* data, const char* dataEnd, const char** start, const char** end, http_type_t* type);
 	static int getRequestMethod(const char* data, const char* dataEnd, const char** start, const char** end);
-	static void setContentLength(const char* data, const char* dataEnd, FlowData* flowData, bool reverseDirection);
-	static void setTransferEncoding(const char* data, const char* dataEnd, FlowData* flowData, bool reverseDirection);
+	static void setContentLength(const char* data, const char* dataEnd, FlowData* flowData);
+	static void setTransferEncoding(const char* data, const char* dataEnd, FlowData* flowData);
 	static int isRequest(const char* data, const char* dataEnd);
 	static int isResponse(const char* data, const char* dataEnd);
 	static int isVersion(const char* data, const char* dataEnd);
@@ -193,14 +212,14 @@ private:
 	static int getResponseVersion(const char* data, const char* dataEnd, const char** start, const char** end);
 	static uint16_t getResponseCode(const char* data, const char* dataEnd, const char** start, const char** end);
 	static int getResponsePhrase(const char* data, const char* dataEnd, const char** start, const char** end);
-	static int processMessageHeader(const char* data, const char* dataEnd, const char** end, FlowData* flowData, bool reverseDirection);
+	static int processMessageHeader(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
 	static int isValidMessageHeaderTerminatorSuffix(const char* data, const char* dataEnd, const char** end);
-	static int processMessageHeaderField(const char* data, const char* dataEnd, const char** end, FlowData* flowData, http_entity_transfer* transferType, bool reverseDirection);
-	static int processEntity(const char* data, const char* dataEnd, const char** end, FlowData* flowData, bool reverseDirection);
-	static void storeDataLeftOver(const char* data, const char* dataEnd, FlowData* flowData, bool reverseDirection);
+	static int processMessageHeaderField(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
+	static int processEntity(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
+	static void storeDataLeftOver(const char* data, const char* dataEnd, FlowData* flowData);
 	static void copyToCharPointer(char** dst, const char* data, size_t size, bool terminator);
 	static void addToCharPointer(char **dst, const char* data, size_t currentSize, size_t sizeToAdd);
-	static void testFinishedMessage(FlowData* flowData, bool reverseDirection);
+	static void testFinishedMessage(FlowData* flowData);
 
 	static const char STR_CONTENT_LENGTH[];
 	static const int SIZE_CONTENT_LENGTH = 15;

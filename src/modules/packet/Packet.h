@@ -136,6 +136,8 @@ public:
 	unsigned int data_length;
 	// original packet length
 	uint32_t pcapPacketLength;
+	// the length of the datagram, measured in octets, including internet header and data
+	uint16_t net_total_length;
 
 	// when was the packet received?
 	struct timeval timestamp;
@@ -290,6 +292,8 @@ public:
 				DPRINTF("crop layer 2 padding: old: %u  new: %u\n", data_length, endOfIpOffset);
 				data_length = endOfIpOffset;
 			}
+
+			net_total_length = ntohs(*(uint16_t*)(data.netHeader+2));
 
 			// get fragment offset
 			uint16_t fragoffset = (*(uint16_t*)(data.netHeader+6))&0xFF1F;
