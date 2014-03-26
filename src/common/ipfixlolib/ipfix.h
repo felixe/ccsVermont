@@ -196,7 +196,11 @@ extern "C" {
 #define IPFIX_ETYPEID_anonymisationType				9
 #define IPFIX_ETYPEID_httpRequestMethod             10
 #define IPFIX_ETYPEID_httpRequestUri                11
-#define IPFIX_ETYPEID_httpResponseCode              12
+#define IPFIX_ETYPEID_httpRequestVersion            12
+#define IPFIX_ETYPEID_httpRequestHost               13
+#define IPFIX_ETYPEID_httpResponseVersion           14
+#define IPFIX_ETYPEID_httpResponseCode              15
+#define IPFIX_ETYPEID_httpResponsePhrase            16
 
 #define IPFIX_LENGTH_ipVersion                      IPFIX_LENGTH_octet
 #define IPFIX_LENGTH_sourceIPv4Address              IPFIX_LENGTH_ipv4Address
@@ -310,7 +314,9 @@ extern "C" {
 #define IPFIX_ELENGTH_frontPayloadPktCount			IPFIX_LENGTH_unsigned32
 #define IPFIX_ELENGTH_anonymisationType				IPFIX_LENGTH_octet
 #define IPFIX_ELENGTH_httpRequestMethod             16
-#define IPFIX_ELENGTH_httpResponseCode				IPFIX_LENGTH_unsigned16
+#define IPFIX_ELENGTH_httpResponseCode              IPFIX_LENGTH_unsigned16
+#define IPFIX_ELENGTH_httpResponsePhrase			32
+#define IPFIX_ELENGTH_httpVersionIdentifier         IPFIX_LENGTH_unsigned64
 
 #define MAX_MSG_LEN   65536
 

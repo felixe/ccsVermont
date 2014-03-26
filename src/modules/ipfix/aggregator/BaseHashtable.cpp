@@ -394,9 +394,13 @@ int BaseHashtable::isToBeAggregated(InformationElement::IeInfo& type)
 				case IPFIX_ETYPEID_dpaFlowCount:
 				case IPFIX_ETYPEID_dpaReverseStart:
 				case IPFIX_ETYPEID_transportOctetDeltaCount:
-				case IPFIX_ETYPEID_httpRequestMethod:
-				case IPFIX_ETYPEID_httpRequestUri:
-				case IPFIX_ETYPEID_httpResponseCode:
+                case IPFIX_ETYPEID_httpRequestMethod:
+                case IPFIX_ETYPEID_httpRequestUri:
+                case IPFIX_ETYPEID_httpRequestVersion:
+                case IPFIX_ETYPEID_httpResponseVersion:
+                case IPFIX_ETYPEID_httpResponseCode:
+                case IPFIX_ETYPEID_httpResponsePhrase:
+                case IPFIX_ETYPEID_httpRequestHost:
 					return 1;
 			}
 			break;
@@ -413,7 +417,11 @@ int BaseHashtable::isToBeAggregated(InformationElement::IeInfo& type)
 				case IPFIX_ETYPEID_transportOctetDeltaCount:
                 case IPFIX_ETYPEID_httpRequestMethod:
                 case IPFIX_ETYPEID_httpRequestUri:
+                case IPFIX_ETYPEID_httpRequestVersion:
+                case IPFIX_ETYPEID_httpResponseVersion:
                 case IPFIX_ETYPEID_httpResponseCode:
+                case IPFIX_ETYPEID_httpResponsePhrase:
+                case IPFIX_ETYPEID_httpRequestHost:
 					return 1;
 			}
 			break;
@@ -569,9 +577,13 @@ void BaseHashtable::genBiflowStructs()
 					case IPFIX_ETYPEID_dpaFlowCount:
 					case IPFIX_ETYPEID_dpaReverseStart:
 					case IPFIX_ETYPEID_anonymisationType:
-					case IPFIX_ETYPEID_httpRequestMethod:
-					case IPFIX_ETYPEID_httpRequestUri:
-					case IPFIX_ETYPEID_httpResponseCode:
+	                case IPFIX_ETYPEID_httpRequestMethod:
+	                case IPFIX_ETYPEID_httpRequestUri:
+	                case IPFIX_ETYPEID_httpRequestVersion:
+	                case IPFIX_ETYPEID_httpResponseVersion:
+	                case IPFIX_ETYPEID_httpResponseCode:
+	                case IPFIX_ETYPEID_httpResponsePhrase:
+	                case IPFIX_ETYPEID_httpRequestHost:
 						mapReverseElement(fi->type);
 						break;
 

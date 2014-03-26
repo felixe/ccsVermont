@@ -296,7 +296,11 @@ void PrintHelpers::printFieldData(InformationElement::IeInfo type, IpfixRecord::
 				printFrontPayload(type, pattern, true);
 				return;
 			} else if (type==InformationElement::IeInfo(IPFIX_ETYPEID_httpRequestMethod, IPFIX_PEN_vermont) ||
-                type==InformationElement::IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont)) {
+                type==InformationElement::IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont) ||
+                type==InformationElement::IeInfo(IPFIX_ETYPEID_httpRequestVersion, IPFIX_PEN_vermont) ||
+                type==InformationElement::IeInfo(IPFIX_ETYPEID_httpRequestHost, IPFIX_PEN_vermont) ||
+                type==InformationElement::IeInfo(IPFIX_ETYPEID_httpResponseVersion, IPFIX_PEN_vermont) ||
+                type==InformationElement::IeInfo(IPFIX_ETYPEID_httpResponsePhrase, IPFIX_PEN_vermont)) {
 			    printFrontPayload(type, pattern, false);
 			    return;
 			}

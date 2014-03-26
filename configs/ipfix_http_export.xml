@@ -5,15 +5,7 @@
 	</sensorManager>
 	<observer id="1">
 		<!--<interface>eth0</interface>-->
-		
-		<!-- filename>dumps/stol-pipelining-single-stream.pcap</filename -->
-		<!-- <filename>dumps/stol-pipelining2-single-stream.pcap</filename> -->
-		<!-- <filename>dumps/random.pcap</filename> -->
-		<!-- <filename>dumps/http.pcap</filename> -->
-		<!-- <filename>dumps/apt-pipelining.pcap</filename> -->
-		<!-- <filename>dumps/mtu-300.pcap</filename> -->
-		<filename>dumps/c05-http-reply-r1.pcap</filename>
-		
+		<filename>dumps/http.pcap</filename>
 		<pcap_filter>ip and tcp</pcap_filter>
 		<offlineAutoExit>1</offlineAutoExit>
 		<offlineSpeed>0</offlineSpeed>
@@ -21,7 +13,12 @@
 		<next>2</next>
 	</observer>
 	
-	<packetAggregator id="2">
+	<packetQueue id="2">
+		<maxSize>1000</maxSize>
+		<next>3</next>
+	</packetQueue>
+	
+	<packetAggregator id="3">
 		<rule>
 			<templateId>999</templateId>
 			<biflowAggregation>1</biflowAggregation>
@@ -108,7 +105,20 @@
 				<ieLength>150</ieLength>
 			</nonFlowKey>
 			<nonFlowKey>
+				<ieName>httpRequestVersion</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>httpRequestHost</ieName>
+				<ieLength>50</ieLength>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>httpResponseVersion</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
 				<ieName>httpResponseCode</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>httpResponsePhrase</ieName>
 			</nonFlowKey>
 		</rule>
 		<expiration>
@@ -116,21 +126,34 @@
 			<activeTimeout unit="sec">300</activeTimeout>
 		</expiration>
 		<pollInterval unit="msec">100</pollInterval>
-		<next>3</next>
+		<next>4</next>
 	</packetAggregator>
 
-	<ipfixPrinter id="3">
-		<!--<outputType>table</outputType>-->
+	<ipfixQueue id="4">
+		<entries>1000</entries>
+		<next>5</next>
+	</ipfixQueue>
+	
+	<ipfixPrinter id="5">
+		<!-- <outputType>table</outputType> -->
 		<outputType>tree</outputType>
 		<filename>flows.dat</filename>
-	</ipfixPrinter>
+	</ipfixPrinter> 
 
-	<!--ipfixFileWriter id="5">
+	<!--
+	<ipfixExporter id="5">
+		<collector>
+			<ipAddress>127.0.0.1</ipAddress>
+			<transportProtocol>132</transportProtocol>
+			<port>1500</port>
+		</collector>
+	</ipfixExporter>
+	
+		 ipfixFileWriter id="5">
 		<observationDomainId>99</observationDomainId>
 		<maximumFilesize>1024000</maximumFilesize>
 		<destinationPath>.</destinationPath>
 		<filenamePrefix>ipfixdump</filenamePrefix>
-	</ipfixFileWriter-->
-
-
+	</ipfixFileWriter
+	-->
 </ipfixConfig>

@@ -25,6 +25,7 @@
 #include "modules/packet/Packet.h"
 #include "common/msg.h"
 #include <stdint.h>
+#include "common/ipfixlolib/ipfix.h"
 
 /**
  * This class provides methods to parse HTTP messages and data structures which are used to
@@ -49,6 +50,10 @@ public:
 	static const http_status_t MESSAGE_END          = 0x3F; /**< http message was parsed successfully, i.e. message end was reached */
 	static const http_status_t MESSAGE_FLAG_WAITING = 0x40; /**< http message was not parsed successful, wait for more payload */
 	static const http_status_t MESSAGE_FLAG_FAILURE = 0x80; /**< http message was not parsed successful, i.e. a parsing error occurred at some point */
+
+	static const int FIELD_NO_MATCH = 0;        /**< the field does not match */
+	static const int FIELD_PARTIAL_MATCH = 1;   /**< a part of the field is matching */
+	static const int FIELD_MATCH = 2;           /**< the field is matching */
 
 	//! classification of the http message type
 	typedef enum http_type {
@@ -138,9 +143,13 @@ public:
 		 *
 		 * Request-Line  = Method SP Request-URI SP HTTP-Version CRLF
 		 */
-		char *method;   /**< method of a http request */
-		char *uri;      /**< uri of a http request */
-		char *version;  /**< http version of a http request */
+		char* method;   /**< method of a http request */
+		char* uri;      /**< uri of a http request */
+		char* version;  /**< http version of a http request */
+		char* host;     /**< host header field of a http request */
+
+		uint16_t uriLength;     /**< max length of request uri */
+		uint16_t hostLength;    /**< max length of request host */
 
 		http_status_t status;                   /**< current state in the request parsing process */
 		http_entity_transfer_t entityTransfer;  /**< information about a request's entity */
@@ -163,9 +172,9 @@ public:
 		 *             [ message-body ]          ; Section 7.2
 		 *   Status-Line = HTTP-Version SP Status-Code SP Reason-Phrase CRLF
 		 */
-		char *version;          /**< http version of a http request */
-		char *statusCode;       /**< http version of a http request */
-		char *responsePhrase;   /**< http version of a http request */
+		char* version;          /**< version of a http request */
+		uint16_t* statusCode;   /**< status code of a http request */
+		char* responsePhrase;   /**< response phrase of a http request */
 
 		int statusCode_;
 
@@ -215,16 +224,20 @@ private:
 	static int processMessageHeader(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
 	static int isValidMessageHeaderTerminatorSuffix(const char* data, const char* dataEnd, const char** end);
 	static int processMessageHeaderField(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
+	static int matchField(const char* data, const char* dataEnd, const char** start, const char** end, const char* field, const size_t fieldSize);
 	static int processEntity(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
 	static void storeDataLeftOver(const char* data, const char* dataEnd, FlowData* flowData);
 	static void copyToCharPointer(char** dst, const char* data, size_t size, bool terminator);
 	static void addToCharPointer(char **dst, const char* data, size_t currentSize, size_t sizeToAdd);
 	static void testFinishedMessage(FlowData* flowData);
+	static uint32_t min_(uint32_t, uint32_t);
 
 	static const char STR_CONTENT_LENGTH[];
 	static const int SIZE_CONTENT_LENGTH = 15;
 	static const char STR_TRANSFER_ENCODING[];
 	static const int SIZE_TRANSFER_ENCODING = 18;
+	static const char STR_HOST[];
+	static const int SIZE_HOST = 5;
 
 	static const value_string vals_status_code[];
 };

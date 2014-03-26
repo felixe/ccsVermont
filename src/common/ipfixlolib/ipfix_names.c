@@ -142,7 +142,11 @@ struct ipfix_identifier ipfixids[] = {
  { IPFIX_ETYPEID_anonymisationType, IPFIX_ELENGTH_anonymisationType, IPFIX_PEN_vermont, "anonymisationType" },
  { IPFIX_ETYPEID_httpRequestMethod, IPFIX_ELENGTH_httpRequestMethod, IPFIX_PEN_vermont, "httpRequestMethod" },
  { IPFIX_ETYPEID_httpRequestUri, 0, IPFIX_PEN_vermont, "httpRequestUri" },
- { IPFIX_ETYPEID_httpResponseCode, IPFIX_ELENGTH_httpResponseCode, IPFIX_PEN_vermont, "httpResponseCode" }
+ { IPFIX_ETYPEID_httpRequestVersion, IPFIX_ELENGTH_httpVersionIdentifier, IPFIX_PEN_vermont, "httpRequestVersion" },
+ { IPFIX_ETYPEID_httpRequestHost, 0, IPFIX_PEN_vermont, "httpRequestHost" },
+ { IPFIX_ETYPEID_httpResponseVersion, IPFIX_ELENGTH_httpVersionIdentifier, IPFIX_PEN_vermont, "httpResponseVersion" },
+ { IPFIX_ETYPEID_httpResponseCode, IPFIX_ELENGTH_httpResponseCode, IPFIX_PEN_vermont, "httpResponseCode" },
+ { IPFIX_ETYPEID_httpResponsePhrase, IPFIX_ELENGTH_httpResponsePhrase, IPFIX_PEN_vermont, "httpResponsePhrase" }
 };
 
 
