@@ -227,17 +227,17 @@ private:
 	static int matchField(const char* data, const char* dataEnd, const char** start, const char** end, const char* field, const size_t fieldSize);
 	static int processEntity(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
 	static void storeDataLeftOver(const char* data, const char* dataEnd, FlowData* flowData);
-	static void copyToCharPointer(char** dst, const char* data, size_t size, bool terminator);
+	static void copyToCharPointer(char** dst, const char* data, size_t size);
 	static void addToCharPointer(char **dst, const char* data, size_t currentSize, size_t sizeToAdd);
 	static void testFinishedMessage(FlowData* flowData);
 	static uint32_t min_(uint32_t, uint32_t);
 
 	static const char STR_CONTENT_LENGTH[];
-	static const int SIZE_CONTENT_LENGTH = 15;
+	static const size_t SIZE_CONTENT_LENGTH = 15;
 	static const char STR_TRANSFER_ENCODING[];
-	static const int SIZE_TRANSFER_ENCODING = 18;
+	static const size_t SIZE_TRANSFER_ENCODING = 18;
 	static const char STR_HOST[];
-	static const int SIZE_HOST = 5;
+	static const size_t SIZE_HOST = 5;
 
 	static const value_string vals_status_code[];
 };

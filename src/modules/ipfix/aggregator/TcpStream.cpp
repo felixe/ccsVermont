@@ -30,6 +30,12 @@ TcpStream::TcpStream(Packet* p, uint32_t num) : streamNum(num), direction(FORWAR
 }
 
 TcpStream::~TcpStream() {
+    if (!httpData)
+        return;
+    if (httpData->forwardLine)
+        free(httpData->forwardLine);
+    if (httpData->reverseLine)
+        free(httpData->reverseLine);
     delete httpData;
 }
 
@@ -116,7 +122,7 @@ TcpStream* TcpStreamMonitor::dissect(Packet* p) {
 
     // if the TCP stream was closed before we do not have to consider this Packet
     if (ts->state == TcpStream::TCP_CLOSED) {
-        DPRINTFL(MSG_INFO, "tcpmon: skipping packet, TCP connection was closed before");
+        DPRINTFL(MSG_DEBUG, "tcpmon: skipping packet, TCP connection was closed before");
         // remove the reference to the Packet instance
         p->removeReference();
         return NULL;
@@ -156,7 +162,7 @@ bool TcpStreamMonitor::analysePacket(Packet* p, TcpStream* ts) {
     // TcpData from the destination of the Packet
     TcpData* dst = ts->isReverse() ? &ts->fwdData : &ts->revData;
 
-    DPRINTFL(MSG_INFO, "tcpmon: seq#: %u, is next:%s, ack#: %u, flags: SYN=%d, ACK=%d, FIN=%d, RST=%d, plen: %u, slen:%u",
+    DPRINTFL(MSG_DEBUG, "tcpmon: seq#: %u, is next:%s, ack#: %u, flags: SYN=%d, ACK=%d, FIN=%d, RST=%d, plen: %u, slen:%u",
             seq, seq == src->nextSeq ? "yes":"no", ack, (bool)(flags&FLAG_SYN), (bool)(flags&FLAG_ACK), (bool)(flags&FLAG_FIN), (bool)(flags&FLAG_RST), plen, slen);
 
     if (isSet(flags, FLAG_SYN) && !isSet(flags, FLAG_ACK) && src->initSeq==0 && src->initSeq != seq) {
@@ -199,7 +205,7 @@ bool TcpStreamMonitor::analysePacket(Packet* p, TcpStream* ts) {
         src->seqFin = seq;
     } else if (src->nextSeq == seq) {
         // this data packet is in order, update next sequence number
-        DPRINTFL(MSG_INFO, "tcpmon: ordinary data packet, setting next seq nr to %u", seq + slen);
+        DPRINTFL(MSG_DEBUG, "tcpmon: ordinary data packet, setting next seq nr to %u", seq + slen);
         src->nextSeq = seq + slen;
     } else {
         if (src->initSeq == 0 && src->nextSeq == 0) {
@@ -303,7 +309,7 @@ TcpStream* TcpStreamMonitor::findOrCreateStream(Packet* p) {
         DPRINTFL(MSG_INFO, "tcpmon: created new stream with hash: %u", hash_value(*ts));
     } else {
         ts =  &(*it);
-        DPRINTFL(MSG_INFO,"tcpmon: found existing stream, with hash: %u", hash_value(*ts));
+        DPRINTFL(MSG_DEBUG,"tcpmon: found existing stream, with hash: %u", hash_value(*ts));
     }
 
     return ts;
@@ -359,7 +365,7 @@ void TcpStreamMonitor::expireList(bool all, TimeoutList& list, timeval compare) 
     while (it != list.end()) {
         TcpStream* ts = &(*it);
         if (all || compareTime(ts->timeout, compare) <= 0) {
-            DPRINTFL(MSG_INFO, "tcpmon: expiring stream with hash: %lu", hash_value(*ts));
+            DPRINTFL(MSG_DEBUG, "tcpmon: expiring stream with hash: %lu", hash_value(*ts));
             // release all Packets queued for this TcpStream
             ts->releaseQueuedPackets();
             // remove the TcpStream instance from the TimeoutList
@@ -373,7 +379,7 @@ void TcpStreamMonitor::expireList(bool all, TimeoutList& list, timeval compare) 
 #ifdef DEBUG
             timeval diff, x = ts->timeout, y = compare;
             timeval_subtract(&diff, &x, &y);
-            DPRINTFL(MSG_INFO, "tcpmon: not expiring, still %lu ms remaining", diff.tv_sec*1000 + diff.tv_usec/1000);
+            DPRINTFL(MSG_VDEBUG, "tcpmon: not expiring, still %lu ms remaining", diff.tv_sec*1000 + diff.tv_usec/1000);
             it++;
 #else
             // we don't have to check all the entries in the list as they are stored in order of expiry.
@@ -384,7 +390,7 @@ void TcpStreamMonitor::expireList(bool all, TimeoutList& list, timeval compare) 
     }
 
     if (list.size() != before)
-        DPRINTFL(MSG_INFO, "tcpmon: expired %lu %s streams", before - list.size(),  list == openedStreams ? "open" : "closed");
+        DPRINTFL(MSG_DEBUG, "tcpmon: expired %lu %s streams", before - list.size(),  list == openedStreams ? "open" : "closed");
 
 #ifdef DEBUG
     TimeoutList::iterator it2 = list.begin();
@@ -446,5 +452,5 @@ bool TcpStreamMonitor::isFresh(uint32_t seq, TcpData* td) {
 }
 
 void TcpStreamMonitor::printStreamCount() {
-    DPRINTFL(MSG_INFO, "total streams: %lu, open streams: %lu, closed streams: %lu.", htable->size(), openedStreams.size(), closedStreams.size());
+    DPRINTFL(MSG_VDEBUG, "total streams: %lu, open streams: %lu, closed streams: %lu.", htable->size(), openedStreams.size(), closedStreams.size());
 }

@@ -1856,13 +1856,13 @@ void PacketHashtable::aggregatePacket(Packet* p)
         bool preventReverseMatch = false;
         IpfixRecord::Data* tsrcData = 0;
 
-        HttpStreamData* streamData = NULL;
+        HttpStreamData* httpData = NULL;
 
         if (httpPipeliningAggregation) {
-            streamData = tcpStream->httpData;
+            httpData = tcpStream->httpData;
             DPRINTFL(MSG_INFO, "forward flows %u", httpData->forwardFlows);
             DPRINTFL(MSG_INFO,"reverse flows %u", httpData->reverseFlows);
-            if (streamData->responseFirst)
+            if (httpData->responseFirst)
                 preventReverseMatch = true;
         }
 
@@ -1944,7 +1944,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
             if (httpPipeliningAggregation) {
                 boost::shared_array<IpfixRecord::Data> htdata; // just a temporary stopgap
                 buckets[hash] = createBucket(htdata, p->observationDomainID, firstbucket, 0, hash);
-                buckets[hash]->data = buildBucketData(p, streamData, &buckets[hash]);
+                buckets[hash]->data = buildBucketData(p, httpData, &buckets[hash]);
                 tsrcData = buckets[hash]->data.get();
             }
             else
@@ -1964,8 +1964,8 @@ void PacketHashtable::aggregatePacket(Packet* p)
         }
 
         if (httpPipeliningAggregation) {
-            if ((streamData->pipelinedRequest || streamData->pipelinedResponse))
-                processMultipleHttpMessages(tsrcData, streamData, p, tcpStream);
+            if ((httpData->pipelinedRequest || httpData->pipelinedResponse))
+                processMultipleHttpMessages(tsrcData, httpData, p, tcpStream);
             p->removeReference();
             p = tcpmon->nextPacketForStream(tcpStream);
             if (p) {
