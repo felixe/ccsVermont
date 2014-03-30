@@ -57,13 +57,17 @@ void TcpStream::updateDirection(Packet* p) {
  * Releases all queued packets from the TcpStream::packetQueue.
  */
 void TcpStream::releaseQueuedPackets() {
-    PacketQueue::iterator pit = packetQueue.begin();
+    PacketQueue::const_iterator pit = packetQueue.begin();
     for (;pit!=packetQueue.end();pit++) {
-        uint32_t key = (*pit).first;
         // remove reference to Packet instance
         (*pit).second->removeReference();
-        packetQueue.erase(PacketQueue::key_type(key));
+#ifdef DEBUG
+    int32_t refCount = (*pit).second->getReferenceCount();
+    if (refCount != 0)
+        THROWEXCEPTION("wrong reference count: %d. expected: 0", refCount);
+#endif
     }
+    packetQueue.clear();
 }
 
 bool TcpStream::isForward() {
@@ -125,6 +129,11 @@ TcpStream* TcpStreamMonitor::dissect(Packet* p) {
         DPRINTFL(MSG_DEBUG, "tcpmon: skipping packet, TCP connection was closed before");
         // remove the reference to the Packet instance
         p->removeReference();
+#ifdef DEBUG
+    int32_t refCount = p->getReferenceCount();
+    if (refCount != 1)
+        THROWEXCEPTION("wrong reference count: %d. expected: 1", refCount);
+#endif
         return NULL;
     };
 
@@ -154,16 +163,15 @@ bool TcpStreamMonitor::analysePacket(Packet* p, TcpStream* ts) {
     uint32_t seq = ntohl(*reinterpret_cast<uint32_t*>(p->transportHeader + OFFSET_SEQ));
     uint8_t flags = *reinterpret_cast<uint8_t*>(p->transportHeader + OFFSET_FLAGS) & 0x3F;
 
-    uint32_t plen = p->pcapPacketLength; // packet length
-    uint32_t slen = p->net_total_length - p->payloadOffset; // TCP segment length
-
     // TcpData from the originator of the Packet
     TcpData* src = ts->isForward() ? &ts->fwdData : &ts->revData;
     // TcpData from the destination of the Packet
     TcpData* dst = ts->isReverse() ? &ts->fwdData : &ts->revData;
 
+    uint32_t slen = p->net_total_length - p->payloadOffset; // TCP segment length
+
     DPRINTFL(MSG_DEBUG, "tcpmon: seq#: %u, is next:%s, ack#: %u, flags: SYN=%d, ACK=%d, FIN=%d, RST=%d, plen: %u, slen:%u",
-            seq, seq == src->nextSeq ? "yes":"no", ack, (bool)(flags&FLAG_SYN), (bool)(flags&FLAG_ACK), (bool)(flags&FLAG_FIN), (bool)(flags&FLAG_RST), plen, slen);
+            seq, seq == src->nextSeq ? "yes":"no", ack, (bool)(flags&FLAG_SYN), (bool)(flags&FLAG_ACK), (bool)(flags&FLAG_FIN), (bool)(flags&FLAG_RST), p->pcapPacketLength, slen);
 
     if (isSet(flags, FLAG_SYN) && !isSet(flags, FLAG_ACK) && src->initSeq==0 && src->initSeq != seq) {
         // this is a connection attempt, i.e. a SYN packet
@@ -227,6 +235,11 @@ bool TcpStreamMonitor::analysePacket(Packet* p, TcpStream* ts) {
                 // this packet has been seen previously and should not have to be processed
                 DPRINTFL(MSG_INFO, "tcpmon: packet is out of order. not considering packet because the sequence number should already have been processed.");
                 p->removeReference();
+#ifdef DEBUG
+    int32_t refCount = p->getReferenceCount();
+    if (refCount != 1)
+        THROWEXCEPTION("wrong reference count: %d. expected: 1", refCount);
+#endif
             }
             return false;
         }
@@ -291,7 +304,6 @@ Packet* TcpStreamMonitor::nextPacketForStream(TcpStream* ts) {
 TcpStream* TcpStreamMonitor::findOrCreateStream(Packet* p) {
     TcpStream* ts = 0;
     hashtable<TcpStream>::iterator it = htable->find(TcpStream(p));
-    bool found = false;
     if (it == htable->end()) {
         pair<hashtable<TcpStream>::iterator, bool> result = htable->insert_unique(*new TcpStream(p, streamCounter++));
 

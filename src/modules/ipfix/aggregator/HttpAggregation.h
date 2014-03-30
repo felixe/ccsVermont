@@ -105,9 +105,6 @@ public:
 		uint16_t reverseLength; /**< size of the buffer buffer reverse direction */
 	};
 
-	struct RequestData;
-	struct ResponseData;
-
 	/**
 	 * structure used for storing flow related information, which is needed for a proper aggregation
 	 */
@@ -116,8 +113,66 @@ public:
 		http_type_t reverseType; /**< http message typ in reverse direction */
 
 		HttpStreamData* streamInfo; /**< pointer to tcp stream related information (flowcount) */
-		RequestData* request;   /**< pointer to flow related information of a http request */
-		ResponseData* response; /**< pointer to flow related information of a http request */
+
+		char* tempBuffer; /** used when we payload of two different TCP segments has to be combined.
+		                    we cannot free it here as its content is used by PacketHashtable::aggregateHttp() */
+
+	    /**
+	     * structure used for storing flow related information about a request, which is needed for a proper aggregation
+	     */
+	    struct RequestData {
+	        /*-
+	         * From RFC 2616
+	         * Request  = Request-Line              ; Section 5.1
+	         *            *(( general-header        ; Section 4.5
+	         *             | request-header         ; Section 5.3
+	         *             | entity-header ) CRLF)  ; Section 7.1
+	         *            CRLF
+	         *            [ message-body ]          ; Section 4.3
+	         *
+	         * Request-Line  = Method SP Request-URI SP HTTP-Version CRLF
+	         */
+	        char* method;   /**< method of a http request */
+	        char* uri;      /**< uri of a http request */
+	        char* version;  /**< http version of a http request */
+	        char* host;     /**< host header field of a http request */
+
+	        uint16_t uriLength;     /**< max length of request uri */
+	        uint16_t hostLength;    /**< max length of request host */
+
+	        http_status_t status;                   /**< current state in the request parsing process */
+	        http_entity_transfer_t entityTransfer;  /**< information about a request's entity */
+	        uint32_t contentLength;                 /**< stores either the remaining length of the current processed chunk or message body. max 4GB */
+	        uint32_t pipelinedRequestOffset;        /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request starts */
+	        uint32_t pipelinedRequestOffsetEnd;     /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request ends */
+	    } request;
+
+	    /**
+	     * structure used for storing flow related information about a request, which is needed for a proper aggregation
+	     */
+	    struct ResponseData {
+	        /*-
+	         * From RFC 2616
+	         * Response  = Status-Line               ; Section 6.1
+	         *             *(( general-header        ; Section 4.5
+	         *              | response-header        ; Section 6.2
+	         *              | entity-header ) CRLF)  ; Section 7.1
+	         *             CRLF
+	         *             [ message-body ]          ; Section 7.2
+	         *   Status-Line = HTTP-Version SP Status-Code SP Reason-Phrase CRLF
+	         */
+	        char* version;          /**< version of a http request */
+	        uint16_t* statusCode;   /**< status code of a http request */
+	        char* responsePhrase;   /**< response phrase of a http request */
+
+	        int statusCode_;
+
+	        http_status_t status;                   /**< current state in the response parsing process */
+	        http_entity_transfer_t entityTransfer;  /**< information about a response's entity */
+	        uint32_t contentLength;                 /**< stores either the remaining length of the current processed chunk or message body. max 4GB */
+	        uint32_t pipelinedResponseOffset;        /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request starts */
+	        uint32_t pipelinedResponseOffsetEnd;     /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request ends */
+	    } response;
 
 		bool isForward();
 		bool isReverse();
@@ -128,62 +183,9 @@ public:
         http_entity_transfer_t* getTransferType();
 	};
 
-	/**
-	 * structure used for storing flow related information about a request, which is needed for a proper aggregation
-	 */
-	struct RequestData {
-		/*-
-		 * From RFC 2616
-		 * Request  = Request-Line              ; Section 5.1
-		 *            *(( general-header        ; Section 4.5
-		 *             | request-header         ; Section 5.3
-		 *             | entity-header ) CRLF)  ; Section 7.1
-		 *            CRLF
-		 *            [ message-body ]          ; Section 4.3
-		 *
-		 * Request-Line  = Method SP Request-URI SP HTTP-Version CRLF
-		 */
-		char* method;   /**< method of a http request */
-		char* uri;      /**< uri of a http request */
-		char* version;  /**< http version of a http request */
-		char* host;     /**< host header field of a http request */
 
-		uint16_t uriLength;     /**< max length of request uri */
-		uint16_t hostLength;    /**< max length of request host */
 
-		http_status_t status;                   /**< current state in the request parsing process */
-		http_entity_transfer_t entityTransfer;  /**< information about a request's entity */
-		uint32_t contentLength;                 /**< stores either the remaining length of the current processed chunk or message body. max 4GB */
-		uint32_t pipelinedRequestOffset;        /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request starts */
-		uint32_t pipelinedRequestOffsetEnd;     /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request ends */
-	};
 
-	/**
-	 * structure used for storing flow related information about a request, which is needed for a proper aggregation
-	 */
-	struct ResponseData {
-		/*-
-		 * From RFC 2616
-		 * Response  = Status-Line               ; Section 6.1
-		 *             *(( general-header        ; Section 4.5
-		 *              | response-header        ; Section 6.2
-		 *              | entity-header ) CRLF)  ; Section 7.1
-		 *             CRLF
-		 *             [ message-body ]          ; Section 7.2
-		 *   Status-Line = HTTP-Version SP Status-Code SP Reason-Phrase CRLF
-		 */
-		char* version;          /**< version of a http request */
-		uint16_t* statusCode;   /**< status code of a http request */
-		char* responsePhrase;   /**< response phrase of a http request */
-
-		int statusCode_;
-
-		http_status_t status;                   /**< current state in the response parsing process */
-		http_entity_transfer_t entityTransfer;  /**< information about a response's entity */
-		uint32_t contentLength;                 /**< stores either the remaining length of the current processed chunk or message body. max 4GB */
-        uint32_t pipelinedResponseOffset;        /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request starts */
-        uint32_t pipelinedResponseOffsetEnd;     /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request ends */
-	};
 
 	typedef struct _value_string {
 		uint16_t  value;
@@ -228,7 +230,7 @@ private:
 	static int processEntity(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
 	static void storeDataLeftOver(const char* data, const char* dataEnd, FlowData* flowData);
 	static void copyToCharPointer(char** dst, const char* data, size_t size);
-	static void addToCharPointer(char **dst, const char* data, size_t currentSize, size_t sizeToAdd);
+	static void appendToCharPointer(char **dst, const char* data, size_t currentSize, size_t sizeToAdd);
 	static void testFinishedMessage(FlowData* flowData);
 	static uint32_t min_(uint32_t, uint32_t);
 

@@ -54,6 +54,8 @@ PacketHashtable::~PacketHashtable()
 	delete[] expHelperTable.revAggFields;
 	delete[] expHelperTable.varSrcPtrFields;
 	delete[] expHelperTable.revKeyFieldMapper;
+	if (tcpmon)
+	    delete tcpmon;
 }
 
 /**
@@ -156,7 +158,7 @@ void PacketHashtable::copyDataTransportOctets(CopyFuncParameters* cfp)
 		default:
 			break;
 	}
-	DPRINTFL(MSG_VDEBUG, "%s=%llu, ppd->seq=%u", cfp->efd->typeId.toString().c_str(), ntohll(*reinterpret_cast<uint64_t*>(cfp->dst+cfp->efd->dstIndex)), ntohl(ppd->seq));
+	DPRINTFL(MSG_VDEBUG, "%s=%lu, ppd->seq=%u", cfp->efd->typeId.toString().c_str(), ntohll(*reinterpret_cast<uint64_t*>(cfp->dst+cfp->efd->dstIndex)), ntohl(ppd->seq));
 }
 
 
@@ -285,7 +287,6 @@ void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* 
 		const ExpFieldData* efd, bool firstpacket, bool initialize)
 {
 	DPRINTFL(MSG_INFO, "aggregateHttp() of type: %s, firstpacket:%s, onlyinit:%s", efd->typeId.toString().c_str(), firstpacket ? "true" : "false", initialize ? "true" : "false");
-	DPRINTFL(MSG_VDEBUG, "called (%s, %hhu, %hhu)", efd->typeId.toString().c_str(), firstpacket, initialize);
 
 	PayloadPrivateData* ppd = reinterpret_cast<PayloadPrivateData*>(bucket+efd->privDataOffset);
 	FlowData* flowData = reinterpret_cast<FlowData*>(bucket+efd->typeSpecData.http.flowDataOffset);
@@ -294,35 +295,35 @@ void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* 
 		ppd->byteCount = 0;
         // prepare pointer for http request method aggregation
         if (efd->typeSpecData.http.requestMethodOffset != ExpHelperTable::UNUSED)
-            flowData->request->method = reinterpret_cast<char*>(bucket+efd->typeSpecData.http.requestMethodOffset);
+            flowData->request.method = reinterpret_cast<char*>(bucket+efd->typeSpecData.http.requestMethodOffset);
 
         // prepare pointer for http request uri aggregation
         if (efd->typeSpecData.http.requestUriOffset != ExpHelperTable::UNUSED) {
-            flowData->request->uriLength = efd->typeSpecData.http.requestUriLength;
-            flowData->request->uri = reinterpret_cast<char*>(bucket+efd->typeSpecData.http.requestUriOffset);
+            flowData->request.uriLength = efd->typeSpecData.http.requestUriLength;
+            flowData->request.uri = reinterpret_cast<char*>(bucket+efd->typeSpecData.http.requestUriOffset);
         }
 
         // prepare pointer for http request version aggregation
         if (efd->typeSpecData.http.requestVersionOffset != ExpHelperTable::UNUSED)
-            flowData->request->version = reinterpret_cast<char*>(bucket+efd->typeSpecData.http.requestVersionOffset);
+            flowData->request.version = reinterpret_cast<char*>(bucket+efd->typeSpecData.http.requestVersionOffset);
 
         // prepare pointer for http request host aggregation
          if (efd->typeSpecData.http.requestHostOffset != ExpHelperTable::UNUSED) {
-             flowData->request->hostLength = efd->typeSpecData.http.requestHostLength;
-             flowData->request->host = reinterpret_cast<char*>(bucket+efd->typeSpecData.http.requestHostOffset);
+             flowData->request.hostLength = efd->typeSpecData.http.requestHostLength;
+             flowData->request.host = reinterpret_cast<char*>(bucket+efd->typeSpecData.http.requestHostOffset);
          }
 
          // prepare pointer for http response version aggregation
          if (efd->typeSpecData.http.responseVersionOffset != ExpHelperTable::UNUSED)
-             flowData->response->version = reinterpret_cast<char*>(bucket+efd->typeSpecData.http.responseVersionOffset);
+             flowData->response.version = reinterpret_cast<char*>(bucket+efd->typeSpecData.http.responseVersionOffset);
 
         // prepare pointer for http response code aggregation
         if (efd->typeSpecData.http.responseCodeOffset != ExpHelperTable::UNUSED)
-            flowData->response->statusCode = reinterpret_cast<uint16_t*>(bucket+efd->typeSpecData.http.responseCodeOffset);
+            flowData->response.statusCode = reinterpret_cast<uint16_t*>(bucket+efd->typeSpecData.http.responseCodeOffset);
 
         // prepare pointer for http response phrase aggregation
         if (efd->typeSpecData.http.responsePhraseOffset != ExpHelperTable::UNUSED)
-            flowData->response->responsePhrase = reinterpret_cast<char*>(bucket+efd->typeSpecData.http.responsePhraseOffset);
+            flowData->response.responsePhrase = reinterpret_cast<char*>(bucket+efd->typeSpecData.http.responsePhraseOffset);
 	}
 
 	if (initialize) {
@@ -367,17 +368,17 @@ void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* 
 		(*reinterpret_cast<uint32_t*>(bucket+efd->typeSpecData.frontPayload.fpaLenOffset)) = htonl(ppd->byteCount);
 
 	// TODO force expiry if the connection closes
-	if (flowData->request->status == MESSAGE_END && flowData->response->status == MESSAGE_END) {
+	if (flowData->request.status == MESSAGE_END && flowData->response.status == MESSAGE_END) {
 		DPRINTFL(MSG_INFO, "forcing expiry of http flow");
 		hbucket->forceExpiry=true;
 	}
 
 	http_type_t type = *flowData->getType();
 	uint32_t* pipelinedOffsetEnd = 0;
-	if (type == HTTP_TYPE_REQUEST && flowData->request->status == MESSAGE_END)
-	    pipelinedOffsetEnd = &flowData->request->pipelinedRequestOffsetEnd;
-	if (type == HTTP_TYPE_RESPONSE && flowData->response->status == MESSAGE_END)
-	        pipelinedOffsetEnd = &flowData->response->pipelinedResponseOffsetEnd;
+	if (type == HTTP_TYPE_REQUEST && flowData->request.status == MESSAGE_END)
+	    pipelinedOffsetEnd = &flowData->request.pipelinedRequestOffsetEnd;
+	if (type == HTTP_TYPE_RESPONSE && flowData->response.status == MESSAGE_END)
+	        pipelinedOffsetEnd = &flowData->response.pipelinedResponseOffsetEnd;
 
 	if (pipelinedOffsetEnd && aggregationEnd < dataEnd) {
 		// multiple requests are in this request, store the offset to the position and mark the request as pipelined
@@ -394,6 +395,11 @@ void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* 
 		    // prevent expiry, since we need to access the bucket data when processing the pipelined respones
 		    hbucket->forceExpiry=false;
 		}
+	}
+
+	if (flowData->tempBuffer) {
+	    free(flowData->tempBuffer);
+	    flowData->tempBuffer = 0;
 	}
 }
 
@@ -1185,7 +1191,14 @@ void PacketHashtable::buildExpHelperTable()
                     if (efd2->typeId==IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont)) {
                         efd->typeSpecData.http.requestUriLength = efd2->dstLength;
                         break;
-                    } else if (efd2->typeId==IeInfo(IPFIX_ETYPEID_httpRequestHost, IPFIX_PEN_vermont)) {
+                    }
+                }
+            }
+
+            if (efd->typeSpecData.http.requestHostOffset != ExpHelperTable::UNUSED) {
+                for (uint32_t i=0; i<expHelperTable.noAggFields; i++) {
+                    ExpFieldData* efd2 = &expHelperTable.aggFields[i];
+                    if (efd2->typeId==IeInfo(IPFIX_ETYPEID_httpRequestHost, IPFIX_PEN_vermont)) {
                         efd->typeSpecData.http.requestHostLength = efd2->dstLength;
                         break;
                     }
@@ -1228,6 +1241,16 @@ void PacketHashtable::buildExpHelperTable()
                     ExpFieldData* efd2 = &expHelperTable.aggFields[i];
                     if (efd2->typeId==IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont)) {
                         efd->typeSpecData.http.requestUriLength = efd2->dstLength;
+                        break;
+                    }
+                }
+            }
+
+            if (efd->typeSpecData.http.requestHostOffset != ExpHelperTable::UNUSED) {
+                for (uint32_t i=0; i<expHelperTable.noAggFields; i++) {
+                    ExpFieldData* efd2 = &expHelperTable.aggFields[i];
+                    if (efd2->typeId==IeInfo(IPFIX_ETYPEID_httpRequestHost, IPFIX_PEN_vermont)) {
+                        efd->typeSpecData.http.requestHostLength = efd2->dstLength;
                         break;
                     }
                 }
@@ -1350,9 +1373,9 @@ boost::shared_array<IpfixRecord::Data> PacketHashtable::createBucketDataCopy(con
 			// specifies the position, in the current TCP segment payload, at which the last HTTP message ended or rather the position
 			// the new HTTP message starts
 			if (streamData->pipelinedRequest)
-			    flowData->request->pipelinedRequestOffset = srcFlowData->request->pipelinedRequestOffsetEnd;
+			    flowData->request.pipelinedRequestOffset = srcFlowData->request.pipelinedRequestOffsetEnd;
 			else
-			    flowData->response->pipelinedResponseOffset = srcFlowData->response->pipelinedResponseOffsetEnd;
+			    flowData->response.pipelinedResponseOffset = srcFlowData->response.pipelinedResponseOffsetEnd;
 
 			flowData->forwardType = srcFlowData->forwardType;
 			flowData->reverseType = srcFlowData->reverseType;
@@ -1821,6 +1844,12 @@ void PacketHashtable::aggregatePacket(Packet* p)
 	DPRINTFL(MSG_INFO, "new packet #%lu| orig.plen: %u, orig.slen = %u, cap.plen = %u, cap.slen = %d",
 	        ++processedPackets, p->pcapPacketLength, orig_slen, p->net_total_length, cap_slen);
 
+#ifdef DEBUG
+	int32_t refCount = p->getReferenceCount();
+	if (refCount != 1)
+	    THROWEXCEPTION("wrong reference count: %d. expected: 1", refCount);
+#endif
+
     TcpStream* tcpStream =  0;
     if (httpPipeliningAggregation){
         p->addReference();
@@ -1834,16 +1863,21 @@ void PacketHashtable::aggregatePacket(Packet* p)
         if (!tcpStream->httpData)
             THROWEXCEPTION("stream data is null");
         if (!tcpStream->httpData->direction)
-                    THROWEXCEPTION("stream data is null");
+            THROWEXCEPTION("stream data was not initialized properly");
 #endif
     }
 
-
+    bool first = true;
     while (p) {
         // captured TCP segment length must be >0
         if (httpPipeliningAggregation && cap_slen <= 0) {
             DPRINTFL(MSG_INFO, "captured payload for packet is 0 bytes. skipping packet!");
             p->removeReference();
+#ifdef DEBUG
+    int32_t refCount = p->getReferenceCount();
+    if ((refCount != 1 && first) || (refCount != 0 && !first))
+        THROWEXCEPTION("wrong reference count: %d. expected: %d", refCount, first ? 1 : 0);
+#endif
             atomic_release(&aggInProgress);
             return;
         }
@@ -1967,6 +2001,11 @@ void PacketHashtable::aggregatePacket(Packet* p)
             if ((httpData->pipelinedRequest || httpData->pipelinedResponse))
                 processMultipleHttpMessages(tsrcData, httpData, p, tcpStream);
             p->removeReference();
+#ifdef DEBUG
+    int32_t refCount = p->getReferenceCount();
+    if ((refCount != 1 && first) || (refCount != 0 && !first))
+        THROWEXCEPTION("wrong reference count: %d. expected: %d", refCount, first ? 1 : 0);
+#endif
             p = tcpmon->nextPacketForStream(tcpStream);
             if (p) {
                 // update plen
@@ -1976,14 +2015,15 @@ void PacketHashtable::aggregatePacket(Packet* p)
         } else {
             break;
         }
+        first = false;
     }
 
-    if (tcpmon)
+    if (tcpmon) {
         tcpmon->expireStreams();
 #ifdef DEBUG
     tcpmon->printStreamCount();
 #endif
-
+    }
 	//if (!snapshotWritten && (time(0)- 300 > starttime)) writeHashtable();
 	// FIXME: enable snapshots again by configuration
 	atomic_release(&aggInProgress);
@@ -2061,7 +2101,7 @@ void PacketHashtable::processMultipleHttpMessages(IpfixRecord::Data* srcData,  H
          }
 
          FlowData* dstFlowData = reinterpret_cast<FlowData*>(srcData+efd->typeSpecData.http.flowDataOffset);
-         dstFlowData->response->pipelinedResponseOffset = srcFlowData->response->pipelinedResponseOffsetEnd;
+         dstFlowData->response.pipelinedResponseOffset = srcFlowData->response.pipelinedResponseOffsetEnd;
          streamData->pipelinedResponse = false;
          aggregateHttp(srcData, bucket, p, efd, false, false);
 

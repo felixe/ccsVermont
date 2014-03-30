@@ -165,6 +165,11 @@ class InstanceManager : public Sensor
 #endif
 		}
 
+        inline int32_t getReferenceCount(T* instance)
+        {
+            return instance->referenceCount;
+        }
+
 		string getStatisticsXML(double interval)
 		{
 			char text[200];

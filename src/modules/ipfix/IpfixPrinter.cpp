@@ -312,7 +312,7 @@ void PrintHelpers::printFieldData(InformationElement::IeInfo type, IpfixRecord::
 
 void PrintHelpers::printFrontPayload(InformationElement::IeInfo type, IpfixRecord::Data* data, bool showOmittedZeroBytes)
 {
-	int lastPrintedCharacter = -1;
+	int64_t lastPrintedCharacter = -1;
 	fprintf(fh, "'");
 	for (uint32_t i=0; i<type.length; i++) {
 		char c = data[i];
@@ -341,7 +341,7 @@ void PrintHelpers::printFrontPayload(InformationElement::IeInfo type, IpfixRecor
 	}
 	fprintf(fh, "'");
 	if (showOmittedZeroBytes && lastPrintedCharacter+1<type.length) {
-		fprintf(fh, " --> Not displaying %d trailing zero-bytes", type.length-(lastPrintedCharacter+1));
+		fprintf(fh, " --> Not displaying %ld trailing zero-bytes", type.length-(lastPrintedCharacter+1));
 	}
 }
 

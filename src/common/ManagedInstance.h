@@ -78,6 +78,14 @@ class ManagedInstance
 		{
 			myInstanceManager->removeReference(static_cast<T*>(this));
 		}
+
+		/**
+         * returns the current reference count
+         */
+        inline int32_t getReferenceCount()
+        {
+            return myInstanceManager->getReferenceCount(static_cast<T*>(this));
+        }
 };
 
 #endif
