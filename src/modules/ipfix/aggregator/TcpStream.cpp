@@ -98,11 +98,16 @@ std::size_t hash_value(const TcpStream& b) {
     return seed;
 }
 
-TcpStreamMonitor::TcpStreamMonitor(uint32_t htableSize) : streamCounter(0){
+TcpStreamMonitor::TcpStreamMonitor(uint32_t htableSize, uint32_t timeoutOpened, uint32_t timeoutClosed) : streamCounter(0), TIMEOUT_OPENED(DEF_TIMEOUT_OPENED), TIMEOUT_CLOSED(DEF_TIMEOUT_CLOSED){
     // initialize 'htableSize' buckets for the hashtable
     base_buckets = new StreamHashTable::bucket_type[htableSize];
     // initialize the hashtable
     htable = new StreamHashTable(StreamHashTable::bucket_traits(base_buckets, htableSize));
+    if (timeoutOpened)
+        TIMEOUT_OPENED = timeoutOpened;
+    if (timeoutClosed)
+        TIMEOUT_CLOSED = timeoutClosed;
+    msg(MSG_INFO, "tcpmon: Instantiated TcpMonitor with timeoutOpened: %u ms and timeoutClosed: %u ms", TIMEOUT_OPENED, TIMEOUT_CLOSED);
 }
 
 TcpStreamMonitor::~TcpStreamMonitor() {
@@ -229,7 +234,7 @@ bool TcpStreamMonitor::analysePacket(Packet* p, TcpStream* ts) {
                 PacketQueue::iterator it = ts->packetQueue.find(PacketQueue::key_type(seq));
                 if (it == ts->packetQueue.end()) {
                     ts->packetQueue.insert(PacketQueue::value_type(seq, p));
-                    DPRINTFL(MSG_INFO, "tcpmon: non contiguous sequence number. inserting packet with seq# %u into PacketQueue for later processing.", seq);
+                    DPRINTFL(MSG_DEBUG, "tcpmon: non contiguous sequence number. inserting packet with seq# %u into PacketQueue for later processing.", seq);
                 }
             } else {
                 // this packet has been seen previously and should not have to be processed
@@ -303,7 +308,7 @@ Packet* TcpStreamMonitor::nextPacketForStream(TcpStream* ts) {
  */
 TcpStream* TcpStreamMonitor::findOrCreateStream(Packet* p) {
     TcpStream* ts = 0;
-    hashtable<TcpStream>::iterator it = htable->find(TcpStream(p));
+    StreamHashTable::iterator it = htable->find(TcpStream(p));
     if (it == htable->end()) {
         pair<hashtable<TcpStream>::iterator, bool> result = htable->insert_unique(*new TcpStream(p, streamCounter++));
 

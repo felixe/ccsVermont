@@ -80,9 +80,13 @@ Rule* AggregatorBaseCfg::readRule(XMLElement* elem) {
 			rule->preceding = getInt("preceding", 0, e);
 		} else if (e->matches("biflowAggregation")) {
 			rule->biflowAggregation = getInt("biflowAggregation", 0, e);
-		} else if (e->matches("httpPipeliningAggregation")) {
-			rule->httpPipeliningAggregation = getInt("httpPipeliningAggregation", 0, e);
-		} else if (e->matches("flowKey")) {
+		} else if (e->matches("httpAggregation")) {
+			rule->httpAggregation = getInt("httpAggregation", 0, e);
+		} else if (e->matches("tcpmonTimeoutOpened")) {
+            rule->tcpmonTimeoutOpened = getUInt32("tcpmonTimeoutOpened", 0, e);
+        } else if (e->matches("tcpmonTimeoutClosed")) {
+            rule->tcpmonTimeoutClosed = getUInt32("tcpmonTimeoutClosed", 0, e);
+        } else if (e->matches("flowKey")) {
 			Rule::Field* ruleField = readFlowKeyRule(e);
 			if (ruleField)
 				rule->field[rule->fieldCount++] = ruleField;
@@ -101,6 +105,16 @@ Rule* AggregatorBaseCfg::readRule(XMLElement* elem) {
 		rule = NULL;
 	}
 
+    // biflowAggregation has to be enabled for httpAggregation
+    if (rule->httpAggregation && !rule->biflowAggregation) {
+        rule->biflowAggregation = 1;
+        msg(MSG_DIALOG, "Implicitly enabling biflowAggregation, since httpAggregation only works in conjunction with biflowAggregation.");
+    }
+
+    if (!rule->httpAggregation && (rule->tcpmonTimeoutOpened || rule->tcpmonTimeoutClosed)) {
+        msg(MSG_INFO, "The options tcpmonTimeoutOpened and tcpmonTimeoutClose have no impact if httpAggregation is disabled.");
+    }
+
 	// exclude coexistence of patterns and biflow aggregation
 	if(rule->biflowAggregation) {
 		for(int i=0; i < rule->fieldCount; i++) {
@@ -110,9 +124,6 @@ Rule* AggregatorBaseCfg::readRule(XMLElement* elem) {
 				rule->field[i]->pattern = NULL;
 		}
 	}
-	// biflowAggregation has to be enabled for httpPipeliningAggregation
-	if (rule->httpPipeliningAggregation && !rule->biflowAggregation)
-		THROWEXCEPTION("httpPipeliningAggregation works only in conjunction with biflowAggregation");
 
 	return rule;
 }

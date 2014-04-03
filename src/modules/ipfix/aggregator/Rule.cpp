@@ -40,7 +40,8 @@
 /* --- functions ------------*/
 
 Rule::Rule()
-	: id(0), preceding(0), fieldCount(0), biflowAggregation(0), httpPipeliningAggregation(0), hashtable(0), patternFields(0), patternFieldsLen(0)
+	: id(0), preceding(0), fieldCount(0), biflowAggregation(0), httpAggregation(0), hashtable(0), patternFields(0),
+	  patternFieldsLen(0), tcpmonTimeoutOpened(0), tcpmonTimeoutClosed(0)
 {
 }
 

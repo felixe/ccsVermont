@@ -184,6 +184,8 @@ private:
 					    const IpfixRecord::Data* deltaData, IpfixRecord::Data* data);
 	void aggregateFlow(HashtableBucket* bucket, const Packet* p, bool reverse);
 	void processMultipleHttpMessages(IpfixRecord::Data* srcData, HttpStreamData* streamData, Packet* p, TcpStream* ts);
+	void aggregateIntoExistingFlow(IpfixRecord::Data* srcData, HttpStreamData* streamData, Packet* p, TcpStream* ts);
+	void aggregateIntoNewFlow(IpfixRecord::Data* srcData, HttpStreamData* streamData, Packet* p, TcpStream* ts);
 	bool equalFlow(IpfixRecord::Data* bucket, const Packet* p);
 	bool equalFlowRev(IpfixRecord::Data* bucket, const Packet* p);
 	void createMaskedField(IpfixRecord::Data* address, uint8_t imask);

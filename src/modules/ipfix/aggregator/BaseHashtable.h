@@ -115,7 +115,7 @@ protected:
 	HashtableBucket** buckets; /**< array of pointers to hash buckets at start of spill chain. Members are NULL where no entry present */
 
 	bool biflowAggregation; /**< set to true if biflow aggregation is to be done*/
-	bool httpPipeliningAggregation; /**< set to true if http pipelining flow aggregation is to be done*/
+	bool httpAggregation; /**< set to true if http flow aggregation is to be done*/
 	uint32_t* revKeyMapper; /**< contains indizes to dataTemplate for a reverse flow*/
 	/**
 	 * contains indizes to reversed flow key fields
@@ -129,6 +129,9 @@ protected:
 
 	uint16_t minBufferTime; /**< If for a buffered flow no new aggregatable flows arrive for this many seconds, export it */
 	uint16_t maxBufferTime; /**< If a buffered flow was kept buffered for this many seconds, export it */
+
+    uint32_t tcpmonTimeoutOpened; /**< expiry timeout for opened TCP connections in the TcpMonitor */
+    uint32_t tcpmonTimeoutClosed; /**< expiry timeout for closed TCP connections in the TcpMonitor */
 
 	uint32_t statRecordsReceived; /**< number of records received from other modules, used for statistics */
 	uint32_t statRecordsSent; /**< number records sent to next module, used for statistics */

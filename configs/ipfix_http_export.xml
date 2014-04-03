@@ -21,8 +21,9 @@
 	<packetAggregator id="3">
 		<rule>
 			<templateId>999</templateId>
-			<biflowAggregation>1</biflowAggregation>
-			<httpPipeliningAggregation>1</httpPipeliningAggregation>
+			<httpAggregation>1</httpAggregation>
+			<tcpmonTimeoutOpened>30000</tcpmonTimeoutOpened>
+			<tcpmonTimeoutClosed>2000</tcpmonTimeoutClosed>
 			<flowKey>
 				<ieName>sourceIPv4Address</ieName>
 			</flowKey>

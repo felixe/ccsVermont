@@ -36,24 +36,36 @@ public:
 	static const uint8_t MAX_STREAM_DEPTH	= 0xFF;	//TODO unused
 
 	 //! this type represents the current state of the message parsing process
-	typedef uint8_t http_status_t;
+	typedef uint16_t http_status_t;
 
-	static const http_status_t NO_MESSAGE           = 0x00; /**< http message did not start yet */
-	static const http_status_t MESSAGE_REQ_METHOD   = 0x01; /**< http request method was parsed successfully */
-	static const http_status_t MESSAGE_REQ_URI      = 0x03; /**< http request uri was parsed successfully */
-	static const http_status_t MESSAGE_REQ_VERSION  = 0x07; /**< http request version was parsed successfully */
-	static const http_status_t MESSAGE_RES_VERSION  = 0x01; /**< http response version was parsed successfully */
-	static const http_status_t MESSAGE_RES_CODE     = 0x03; /**< http response status code was parsed successfully */
-	static const http_status_t MESSAGE_RES_PHRASE   = 0x07; /**< http response phrase was parsed successfully */
-	static const http_status_t MESSAGE_HEADER       = 0x0F; /**< http message header was parsed successfully */
-	static const http_status_t MESSAGE_PROTO_UPGR   = 0x1F; /**< protocol switch was initiated after a client upgrade request */
-	static const http_status_t MESSAGE_END          = 0x3F; /**< http message was parsed successfully, i.e. message end was reached */
-	static const http_status_t MESSAGE_FLAG_WAITING = 0x40; /**< http message was not parsed successful, wait for more payload */
-	static const http_status_t MESSAGE_FLAG_FAILURE = 0x80; /**< http message was not parsed successful, i.e. a parsing error occurred at some point */
+	static const http_status_t NO_MESSAGE           = 0x0000; /**< http message did not start yet */
+	static const http_status_t MESSAGE_REQ_METHOD   = 0x0001; /**< http request method was parsed successfully */
+	static const http_status_t MESSAGE_REQ_URI      = 0x0003; /**< http request uri was parsed successfully */
+	static const http_status_t MESSAGE_REQ_VERSION  = 0x0007; /**< http request version was parsed successfully */
+	static const http_status_t MESSAGE_RES_VERSION  = 0x0010; /**< http response version was parsed successfully */
+	static const http_status_t MESSAGE_RES_CODE     = 0x0030; /**< http response status code was parsed successfully */
+	static const http_status_t MESSAGE_RES_PHRASE   = 0x0070; /**< http response phrase was parsed successfully */
+	static const http_status_t MESSAGE_HEADER       = 0x00FF; /**< http message header was parsed successfully */
+	static const http_status_t MESSAGE_PROTO_UPGR   = 0x01FF; /**< protocol switch was initiated after a client upgrade request */
+	static const http_status_t MESSAGE_END          = 0x03FF; /**< http message was parsed successfully, i.e. message end was reached */
+	static const http_status_t MESSAGE_FLAG_WAITING = 0x4000; /**< http message was not parsed successful, wait for more payload */
+	static const http_status_t MESSAGE_FLAG_FAILURE = 0x8000; /**< http message was not parsed successful, i.e. a parsing error occurred at some point */
 
-	static const int FIELD_NO_MATCH = 0;        /**< the field does not match */
-	static const int FIELD_PARTIAL_MATCH = 1;   /**< a part of the field is matching */
-	static const int FIELD_MATCH = 2;           /**< the field is matching */
+	static const int PARSER_FAILURE = 0; /**< a failure was encountered */
+	static const int PARSER_SUCCESS = 1; /**< everything went fine */
+	static const int PARSER_DNF     = 2; /**< did not finish parsing, end of payload was reached prematurely */
+	static const int PARSER_STOP    = 3; /**< the parsing processes stopped for some reason */
+
+	static const int HEADER_FIELD_DNF = 0x01; /**< the end of a HTTP header field was not reached yet */
+	static const int HEADER_FIELD_END = 0x02; /**< the end of a HTTP header field was reached */
+	static const int HEADER_END       = 0x04; /**< HTTP message header end was reached */
+	static const int HEADER_ERROR     = 0x08; /**< malformed HTTP message header */
+
+	static const int CHUNK_START   = 0; /**< start of a new chunk is expected */
+	static const int CHUNK_CRLF    = 1; /**< to complete the chunk a CRLF sequence has to be parsed */
+	static const int CHUNK_ZERO    = 2; /**< a chunk size of zero has been parsed, i.e. the last chunk of a chunked HTTP message must ensue.
+	                                            which in fact is a zero-length chunk. */
+	static const int CHUNK_TRAILER = 3; /**< the last chunk was parsed, a trailer might follow */
 
 	//! classification of the http message type
 	typedef enum http_type {
@@ -63,40 +75,31 @@ public:
 //      HTTP_TYPE_NOTIFICATION  /**< the message is a http notification */ <--- currently not used
 	} http_type_t;
 
-	//! information about the transfer of a message's entity
-	typedef enum http_entity_transfer {
+	//! information about the length of the message-body and how it is transferred
+	typedef enum http_msg_body_transfer {
 		// see RFC 2616 Section 4.4 for Information about Message Length
-		TRANSFER_UNKNOWN,           /**< it's still unknown whether the http message has an entity */
-		TRANSFER_NO_ENTITY,         /**< the message does not transport an entity */
-		TRANSFER_CHUNKED,           /**< the entity is transported in chunked mode as specified by the header field 'Transfer-Encoding' */
-		TRANSFER_CONTENT_LENGTH,    /**< an entity is transported and the length is specified by the header field 'Content-Length' */
-		TRANSFER_CONNECTION_BASED   /**< the entity is finished when the connection closes */
-	} http_entity_transfer_t;
+		TRANSFER_UNKNOWN,            /**< it's still unknown whether the http message has a message-body */
+		TRANSFER_NO_MSG_BODY,        /**< the message does not transport a message-body */
+		TRANSFER_CHUNKED,            /**< the message-body is transported in chunked mode as specified by the header field 'Transfer-Encoding' */
+		TRANSFER_CONTENT_LENGTH,     /**< an message-body is transported and the length is specified by the header field 'Content-Length' */
+		TRANSFER_CONNECTION_BASED,   /**< the message-body is finished when the connection closes */
+		TRANSFER_MULTIPART_BYTERANGE /**< the message-body is transferred as multipart/byterange Content-type */
+	} http_msg_body_transfer_t;
 
 	/**
 	 * structure used for counting the number of http flows in both directions of a TCP stream
 	 * these values are used by the hash functions PacketAggregator to get the proper hash-bucket related to the current flow.
 	 */
 	struct HttpStreamData {
+		http_type_t forwardType; /**< http message typ in forward direction */
+		http_type_t reverseType; /**< http message typ in reverse direction */
+
 		uint8_t forwardFlows;   /**< counter for the http flows in forward direction */
 		uint8_t reverseFlows;   /**< counter for the http flows in reverse direction */
 		uint8_t *direction;     /**< the direction of the current packet */
 
-		bool responseFirst;     /**< indicates if the first http message observed was a response.
-		                             This value should only be set to true if we are at the start of the
-		                             overall Packet observation process, as it means that not all Packets
-		                             were observed. Because normal HTTP dialogs always start with a request. */
 		bool pipelinedRequest;  /**< indicates if the current processed packet contains multiple requests */
 		bool pipelinedResponse; /**< indicates if the current processed packet contains multiple responses */
-
-		// we assume that normally http requests should be in forward direction, because
-		// the logic in the PacketHashtable puts new flows in new buckets and therefore
-		// requests should always be in forward direction and as a consequence
-		// responses should be in reverse direction. so the following buffers should
-		// work fine, as only one response or request is sent at the same time (per stream).
-		// it works also in the special case where the first message observed is a
-		// response (in that case the response is in forward direction) because if the first
-		// request appears new HttpStreamData is generated. so the buffers should never conflict
 
 		// used to buffer unfinished http messages
 		char *forwardLine;      /**< buffer for payload in forward direction */
@@ -109,8 +112,6 @@ public:
 	 * structure used for storing flow related information, which is needed for a proper aggregation
 	 */
 	struct FlowData {
-		http_type_t forwardType; /**< http message typ in forward direction */
-		http_type_t reverseType; /**< http message typ in reverse direction */
 
 		HttpStreamData* streamInfo; /**< pointer to tcp stream related information (flowcount) */
 
@@ -141,8 +142,11 @@ public:
 	        uint16_t hostLength;    /**< max length of request host */
 
 	        http_status_t status;                   /**< current state in the request parsing process */
-	        http_entity_transfer_t entityTransfer;  /**< information about a request's entity */
-	        uint32_t contentLength;                 /**< stores either the remaining length of the current processed chunk or message body. max 4GB */
+	        http_msg_body_transfer_t transfer;      /**< information about a request's message-body */
+	        uint32_t contentLength;                 /**< stores either the remaining length of the current processed chunk or message-body. max 4GB */
+	        uint8_t chunkFlags;                     /**< stores status information while a chunk is parsed */
+            char* boundary;                         /**< stores a boundary string value. used when the message-body is transferred as Content-type: multipart/byteranges */
+            uint8_t boundaryLength;                 /**< stores the length of a boundary string value. used when the message-body is transferred as Content-type: multipart/byteranges */
 	        uint32_t pipelinedRequestOffset;        /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request starts */
 	        uint32_t pipelinedRequestOffsetEnd;     /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request ends */
 	    } request;
@@ -168,10 +172,13 @@ public:
 	        int statusCode_;
 
 	        http_status_t status;                   /**< current state in the response parsing process */
-	        http_entity_transfer_t entityTransfer;  /**< information about a response's entity */
-	        uint32_t contentLength;                 /**< stores either the remaining length of the current processed chunk or message body. max 4GB */
-	        uint32_t pipelinedResponseOffset;        /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request starts */
-	        uint32_t pipelinedResponseOffsetEnd;     /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request ends */
+	        http_msg_body_transfer_t transfer;  /**< information about a response's message-body */
+	        uint32_t contentLength;                 /**< stores either the remaining length of the current processed chunk or message-body. max 4GB */
+	        uint8_t chunkStatus;                    /**< stores status information while a chunk is parsed */
+	        char* boundary;                         /**< stores a boundary string value. used when the message-body is transferred as Content-type: multipart/byteranges */
+	        uint8_t boundaryLength;                 /**< stores the length of a boundary string value. used when the message-body is transferred as Content-type: multipart/byteranges */
+	        uint32_t pipelinedResponseOffset;       /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request starts */
+	        uint32_t pipelinedResponseOffsetEnd;    /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request ends */
 	    } response;
 
 		bool isForward();
@@ -180,21 +187,23 @@ public:
 		bool isResponse();
         uint8_t* getFlowcount(bool oppositeDirection = false);
         http_type_t* getType(bool oppositeDirection = false);
-        http_entity_transfer_t* getTransferType();
+        http_msg_body_transfer_t* getTransferType();
+        http_status_t* getStatus();
 	};
 
+    struct header_field_name {
+        const char *name;
+        const uint16_t size;
+    };
 
-
-
-
-	typedef struct _value_string {
-		uint16_t  value;
-		const char* strptr;
-	} value_string;
+    static const header_field_name FIELD_NAME_CONTENT_LENGTH;
+    static const header_field_name FIELD_NAME_CONTENT_TYPE;
+    static const header_field_name FIELD_NAME_ENCODING;
+    static const header_field_name FIELD_NAME_HOST;
 
 	static HttpStreamData* initHttpStreamData();
-protected:
 
+protected:
 	static void detectHttp(const char** data, const char** dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd);
 	static const char* toString(http_type_t type);
 	static void initializeFlowData(FlowData* flowData, HttpStreamData* streamData);
@@ -202,13 +211,16 @@ protected:
 
 private:
 	static int processNewHttpTraffic(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd);
-	static int processHttpResponse(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd);
-	static int processHttpRequest(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd);
+	static int processHttpMessage(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd);
 	static int getSpaceDelimitedText(const char* data, const char* dataEnd, const char** start, const char** end, int max = 0);
 	static int getCRLFDelimitedText(const char* data, const char* dataEnd, const char** start, const char** end, int max = 0);
 	static int getDelimitedText(const char* data, const char* dataEnd, const char** start, const char** end, int max = 0);
+	static int getDelimitedHeaderFieldValue(const char* data, const char* dataEnd, const char** start, const char** end);
 	static int eatCRLF(const char* data, const char* dataEnd, const char** end);
-	static uint32_t getChunkLength(const char* data, const char* dataEnd, const char** end);
+	static int eatLineFeed(const char* data, const char* dataEnd, const char** end);
+	static bool isLWSToken(const char* data);
+	static bool isToken(const char* data);
+	static int getChunkLength(const char* data, const char* dataEnd, const char** end, uint32_t* chunkLength);
 	static int getRequestOrResponse(const char* data, const char* dataEnd, const char** start, const char** end, http_type_t* type);
 	static int getRequestMethod(const char* data, const char* dataEnd, const char** start, const char** end);
 	static void setContentLength(const char* data, const char* dataEnd, FlowData* flowData);
@@ -217,7 +229,7 @@ private:
 	static int isResponse(const char* data, const char* dataEnd);
 	static int isVersion(const char* data, const char* dataEnd);
 	static int isNotification(const char* data, const char* dataEnd);
-	static int isMessageEntityForbidden(const int httpVersion);
+	static int isMessageBodyForbidden(const int httpVersion);
 	static int getRequestUri(const char* data, const char* dataEnd, const char** start, const char** end);
 	static int getRequestVersion(const char* data, const char* dataEnd, const char** start, const char** end);
 	static int getResponseVersion(const char* data, const char* dataEnd, const char** start, const char** end);
@@ -225,31 +237,17 @@ private:
 	static int getResponsePhrase(const char* data, const char* dataEnd, const char** start, const char** end);
 	static int processMessageHeader(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
 	static int isValidMessageHeaderTerminatorSuffix(const char* data, const char* dataEnd, const char** end);
-	static int processMessageHeaderField(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
-	static int matchField(const char* data, const char* dataEnd, const char** start, const char** end, const char* field, const size_t fieldSize);
-	static int processEntity(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
+	static int getHeaderField(const char* data, const char* dataEnd, const char** end);
+	static int processMessageHeaderField(const char* data, const char* dataEnd, FlowData* flowData);
+	static int matchFieldName(const char* data, const char* dataEnd, const char** start, const char** end, const header_field_name field);
+	static int processMessageBody(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
+	static int processChunkedMsgBody(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
+	static int processFixedSizeMsgBody(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
 	static void storeDataLeftOver(const char* data, const char* dataEnd, FlowData* flowData);
 	static void copyToCharPointer(char** dst, const char* data, size_t size);
 	static void appendToCharPointer(char **dst, const char* data, size_t currentSize, size_t sizeToAdd);
 	static void testFinishedMessage(FlowData* flowData);
 	static uint32_t min_(uint32_t, uint32_t);
-
-	static const char STR_CONTENT_LENGTH[];
-	static const size_t SIZE_CONTENT_LENGTH = 15;
-	static const char STR_TRANSFER_ENCODING[];
-	static const size_t SIZE_TRANSFER_ENCODING = 18;
-	static const char STR_HOST[];
-	static const size_t SIZE_HOST = 5;
-
-	static const value_string vals_status_code[];
 };
-
-// FIXME remove me! only used for developing purposes
-#define ASSERT_(exp, description)                                                                        \
-    {                                                                                                   \
-        if (!(exp)) {                                                                                   \
-        	THROWEXCEPTION("%s\nfilename: %s:%d, function: %s (%s)", description, __FILE__, __LINE__, __func__, __PRETTY_FUNCTION__);    	\
-        }                                                                                               \
-    }
 
 #endif

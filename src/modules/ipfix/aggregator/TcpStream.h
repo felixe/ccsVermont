@@ -27,6 +27,7 @@
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/hashtable.hpp>
 #include <boost/intrusive/unordered_set_hook.hpp>
+#include <map>
 #include <sys/time.h>
 
 static const uint8_t FORWARD = 0; /**< the packet comes from the originator of the TCP connection */
@@ -45,8 +46,8 @@ static const int FLAG_SYN = 0x02;   /**< TCP SYN flag */
 static const int FLAG_RST = 0x04;   /**< TCP RST flag */
 static const int FLAG_ACK = 0x10;   /**< TCP ACK flag */
 
-static const uint32_t TIMEOUT_OPENED = 100; /**< Specifies the time in ms a TCP stream may remain idle before expiring. */
-static const uint32_t TIMEOUT_CLOSED = 20; /**< Specifies the time in ms that is kept after connection close before expiring. useful to filter out packets which arrive delayed. */
+static const uint32_t DEF_TIMEOUT_OPENED = 30000; /**< Default expiry timeout in ms a TCP stream may remain idle before expiring. */
+static const uint32_t DEF_TIMEOUT_CLOSED =  2000; /**< Default expiry timeout in ms that is kept after connection close before expiring. */
 
 using namespace boost;
 using namespace boost::intrusive;
@@ -156,7 +157,7 @@ typedef boost::intrusive::hashtable<TcpStream> StreamHashTable;
  */
 class TcpStreamMonitor {
 public:
-    TcpStreamMonitor(uint32_t htableSize);
+    TcpStreamMonitor(uint32_t htableSize, uint32_t timeoutOpened, uint32_t timeoutClosed);
     ~TcpStreamMonitor();
     TcpStream* dissect(Packet* p);
     Packet* nextPacketForStream(TcpStream* ts);
@@ -181,6 +182,9 @@ private:
     uint32_t streamCounter;     /**< Internal stream counter, used to distinguish between old and re-opened TCP streams in
                                      the PacketAggregator. Otherwise it is possible that the hashtable buckets in the
                                      PacketAggregator are reused before they are exported. That would obviously cause errors. */
+
+    uint32_t TIMEOUT_OPENED; /**< Specifies the time in ms a TCP stream may remain idle before expiring. */
+    uint32_t TIMEOUT_CLOSED; /**< Specifies the time in ms that is kept after connection close before expiring. useful to filter out packets which arrive delayed. */
 };
 
 #endif

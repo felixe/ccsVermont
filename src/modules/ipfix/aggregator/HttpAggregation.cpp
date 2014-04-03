@@ -39,7 +39,7 @@
  */
 void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd) {
 	DPRINTFL(MSG_VDEBUG, "httpagg: START in %s direction, message type: %s",
-	        flowData->isReverse() ? "reverse" : "forward", flowData->isForward() ? toString(flowData->forwardType) : toString(flowData->reverseType));
+	        flowData->isReverse() ? "reverse" : "forward", flowData->isForward() ? toString(flowData->streamInfo->forwardType) : toString(flowData->streamInfo->reverseType));
 	DPRINTFL(MSG_VDEBUG, "httpagg: forwardFlows: %d, reverse Flows: %d, request status=%X, response status=%X",
 	        flowData->streamInfo->forwardFlows, flowData->streamInfo->reverseFlows, flowData->request.status, flowData->response.status);
 
@@ -50,7 +50,7 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
     if (flowData->isResponse()) pipelinedOffset = &flowData->response.pipelinedResponseOffset;
 
 	if (pipelinedOffset && *pipelinedOffset) {
-	    // we are continuing to process a packets payload which has been processed before.
+	    // we are continuing to process the payload of a packet which has been processed before.
 	    // this means this packet contains multiple requests
 		DPRINTFL(MSG_DEBUG, "httpagg: http detection is starting with %u bytes offset", *pipelinedOffset);
 		*aggregationStart = *data+*pipelinedOffset;
@@ -72,6 +72,7 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
 
 			DPRINTFL(MSG_DEBUG, "httpagg: %u bytes of previously buffered payload are combined with the current payload. new payload size: %u bytes", flowData->streamInfo->reverseLength, *dataEnd-*data);
 
+			// free the memory space used by the buffer
 			flowData->streamInfo->reverseLength = 0;
 			free(flowData->streamInfo->reverseLine);
 			flowData->streamInfo->reverseLine = 0;
@@ -87,17 +88,19 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
 
 			DPRINTFL(MSG_DEBUG, "httpagg: %u bytes of previously buffered payload are combined with the current payload. new payload size: %u bytes", flowData->streamInfo->forwardLength, *dataEnd-*data);
 
+			// free the memory space used by the buffer
 			flowData->streamInfo->forwardLength = 0;
 			free(flowData->streamInfo->forwardLine);
 			flowData->streamInfo->forwardLine = 0;
 		}
 	}
 
-	if (!flowData->request.status && !flowData->response.status && flowData->forwardType == HTTP_TYPE_UNKNOWN) {
+	// we assume that all requests are transferred in one direction and all responses in the opposite direction.
+	// hence once we know the message type for one direction, we can consider the type of the opposite direciton.
+	if (!flowData->request.status && !flowData->response.status && flowData->streamInfo->forwardType == HTTP_TYPE_UNKNOWN) {
 		/*
-		 *  fresh start, no request or response has been detected yet.
-		 *  if we start with a http request it should be possible to detect pipelined requests,
-		 *  provided this is the first transmitted request.
+		 *  fresh start, no request or response has been detected yet. so we do not know yet in which direction
+		 *  requests/responses are transferred.
 		 */
 
 		DPRINTFL(MSG_DEBUG, "httpagg: processing new traffic. trying to detect http data.");
@@ -106,26 +109,15 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
 		    return; // this message is not a start of a http request or response
 
 	} else {
+	    // in this case we know the type of HTTP message which should be transferred in this direction
+
 		if (flowData->request.status == MESSAGE_END && flowData->response.status == MESSAGE_END)
 			THROWEXCEPTION("response and request are already finished, this flow should have been exported!");
 
-		if (flowData->reverseType == flowData->forwardType || flowData->reverseType == HTTP_TYPE_UNKNOWN || flowData->forwardType == HTTP_TYPE_UNKNOWN)
+		if (flowData->streamInfo->reverseType == flowData->streamInfo->forwardType || flowData->streamInfo->reverseType == HTTP_TYPE_UNKNOWN || flowData->streamInfo->forwardType == HTTP_TYPE_UNKNOWN)
 			THROWEXCEPTION("http types were set faulty, this should never happen!");
 
-		if (flowData->isResponse()) {
-		    if (processHttpResponse(*aggregationStart, *dataEnd, flowData, aggregationStart, aggregationEnd) && flowData->streamInfo->responseFirst) {
-
-                uint8_t* requestCount = flowData->getFlowcount(true);
-                uint8_t* responseCount = flowData->getFlowcount();
-                // since we started with a response the next request should be put into a new flow
-                flowData->request.status = MESSAGE_END;
-                if (*requestCount <= *responseCount) {
-                    *requestCount = *responseCount + 1;
-                }
-			}
-		}
-		else if (flowData->isRequest())
-			processHttpRequest(*aggregationStart, *dataEnd, flowData, aggregationStart, aggregationEnd);
+		processHttpMessage(*aggregationStart, *dataEnd, flowData, aggregationStart, aggregationEnd);
 	}
 
     if (flowData->isResponse()) {
@@ -136,6 +128,18 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
         } else if (flowData->response.status == MESSAGE_END) { // response message ended
             if (flowData->response.statusCode_ == 100) {
                 DPRINTFL(MSG_VDEBUG, "httpagg: intermediate http response ended");
+                /*
+                 * HTTP responses with a status code of 100 are intermediate responses. a server for example sends
+                 * such a response to confirm, that a client, who requested to POST data, might deliver the message-body
+                 * of the POST request. after the client completes the transfer of the message-body, another response
+                 * is sent. thats the response we are interested in.
+                 *
+                 * From RFC 2616 Section 10.1: "A client MUST be prepared to accept one or more 1xx status responses prior
+                 * to a regular response, even if the client does not expect a 100 (Continue) status message."
+                 *
+                 * so we clear all the aggregation fields of the response, except for the payload, and reset the message status.
+                 * because we want aggregate the information of the regular response.
+                 */
                 flowData->response.status = NO_MESSAGE;
                 if (flowData->response.statusCode)
                     bzero(flowData->response.statusCode, IPFIX_ELENGTH_httpResponseCode);
@@ -152,30 +156,44 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
                     line = 0;
                 }
 
+                flowData->response.chunkStatus = 0;
                 flowData->response.contentLength = 0;
-                flowData->response.entityTransfer = TRANSFER_UNKNOWN;
+                flowData->response.transfer = TRANSFER_UNKNOWN;
             } else {
                 DPRINTFL(MSG_INFO, "httpagg: http response ended");
+                (*flowData->getFlowcount())++;
 #if 0
+// XXX the following test throws an exception, if a response ends before a request. this can happen if the observer
+//     misses certain parts of a HTTP dialog and we therefore are not able to match HTTP dialog pairs properly.
                 testFinishedMessage(flowData);
 #endif
-                (*flowData->getFlowcount())++;
             }
         }
     } else if (flowData->isRequest()) {
-        if (flowData->request.status & MESSAGE_REQ_METHOD) {
-            flowData->streamInfo->responseFirst = false;
-        }
         if (flowData->request.status & MESSAGE_FLAG_WAITING) { // more payload required to finish processing
             // copy the bytes left over (i.e. the bytes of payload which could not be parsed) into the buffer
             storeDataLeftOver(*aggregationEnd, *dataEnd, flowData);
             flowData->request.status &= ~MESSAGE_FLAG_WAITING;
         } else if (flowData->request.status == MESSAGE_END) { // request message ended
             DPRINTFL(MSG_INFO, "httpagg: http request ended");
+
+            uint8_t* requestCount = flowData->getFlowcount();
+            uint8_t* responseCount = flowData->getFlowcount(true);
+
+            // since we started with a request the next request should be put into a new flow
+            flowData->request.status = MESSAGE_END;
+
+            if (*requestCount < *responseCount) {
+                msg(MSG_ERROR, "httpagg: request count (%d) < response count (%d). either we missed a part of the HTTP dialog or a parsing failure was encountered.", *requestCount, *responseCount);
+                *requestCount = *responseCount + 1;
+            } else {
+                (*requestCount)++;
+            }
 #if 0
+// XXX the following test throws an exception, if a response ends before a request. this can happen if the observer
+//     misses certain parts of a HTTP dialog and we therefore are not able to match HTTP dialog pairs properly.
             testFinishedMessage(flowData);
 #endif
-            (*flowData->getFlowcount())++;
         }
     }
 
@@ -205,55 +223,46 @@ int HttpAggregation::processNewHttpTraffic(const char* data, const char* dataEnd
 	if (getRequestOrResponse(data, dataEnd, &start, &end, &type)) {
 		DPRINTFL(MSG_INFO, "httpagg: start of a new http %s: '%.*s'", toString(type), end-start, start);
 		if (type == HTTP_TYPE_REQUEST) {
-		    flowData->streamInfo->responseFirst = false;
 			flowData->request.status = MESSAGE_REQ_METHOD;
             if (flowData->request.method)
                 memcpy(flowData->request.method, start, min_(end-start, IPFIX_ELENGTH_httpRequestMethod));
 
 			if (flowData->isReverse()) {
-				flowData->reverseType = HTTP_TYPE_REQUEST;
-				flowData->forwardType = HTTP_TYPE_RESPONSE;
+				flowData->streamInfo->reverseType = HTTP_TYPE_REQUEST;
+				flowData->streamInfo->forwardType = HTTP_TYPE_RESPONSE;
 			} else {
-				flowData->forwardType = HTTP_TYPE_REQUEST;
-				flowData->reverseType = HTTP_TYPE_RESPONSE;
+				flowData->streamInfo->forwardType = HTTP_TYPE_REQUEST;
+				flowData->streamInfo->reverseType = HTTP_TYPE_RESPONSE;
 			}
 
-			processHttpRequest(end, dataEnd, flowData, aggregationStart, aggregationEnd);
+			processHttpMessage(end, dataEnd, flowData, aggregationStart, aggregationEnd);
 		} else if (type == HTTP_TYPE_RESPONSE) {
 		    // the first message observed was a HTTP response, that almost never be the case.
 		    // usually that means we are at the start of the Packet observation process and
 		    // were not able to observe the first Packets of a TCP connection which did start
 		    // before the Packet observation.
-			flowData->streamInfo->responseFirst = true;
+		    msg(MSG_ERROR, "httpagg: the first observed HTTP message of this TCP connection is a response...");
 			flowData->response.status = MESSAGE_RES_VERSION;
             // aggregate the response version
 			if (flowData->response.version)
 			    memcpy(flowData->response.version, start, min_(end-start, IPFIX_ELENGTH_httpVersionIdentifier));
 
 			if (flowData->isReverse()) {
-				flowData->reverseType = HTTP_TYPE_RESPONSE;
-				flowData->forwardType = HTTP_TYPE_REQUEST;
+				flowData->streamInfo->reverseType = HTTP_TYPE_RESPONSE;
+				flowData->streamInfo->forwardType = HTTP_TYPE_REQUEST;
 			} else {
-				flowData->forwardType = HTTP_TYPE_RESPONSE;
-				flowData->reverseType = HTTP_TYPE_REQUEST;
+				flowData->streamInfo->forwardType = HTTP_TYPE_RESPONSE;
+				flowData->streamInfo->reverseType = HTTP_TYPE_REQUEST;
 			}
 
-			uint8_t* requestCount = flowData->getFlowcount(true);
-			uint8_t* responseCount = flowData->getFlowcount();
-			// since we started with a response the next request should be put into a new flow
-			flowData->request.status = MESSAGE_END;
-			if (*requestCount <= *responseCount) {
-                *requestCount = *responseCount + 1;
-			}
-
-			processHttpResponse(end, dataEnd, flowData, aggregationStart, aggregationEnd);
+			processHttpMessage(end, dataEnd, flowData, aggregationStart, aggregationEnd);
 		}
 
 		return 1;
 	}
 
 	/*
-	 * this packet seems not the start of a http request or response, this can have several reasons, e.g.:
+	 * this packet seems not to be the start of a http request or response, this can have several reasons, e.g.:
 	 *  - this isn't a http stream
 	 *  - this packet is a subsequent packet of a previous unreceived http request/response
 	 */
@@ -277,63 +286,86 @@ int HttpAggregation::processNewHttpTraffic(const char* data, const char* dataEnd
  * @param aggregationEnd Used to store the position in the payload at which the aggregation should stop.
  * @return Returns 1 if the end of the message was reached, 0 otherwise
  */
-int HttpAggregation::processHttpRequest(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd) {
+int HttpAggregation::processHttpMessage(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd) {
 	const char* start = data;
 	const char* end = data;
+	http_type_t type = *(flowData->getType());
+	http_status_t& status = *flowData->getStatus();
 
 	//process the request until we reach the end of the payload
 	while (data<dataEnd) {
 		start=end;
-		http_status_t status = flowData->request.status;
+
 		switch (status) {
         case MESSAGE_PROTO_UPGR: {
             // this state can only be reached if a protocol switch (HTTP response code 101) was initiated.
             // in this case we do not process the payload, but just aggregate it
             DPRINTFL(MSG_DEBUG, "httpagg: payload continuation after protocol switch (initiated by response code 101)");
             *aggregationEnd = dataEnd;
-            return 1;
+            return 0;
         }
 		case MESSAGE_END: {
 			// this state should never be reached. because new TCP payload should always be put in a new flow
-			DPRINTFL(MSG_ERROR, "httpagg: reached invalid status, the message ended but we are still aggregating...");
+			msg(MSG_ERROR, "httpagg: reached invalid status, the message ended but we are still aggregating...");
 #ifdef DEBUG
 			THROWEXCEPTION("this point should be unreachable");
 #endif
-			break;
+			return 1;
 		}
 		case NO_MESSAGE: {
-			if (getRequestMethod(start, dataEnd, &start, &end)) {
-				DPRINTFL(MSG_INFO, "httpagg: request method = '%.*s'", end-start, start);
-				flowData->request.status = MESSAGE_REQ_METHOD;
-	            // aggregate the request method
-				if (flowData->request.method)
-				    memcpy(flowData->request.method, start, min_(end-start, IPFIX_ELENGTH_httpRequestMethod));
-			} else {
-                DPRINTFL(MSG_DEBUG, "httpagg: request method did not end yet, wait for new payload");
-                *aggregationEnd = start;
-                flowData->request.status = flowData->request.status | MESSAGE_FLAG_WAITING;
-				return 0;
-			}
+		    if (type == HTTP_TYPE_REQUEST) {
+                if (getRequestMethod(start, dataEnd, &start, &end)) {
+                    DPRINTFL(MSG_INFO, "httpagg: request method = '%.*s'", end-start, start);
+                    status = MESSAGE_REQ_METHOD;
+                    // aggregate the request method
+                    if (flowData->request.method)
+                        memcpy(flowData->request.method, start, min_(end-start, IPFIX_ELENGTH_httpRequestMethod));
+                } else {
+                    DPRINTFL(MSG_DEBUG, "httpagg: request method did not end yet, wait for new payload");
+                    *aggregationEnd = start;
+                    status = status | MESSAGE_FLAG_WAITING;
+                    return 0;
+                }
+		    } else {
+	            if (getResponseVersion(start, dataEnd, &start, &end)) {
+	                DPRINTFL(MSG_INFO, "httpagg: response version = '%.*s'", end-start, start);
+	                status = MESSAGE_RES_VERSION;
+	                // aggregate the response version
+	                if (flowData->response.version)
+	                    memcpy(flowData->response.version, start, min_(end-start, IPFIX_ELENGTH_httpVersionIdentifier));
+	            } else {
+	                if (start == dataEnd) {
+	                    // skipping payload
+	                    *aggregationStart = dataEnd;
+	                    *aggregationEnd = dataEnd;
+	                } else {
+	                    DPRINTFL(MSG_DEBUG, "httpagg: response version did not end yet, wait for new payload");
+	                    *aggregationEnd = start;
+	                    status = status | MESSAGE_FLAG_WAITING;
+	                }
+	                return 0;
+	            }
+		    }
 			break;
 		}
 		case MESSAGE_REQ_METHOD: {
 			if (getRequestUri(start, dataEnd, &start, &end)) {
 				DPRINTFL(MSG_INFO, "httpagg: request uri = '%.*s'", end-start, start);
-				flowData->request.status = MESSAGE_REQ_URI;
+				status = MESSAGE_REQ_URI;
 	            // aggregate the request uri
 				if (flowData->request.uri)
 				    memcpy(flowData->request.uri, start, min_(end-start, flowData->request.uriLength));
 			} else {
 			    DPRINTFL(MSG_DEBUG, "httpagg: request uri did not end yet, wait for new payload");
                 *aggregationEnd = start;
-                flowData->request.status = flowData->request.status | MESSAGE_FLAG_WAITING;
+                status = status | MESSAGE_FLAG_WAITING;
                 return 0;
 			}
 			break;
 		}
 		case MESSAGE_REQ_URI: {
 			if (getRequestVersion(start, dataEnd, &start, &end)) {
-				flowData->request.status = MESSAGE_REQ_VERSION;
+				status = MESSAGE_REQ_VERSION;
 				DPRINTFL(MSG_INFO, "httpagg: request version = '%.*s'", end-start, start);
                 // aggregate the request version
 				if (flowData->request.version)
@@ -342,17 +374,17 @@ int HttpAggregation::processHttpRequest(const char* data, const char* dataEnd, F
 			} else {
 			    DPRINTFL(MSG_DEBUG, "httpagg: request version did not end yet, wait for new payload");
                 *aggregationEnd = start;
-                flowData->request.status = flowData->request.status | MESSAGE_FLAG_WAITING;
+                status = status | MESSAGE_FLAG_WAITING;
                 return 0;
 			}
 			break;
 		}
 		case MESSAGE_REQ_VERSION: {
 			if (processMessageHeader(start, dataEnd, &end, flowData)) {
-			    DPRINTFL(MSG_INFO, "httpagg: processed message header successfully");
-				if (flowData->request.entityTransfer == TRANSFER_NO_ENTITY) {
-					// we are finished here since the message should not contain an entity
-					flowData->request.status = MESSAGE_END;
+			    DPRINTFL(MSG_INFO, "httpagg: processed message-header successfully");
+				if (flowData->request.transfer == TRANSFER_NO_MSG_BODY) {
+					// we are finished here since the message should not contain a message-body
+					status = MESSAGE_END;
 					*aggregationEnd = end;
 					if (end<dataEnd) {
 						DPRINTFL(MSG_INFO, "httpagg: still %d bytes payload remaining, the packet may contain multiple requests", dataEnd-end);
@@ -360,291 +392,202 @@ int HttpAggregation::processHttpRequest(const char* data, const char* dataEnd, F
 					}
 					return 1;
 				} else {
-					flowData->request.status = MESSAGE_HEADER;
+					status = MESSAGE_HEADER;
 				}
-				//DPRINTFL(MSG_VDEBUG, "httpagg: message header fields = \n'%.*s'", end-start, start);
+				//DPRINTFL(MSG_VDEBUG, "httpagg: message-header fields = \n'%.*s'", end-start, start);
 			} else {
 				DPRINTFL(MSG_DEBUG, "httpagg: request header did not end yet, wait for new payload");
 				*aggregationEnd = end;
-				flowData->request.status = flowData->request.status | MESSAGE_FLAG_WAITING;
+				status = status | MESSAGE_FLAG_WAITING;
 				return 0;
 			}
 			break;
 		}
+        case MESSAGE_RES_VERSION: {
+            int code = getResponseCode(start, dataEnd, &start, &end);
+            flowData->response.statusCode_ = code;
+            if (code) {
+                if (isMessageBodyForbidden(code))
+                    flowData->response.transfer = TRANSFER_NO_MSG_BODY;
+                if (code == 101) {
+                    DPRINTFL(MSG_INFO, "httpagg: protocol switching status code detected");
+                    // the status in both direction has to be changed to MESSAGE_PROTO_UPGR.
+                    // but we still need to parse the response phrase...
+                    // so for now the new state is only applied for the request.
+                    status = MESSAGE_PROTO_UPGR;
+                    uint8_t* requestCount = flowData->getFlowcount(true);
+                    uint8_t* responseCount = flowData->getFlowcount();
+                    // new flows MUST NOT be created from now on, therefore the request
+                    // flow counter has to be decremented.
+                    // on the contrary all payload MUST be aggregated into the current flow.
+                    // it should be legit to do it this way, since the client has to wait for
+                    // the server's response, after the upgrade request has been sent. therefore
+                    // no additional messages should be sent in request direction in the meantime.
+                    if (*requestCount > *responseCount)
+                        (*requestCount)--;
+                }
+                status = MESSAGE_RES_CODE;
+                DPRINTFL(MSG_INFO, "httpagg: response status code = '%.*s'", end-start, start);
+                // aggregate the response code
+                if (flowData->response.statusCode)
+                    *flowData->response.statusCode = htons(code);
+            } else {
+                DPRINTFL(MSG_DEBUG, "httpagg: response code did not end yet, wait for new payload");
+                *aggregationEnd = start;
+                status = status | MESSAGE_FLAG_WAITING;
+                return 0;
+            }
+            break;
+
+        }
+        case MESSAGE_RES_CODE: {
+            if (getResponsePhrase(start, dataEnd, &start, &end)) {
+                status = MESSAGE_RES_PHRASE;
+                DPRINTFL(MSG_INFO, "httpagg: response phrase = '%.*s'", end-start, start);
+                // aggregate the response phrase
+                if (flowData->response.responsePhrase)
+                        memcpy(flowData->response.responsePhrase, start, min_(end-start, IPFIX_ELENGTH_httpResponsePhrase));
+                eatCRLF(end, dataEnd, &end);
+
+                if (flowData->response.statusCode_ == 101) {
+                    DPRINTFL(MSG_INFO, "httpagg: skipping the rest of the payload because of protocol switching");
+                    // if we are switching protocol, we are done with message parsing. from now on
+                    // we just have to aggregate the payload
+                    status = MESSAGE_PROTO_UPGR;
+                    *aggregationEnd = dataEnd;
+                    return 0;
+                }
+            } else {
+                DPRINTFL(MSG_DEBUG, "httpagg: response phrase did not end yet, wait for new payload");
+                *aggregationEnd = start;
+                status = status | MESSAGE_FLAG_WAITING;
+                return 0;
+            }
+            break;
+        }
+        case MESSAGE_RES_PHRASE: {
+            if (processMessageHeader(start, dataEnd, &end, flowData)) {
+                if (flowData->response.transfer == TRANSFER_NO_MSG_BODY) {
+                    // we are finished here since the message should not contain a message-body
+                    status = MESSAGE_END;
+                    if (end!=dataEnd) {
+                        DPRINTFL(MSG_INFO, "httpagg: still %d bytes payload remaining, the packet may contain multiple responses", dataEnd-data);
+                    }
+                    *aggregationEnd = end;
+                    return 1;
+                } else {
+                    status = MESSAGE_HEADER;
+                }
+            } else {
+                DPRINTFL(MSG_DEBUG, "httpagg: response header did not end yet, wait for new payload");
+                *aggregationEnd = end;
+                status = status | MESSAGE_FLAG_WAITING;
+                return 0;
+            }
+            break;
+        }
 		case MESSAGE_HEADER: {
-			if (processEntity(start, dataEnd, &end, flowData)) {
-				flowData->request.status = MESSAGE_END;
+		    int result = processMessageBody(start, dataEnd, &end, flowData);
+		    if (result == PARSER_SUCCESS) {
+				status = MESSAGE_END;
 				*aggregationEnd = end;
 				return 1;
-			}
+			} else if (result == PARSER_DNF) {
+                DPRINTFL(MSG_VDEBUG, "httpagg: %s message-body did not end yet, wait for new payload", toString(type));
+                *aggregationEnd = end;
+                status = status | MESSAGE_FLAG_WAITING;
+                return 0;
+            } else if (result == PARSER_FAILURE) {
+                msg(MSG_ERROR, "httpagg: a failure was encountered while processing the http message-body");
+            }
 			*aggregationEnd = dataEnd;
 			return 0;
 			break;
 		}
 		default:
-			THROWEXCEPTION("unhandled or unknown http request status: 0x%x", flowData->response.status);
+			THROWEXCEPTION("unhandled or unknown http %s status: 0x%x", toString(type), flowData->response.status);
 		}
 	}
 
-	// end of the request hasnt been reached yet, aggregation of the
+	// end of the HTTP message hasn't been reached yet, aggregate the entire payload
 	*aggregationEnd = dataEnd;
 	return 0;
 }
 
 /**
- * Parses a HTTP response. Tries to consume as much payload as possible. If no parsing errors occur and a remainder
- * is left over, the remaining payload is copied into a buffer for future processing. During the parsing process
- * the request status changes over the time, @see #http_status_t.
- *
- * @param data Pointer to the payload to be parsed
- * @param dataEnd Pointer to the end of the payload to be parsed
- * @param flowData Pointer to the FlowData structure which contains information about the current flow
- * @param aggregationStart Used to store the position in the payload from which the aggregation should start
- * @param aggregationEnd Used to store the position in the payload at which the aggregation should stop.
- * @return Returns 1 if the end of the message was reached, 0 otherwise
- */
-int HttpAggregation::processHttpResponse(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd) {
-	const char* start = data;
-	const char* end = data;
-
-	bool stop = false;
-
-	while (data<dataEnd && !stop) {
-		start=end;
-		http_status_t status = flowData->response.status;
-		switch (status) {
-		case MESSAGE_PROTO_UPGR: {
-            // this state can only be reached if a protocol switch (HTTP response code 101) was initiated.
-		    // in this case we do not process the payload, but just aggregate it
-            DPRINTFL(MSG_DEBUG, "httpagg: payload continuation after protocol switch (initiated by response code 101)");
-            *aggregationEnd = dataEnd;
-            return 0;
-        }
-		case MESSAGE_END: {
-            // this state should never be reached. because new TCP payload should always be put in a new flow
-            DPRINTFL(MSG_ERROR, "httpagg: reached invalid status, the message ended but we are still aggregating...");
-#ifdef DEBUG
-            THROWEXCEPTION("this point should be unreachable");
-#endif
-			return 1;
-		}
-		case NO_MESSAGE: {
-			if (getResponseVersion(start, dataEnd, &start, &end)) {
-				DPRINTFL(MSG_INFO, "httpagg: response version = '%.*s'", end-start, start);
-				flowData->response.status = MESSAGE_RES_VERSION;
-                // aggregate the response version
-                if (flowData->response.version)
-                    memcpy(flowData->response.version, start, min_(end-start, IPFIX_ELENGTH_httpVersionIdentifier));
-			} else {
-			    if (start == dataEnd) {
-			        // skipping payload
-			        *aggregationStart = dataEnd;
-			        *aggregationEnd = dataEnd;
-			    } else {
-                    DPRINTFL(MSG_DEBUG, "httpagg: response version did not end yet, wait for new payload");
-                    *aggregationEnd = start;
-                    flowData->response.status = flowData->response.status | MESSAGE_FLAG_WAITING;
-			    }
-				return 0;
-			}
-			break;
-		}
-		case MESSAGE_RES_VERSION: {
-			int code = getResponseCode(start, dataEnd, &start, &end);
-			flowData->response.statusCode_ = code;
-			if (code) {
-				if (isMessageEntityForbidden(code))
-					flowData->response.entityTransfer = TRANSFER_NO_ENTITY;
-				if (code == 101) {
-				    DPRINTFL(MSG_INFO, "httpagg: protocol switching status code detected");
-				    // the status in both direction has to be changed to MESSAGE_PROTO_UPGR.
-				    // but we still need to parse the response phrase...
-				    // so for now the new state is only applied for the request.
-				    flowData->request.status = MESSAGE_PROTO_UPGR;
-				    uint8_t* requestCount = flowData->getFlowcount(true);
-				    uint8_t* responseCount = flowData->getFlowcount();
-				    // new flows MUST NOT be created from now on, therefore the request
-				    // flow counter has to be decremented.
-				    // on the contrary all payload MUST be aggregated into the current flow.
-				    // it should be legit to do it this way, since the client has to wait for
-				    // the server's response, after the upgrade request has been sent. therefore
-				    // no additional messages should be sent in request direction in the meantime.
-				    if (*requestCount > *responseCount)
-				        (*requestCount)--;
-				}
-				if (flowData->response.status)
-				    flowData->response.status = MESSAGE_RES_CODE;
-				DPRINTFL(MSG_INFO, "httpagg: response status code = '%.*s'", end-start, start);
-                // aggregate the response code
-				if (flowData->response.statusCode)
-				    *flowData->response.statusCode = htons(code);
-			} else {
-                DPRINTFL(MSG_DEBUG, "httpagg: response code did not end yet, wait for new payload");
-                *aggregationEnd = start;
-                flowData->response.status = flowData->response.status | MESSAGE_FLAG_WAITING;
-                return 0;
-			}
-			break;
-
-		}
-		case MESSAGE_RES_CODE: {
-			if (getResponsePhrase(start, dataEnd, &start, &end)) {
-				flowData->response.status = MESSAGE_RES_PHRASE;
-				DPRINTFL(MSG_INFO, "httpagg: response phrase = '%.*s'", end-start, start);
-                // aggregate the response phrase
-	            if (flowData->response.responsePhrase)
-	                    memcpy(flowData->response.responsePhrase, start, min_(end-start, IPFIX_ELENGTH_httpResponsePhrase));
-
-				if (flowData->response.statusCode_ == 101) {
-				    DPRINTFL(MSG_INFO, "httpagg: skipping the rest of the payload because of protocol switching");
-                    // if we are switching protocol, we are done with message parsing. from now on
-				    // we just have to aggregate the payload
-                    flowData->request.status = MESSAGE_PROTO_UPGR;
-                    *aggregationEnd = dataEnd;
-                    return 0;
-				}
-			} else {
-                DPRINTFL(MSG_DEBUG, "httpagg: response phrase did not end yet, wait for new payload");
-                *aggregationEnd = start;
-                flowData->response.status = flowData->response.status | MESSAGE_FLAG_WAITING;
-                return 0;
-			}
-			break;
-		}
-		case MESSAGE_RES_PHRASE: {
-			if (processMessageHeader(start, dataEnd, &end, flowData)) {
-				if (flowData->response.entityTransfer == TRANSFER_NO_ENTITY) {
-					// we are finished here since the message should not contain an entity
-					flowData->response.status = MESSAGE_END;
-					if (end!=dataEnd) {
-						DPRINTFL(MSG_INFO, "httpagg: still %d bytes payload remaining, the packet may contain multiple responses", dataEnd-data);
-					}
-					*aggregationEnd = end;
-					return 1;
-				} else {
-					flowData->response.status = MESSAGE_HEADER;
-				}
-			} else {
-				DPRINTFL(MSG_DEBUG, "httpagg: response header did not end yet, wait for new payload");
-				*aggregationEnd = end;
-				flowData->response.status = flowData->response.status | MESSAGE_FLAG_WAITING;
-				return 0;
-			}
-			break;
-		}
-		case MESSAGE_HEADER: {
-			if (processEntity(start, dataEnd, &end, flowData)) {
-				flowData->response.status = MESSAGE_END;
-				*aggregationEnd = end;
-				return 1;
-			}
-			*aggregationEnd = dataEnd;
-			return 0;
-			break;
-		}
-		default:
-			THROWEXCEPTION("unhandled or unknown http response status: 0x%x", flowData->response.status);
-		}
-	}
-
-	// end of response hasnt been reached yet
-	*aggregationEnd = dataEnd;
-	return 1;
-}
-
-/**
- * Parses the message header until we match ("\r\n" | "\n\n" | "\n\r\n") or reach the end of the packet.
+ * Parses the message-header until we match ("\r\n" | "\n\n" | "\n\r\n") or reach the end of the packet.
  * See isValidMessageHeaderTerminatorSuffix() for the reason.
  * During the parsing process we check for the optional header fields "Transfer-Encoding" and "Content-Length", which
- * give us information about the length of the potential following entity field.
+ * give us information about the length of the message-body which might follow the message-header
  *
  * @param data Pointer to the payload to be parsed
  * @param dataEnd Pointer to the end of the payload to be parsed
  * @param end Used to store the position at which the parsing process stopped
  * @param flowData Pointer to the FlowData structure which contains information about the current flow
- * @return returns 0 if the message header did not end yet, 1 otherwise
+ * @return returns 0 if the message-header did not end yet, 1 otherwise
  */
 int HttpAggregation::processMessageHeader(const char* data, const char* dataEnd, const char** end, FlowData* flowData) {
-	http_entity_transfer_t* transferType = flowData->getTransferType();
+	http_msg_body_transfer_t* transferType = flowData->getTransferType();
     *end = data;
 
-	/*
-	 * we try to match "\r\n", "\n\n" or "\n\r\n"
-	 */
-	while (data<=dataEnd-3) {
-		const char *start = data;
-		if (isValidMessageHeaderTerminatorSuffix(data, dataEnd, end)) {
-			if (*transferType == TRANSFER_UNKNOWN ) {
-			    if (flowData->isRequest()) {
-                    // HTTP requests which do not supply a length header field cannot transfer a message body.
-                    // From RFC 2616:
-                    // "Closing the connection cannot be used to indicate the end of a request body,
-                    // since that would leave no possibility for the server to send back a response."
-                    *transferType = TRANSFER_NO_ENTITY;
-			    } else {
-		            // we assume the length of the message-body is determined by the server closing the connection
-		            *transferType = TRANSFER_CONNECTION_BASED;
-			    }
-			}
-			return 1;
-		} else {
-			if (*transferType != TRANSFER_CHUNKED &&
-			        *transferType != TRANSFER_NO_ENTITY &&
-			        !processMessageHeaderField(data, dataEnd, end, flowData)) {
-				// too few characters left, stop processing
-			    if (*end == dataEnd)
-			        *end = start;
-				return 0;
-			}
-		}
+    while(data<dataEnd) {
+        const char *headFieldEnd = 0;
+        const int status = getHeaderField(data, dataEnd, end);
 
-		if (*end <= data)
-			data++;
-		else
-			data = *end;
-		*end = start;
-	}
+        switch (status) {
+            case (HEADER_END | HEADER_FIELD_END): {
+                const char* tempEnd = 0;
+                if (processMessageHeaderField(data, *end, flowData) == PARSER_FAILURE) {
+                    msg(MSG_ERROR, "header field parsing error. could not parse the last header field.");
+#ifdef DEBUG
+                    printf("Header Field ");
+                    printRange(data, *end-data);
+#endif
+                }
 
-	data = *end;
-    while (data <= dataEnd) {
-        *end = data;
-        int len = dataEnd - data;
-        switch (len) {
-        case 2:
-            if (!strncmp(data,"\r\n",len))
-                return 0;
-            else if (!strncmp(data,"\n\n",len)) {
-                *end = dataEnd;
+            }
+            /* no break */
+            case HEADER_END:
                 if (*transferType == TRANSFER_UNKNOWN ) {
                     if (flowData->isRequest()) {
-                        // HTTP requests which do not supply a length header field cannot transfer a message body.
+                        // HTTP requests which do not supply a length header field cannot transfer a message-body.
                         // From RFC 2616:
                         // "Closing the connection cannot be used to indicate the end of a request body,
                         // since that would leave no possibility for the server to send back a response."
-                        *transferType = TRANSFER_NO_ENTITY;
+                        *transferType = TRANSFER_NO_MSG_BODY;
                     } else {
                         // we assume the length of the message-body is determined by the server closing the connection
                         *transferType = TRANSFER_CONNECTION_BASED;
                     }
                 }
                 return 1;
+            case HEADER_FIELD_END: {
+                if (processMessageHeaderField(data, *end, flowData) == PARSER_FAILURE) {
+                    msg(MSG_ERROR, "header field parsing error. could not parse header field.");
+#if DEBUG
+                    printf("Header Field ");
+                    printRange(data, *end-data);
+#endif
+                }
             }
-            break;
-        case 1:
-            if (*data == '\r' || *data == '\n') {
-                *end = data;
+                break;
+            case HEADER_FIELD_DNF:
+                // the header field spans over multiple TCP segments
                 return 0;
-            }
-            break;
+            case HEADER_ERROR:
+                msg(MSG_ERROR, "could not parse HTTP message-header. the header seems to be malformed.");
+            default:
+                THROWEXCEPTION("invalid message-header parsing status");
+                break;
         }
-        data++;
+        data = *end;
+        if (data == dataEnd)
+            THROWEXCEPTION("invalid message-header parsing status");;
     }
-//	*end = dataEnd;
+    THROWEXCEPTION("invalid message-header parsing status");
 
 	return 0;
 }
-
-
 
 /**
  * Checks for a valid CRLF sequence at the beginning
@@ -664,7 +607,6 @@ int HttpAggregation::isValidMessageHeaderTerminatorSuffix(const char* data, cons
 	 * Since '\n\r\n' and '\n\n' are common suffixes to all it should
 	 * also be enough only to check for them.
 	 */
-	// TODO skip initial whitespaces
 	*end = data;
 	if (*data == '\n') {
 		data++;
@@ -685,82 +627,256 @@ int HttpAggregation::isValidMessageHeaderTerminatorSuffix(const char* data, cons
 }
 
 /**
+ * Searches for the end of a HTTP header field.
  *
+ * A HTTP header field can be folded over several lines. This function determines
+ * the position at which the HTTP header field ends, if enough payload is provided.
  * @param data Pointer to the payload to be parsed
  * @param dataEnd Pointer to the end of the payload to be parsed
  * @param end Used to store the position at which the parsing process stopped
- * @param flowData Pointer to the FlowData structure which contains information about the current flow
- * @return
+ * @return #HEADER_END if the HTTP message-header end was reached
+ *          #HEADER_ERROR if a parsing error encountered
+ *          #HEADER_FIELD_DNF if the end of a header field was not reached yet
+ *          #HEADER_FIELD_END if the end of a header field was reached
  */
-int HttpAggregation::processMessageHeaderField(const char* data, const char* dataEnd, const char** end, FlowData* flowData) {
-    http_entity_transfer* transferType = flowData->getTransferType();
-
+int HttpAggregation::getHeaderField(const char* data, const char* dataEnd, const char** end) {
     *end = data;
-    const char* start = 0;
-    int status = 0;
-	if (*transferType != TRANSFER_CHUNKED &&
-	        (status = matchField(data, dataEnd, &start, end, STR_CONTENT_LENGTH, SIZE_CONTENT_LENGTH))) {
-	    if (status == FIELD_MATCH) {
-	        if (start != *end) {
-	            setContentLength(start, *end, flowData);
-	            return 1;
-	        } else
-	            return 0;
-	    }
-	} else if ((status = matchField(data, dataEnd, &start, end, STR_TRANSFER_ENCODING, SIZE_TRANSFER_ENCODING))) {
-	    if (status == FIELD_MATCH) {
-             if (start != *end) {
-                 setTransferEncoding(start, *end, flowData);
-                 return 1;
-             } else
-                 return 0;
-         }
-	} else if (flowData->request.host && (status = matchField(data, dataEnd, &start, end, STR_HOST, SIZE_HOST))) {
-        if (status == FIELD_MATCH) {
-             if (start != *end) {
-                 // aggregate request host header field
-                 if (flowData->request.host)
-                     memcpy(flowData->request.host, start, min_(*end-start, flowData->request.hostLength));
-                 return 1;
-             } else
-                 return 0;
-         }
+
+    if (eatCRLF(data, dataEnd, end) || eatLineFeed(data, dataEnd, &data)) {
+        // if we start with a CRLF or line feed the end of the HTTP message-header was reached
+        return HEADER_END;
     }
 
-    return 1;
+    if (!isToken(data)) {
+        // this cannot be a valid header field since we did not start with a token
+        return HEADER_ERROR;
+    }
+
+    while (data < dataEnd) {
+        if (eatCRLF(data, dataEnd, &data) || eatLineFeed(data, dataEnd, &data)) {
+            if (eatCRLF(data, dataEnd, &data) || eatLineFeed(data, dataEnd, &data)) {
+                // we got two line breaks in a row, that means the HTTP message-header ended
+                *end = data;
+                return HEADER_END | HEADER_FIELD_END;
+            }
+            // we got a line break
+            if (data == dataEnd) {
+                // no characters left
+                return HEADER_FIELD_DNF;
+            } else {
+                // there are characters left after the line break
+                if (isToken(data)) {
+                    // a line break followed by a token indicates that we have reached the next header field
+                    *end = data;
+                    return HEADER_FIELD_END;
+                }
+            }
+        } else {
+            data++;
+        }
+    }
+
+    // no characters left
+    return HEADER_FIELD_DNF;
 }
 
-int HttpAggregation::matchField(const char* data, const char* dataEnd, const char** start, const char** end, const char* field, const size_t fieldSize) {
-    if (tolower(*data) != field[0])
-        return FIELD_NO_MATCH;
+/**
+ * Checks a range of payload against HTTP header field names, which are relevant for us. If a interesting
+ * field was found, the proper action is taken.
+ * @param data Pointer to the payload to be parsed
+ * @param dataEnd Pointer to the end of the payload to be parsed
+ * @param flowData Pointer to the FlowData structure which contains information about the current flow
+ * @return #PARSER_SUCCESS if the HTTP header field name did match and a HTTP header field value was found
+ *         #PARSER_DNF if a part of the payload did match, but the end of the payload was reached
+ *         #PARSER_FAILURE if an error was encountered
+ *         #PARSER_STOP if none of the header field names, which are relevant to us, did match
+ */
+int HttpAggregation::processMessageHeaderField(const char* data, const char* dataEnd, FlowData* flowData) {
+    http_msg_body_transfer_t* transferType = flowData->getTransferType();
+
+    const char* fieldValueStart = 0;
+    const char* fieldValueEnd = data;
+
+    int status = PARSER_STOP;
+
+    // Chunked Transfer-Encoding takes precedence over Content-Length
+    // ATTENTION: this construct works because all header fields, which are of interest for us, begin
+    // with a distinct character
+	if (*transferType != TRANSFER_CHUNKED &&
+	        *transferType != TRANSFER_NO_MSG_BODY) {
+	    status = matchFieldName(data, dataEnd, &fieldValueStart, &fieldValueEnd, FIELD_NAME_CONTENT_LENGTH);
+	    if (status == PARSER_SUCCESS) {
+	        setContentLength(fieldValueStart, fieldValueEnd, flowData);
+	    }
+	    if (status != PARSER_STOP) {
+	        // we don't have to check for the other field names, because we had a match
+	        return status;
+	    }
+	}
+	if (*transferType != TRANSFER_NO_MSG_BODY) {
+	    status = matchFieldName(data, dataEnd, &fieldValueStart, &fieldValueEnd, FIELD_NAME_ENCODING);
+	    if (status == PARSER_SUCCESS) {
+	        setTransferEncoding(fieldValueStart, fieldValueEnd, flowData);
+	    }
+        if (status != PARSER_STOP) {
+            // we don't have to check for the other field names, because we had a match
+            return status;
+        }
+
+	}
+
+	if (flowData->request.host) {
+	    status = matchFieldName(data, dataEnd, &fieldValueStart, &fieldValueEnd, FIELD_NAME_HOST);
+	    if (status == PARSER_SUCCESS) {
+            // aggregate request host header field
+            memcpy(flowData->request.host, fieldValueStart, min_(fieldValueEnd-fieldValueStart, flowData->request.hostLength));
+        }
+        if (status != PARSER_STOP) {
+            // we don't have to check for the other field names, because we had a match
+            return status;
+        }
+    }
+
+    if (flowData->isResponse() &&
+            flowData->response.statusCode_==206 &&
+            *transferType != TRANSFER_CHUNKED &&
+            *transferType != TRANSFER_CONTENT_LENGTH &&
+            *transferType != TRANSFER_NO_MSG_BODY) {
+        status = matchFieldName(data, dataEnd, &fieldValueStart, &fieldValueEnd, FIELD_NAME_CONTENT_TYPE);
+        if (status == PARSER_SUCCESS) {
+            /*- From RFC 2616 Section 14.17
+             *  Content-Type   = "Content-Type" ":" media-type
+             *
+             *  From RFC 2616 Section 3.7
+             *  media-type     = type "/" subtype *( ";" parameter )
+             *  type           = token subtype = token
+             *
+             *  Also note:
+             *  "Linear white space (LWS) MUST NOT be used between the type and subtype, nor between an attribute and its value."
+             *  That eases the parsing of this header field value
+             *
+             *  From RFC 2046
+             *  boundary := 0*69<bchars> bcharsnospace
+             */
+            if (!strncmp("multipart/byterange", fieldValueStart, 19)) {
+                data = fieldValueStart + 19;
+                bool found = false;
+                // minimal required length is 11 -> because we compare against the string 'boundary=<1*TOKEN>' would requires
+                // for the line break after the header field.
+                while (data < dataEnd-11) {
+                    if (!strncmp("boundary=", data, 9)) {
+                        data+=9;
+                        // the boundary delimiter can be in quotes
+                        if (*data == '"') {
+                            data++;
+                            fieldValueStart = data;
+                            while (*data!='"' && data < dataEnd)
+                                data++;
+                            if (data==dataEnd)
+                                return PARSER_FAILURE;
+                            else
+                                fieldValueEnd=data;
+                        } else {
+                            fieldValueStart = data;
+                            // TODO to reconsider since different tokens are allowed
+                            while (isToken(data) && data < dataEnd)
+                                data++;
+                            fieldValueEnd = data;
+                        }
+                        int len = fieldValueEnd-fieldValueStart;
+
+                        // From RFC 2046:
+                        // Boundary delimiters must not must be no longer than 70 characters, not counting the two
+                        // leading hyphens.
+                        if (len <= 0 || len > 70)
+                            return PARSER_FAILURE;
+
+                        msg(MSG_ERROR, "httpagg: read multipart/byterange header field with boundary delimiter: \"%.*s\"", len, fieldValueStart);
+
+                        flowData->response.transfer = TRANSFER_MULTIPART_BYTERANGE;
+
+                        // instead of storing the boundary delimiter as is, we add "--" to the begin and end.
+                        // the reason behind this is that we need the the delimiter in this form afterwards.
+                        flowData->response.boundaryLength = len+4;
+                        flowData->response.boundary = (char*)malloc(sizeof(char)*(len+4));
+                        memcpy(flowData->response.boundary, "--", 2);
+                        memcpy(flowData->response.boundary + 2, fieldValueStart, len);
+                        memcpy(flowData->response.boundary + 2 + len, "--", 2);
+
+                        return PARSER_SUCCESS;
+                    }
+                    data++;
+                }
+            }
+            return PARSER_FAILURE;
+        }
+        if (status != PARSER_STOP) {
+            // we don't have to check for the other field names, because we had a match
+            return status;
+        }
+
+    }
+
+    return status;
+}
+
+/**
+ * Matches a range of payload against a given HTTP header field name and tries to find a valid HTTP header field value.
+ * @param data Pointer to the payload to be parsed
+ * @param dataEnd Pointer to the end of the payload to be parsed
+ * @param start Used to store the position at which the HTTP header field value starts
+ * @param end Used to store the position at which the HTTP header field value ends
+ * @param field The HTTP header field name which is check against payload
+ * @return #PARSER_SUCCESS if the HTTP header field name did match and a HTTP header field value was found
+ *         #PARSER_DNF if a part of the payload did match, but the end of the payload was reached
+ *         #PARSER_FAILURE if an error was encountered
+ *         #PARSER_STOP if the HTTP header field name did not match
+ */
+int HttpAggregation::matchFieldName(const char* data, const char* dataEnd, const char** start, const char** end, const header_field_name field) {
+    if (tolower(*data) != field.name[0])
+        return PARSER_STOP;
 
     // From RFC 2616, Section 4.2: Field names are case-insensitive.
-    // Chunked Transfer-Encoding takes precedence over Content-Length
 
     const char* fstart = data;
     data++;
     size_t i = 1;
-    while (data < dataEnd && i < fieldSize) {
-        if (tolower(*data) == field[i]) {
+    while (data < dataEnd && i < field.size) {
+        if (tolower(*data) == field.name[i]) {
             i++;
-            data++;
+        } else if (!isLWSToken(data)){
+            *end = data;
+            return PARSER_STOP;
         } else {
-            break;
+            return PARSER_DNF;
         }
-    }
-    if (i == fieldSize) {
-        if (!getDelimitedText(data, dataEnd, start, end)) {
-            *start = fstart;
-            *end = fstart;
-        }
-        return FIELD_MATCH;
+        data++;
     }
 
-    // only a part did match. because all header fields which we compare begin with
-    // different characters it should be possible to skip the characters which were processed
-    // by this method. therefore we store the position where we stopped
-    *end = data;
-    return FIELD_PARTIAL_MATCH;
+    if (!isLWSToken(data)) {
+        while (data < dataEnd) {
+            if (*data == ':') {
+                data++;
+                break;
+            }
+            data++;
+        }
+    } else {
+        if (*data != ':') {
+            return PARSER_FAILURE;
+        }
+        data++;
+    }
+
+    if (data < dataEnd) {
+        if (getDelimitedHeaderFieldValue(data, dataEnd, start, end)) {
+            return PARSER_SUCCESS;
+        } else {
+            return PARSER_FAILURE;
+        }
+    }
+
+    return PARSER_DNF;
 }
 
 /**
@@ -779,10 +895,10 @@ void HttpAggregation::setTransferEncoding(const char* data, const char* dataEnd,
 	// if transfer encoding is not equal to "identity" the transfer-length is defined by use of the "chunked" transfer-coding
 
 	if (flowData->isRequest()) {
-		flowData->request.entityTransfer = TRANSFER_CHUNKED;
+		flowData->request.transfer = TRANSFER_CHUNKED;
 		DPRINTFL(MSG_INFO, "httpagg: the request transfer-length is defined by use of the \"chunked\" transfer-coding");
 	} else {
-		flowData->response.entityTransfer = TRANSFER_CHUNKED;
+		flowData->response.transfer = TRANSFER_CHUNKED;
 		DPRINTFL(MSG_INFO, "httpagg: the response transfer-length is defined by use of the \"chunked\" transfer-coding");
 	}
 }
@@ -795,11 +911,11 @@ void HttpAggregation::setTransferEncoding(const char* data, const char* dataEnd,
  */
 void HttpAggregation::setContentLength(const char* data, const char* dataEnd, FlowData* flowData) {
 	if (flowData->isRequest()) {
-		flowData->request.entityTransfer = TRANSFER_CONTENT_LENGTH;
+		flowData->request.transfer = TRANSFER_CONTENT_LENGTH;
 		flowData->request.contentLength = strtol(data, NULL, 10);
 		DPRINTFL(MSG_INFO, "httpagg: set request content-length to %u", flowData->request.contentLength);
 	} else {
-		flowData->response.entityTransfer = TRANSFER_CONTENT_LENGTH;
+		flowData->response.transfer = TRANSFER_CONTENT_LENGTH;
 		flowData->response.contentLength = strtol(data, NULL, 10);
 		DPRINTFL(MSG_INFO, "httpagg: set response content-length to %u (parsed string = %.*s)", flowData->response.contentLength, dataEnd-data, data);
 	}
@@ -807,127 +923,251 @@ void HttpAggregation::setContentLength(const char* data, const char* dataEnd, Fl
 
 
 /**
- * Parses the message body of a HTTP message. How the message is parsed depends on the transfer type:
- *  - case TRANSFER_NO_ENTITY: no length header fields were specified, no entity should exist... nothing to do
- *  - case TRANSFER_CHUNKED: 'Transfer-Encoding' was set in the message header. estimate the size of each chunk and skip those bytes
- *  - case TRANSFER_CONTENT_LENGTH: 'Content-Length' was set in the message header, a fixed value of bytes can be skipped
+ * Parses the message-body of a HTTP message. How the message is parsed depends on the transfer type:
+ *  - case #TRANSFER_NO_MSG_BODY: no length header fields were specified, no message-body should exist... nothing to do
+ *  - case #TRANSFER_CHUNKED: 'Transfer-Encoding' was set in the message-header. estimate the size of each chunk and skip those bytes
+ *  - case #TRANSFER_CONTENT_LENGTH: 'Content-Length' was set in the message-header, a fixed value of bytes can be skipped
+ *  - case #TRANSFER_CONNECTION_BASED: the message length is determined by the server closing the connection
  * @param data Pointer to the payload to be parsed
  * @param dataEnd Pointer to the end of the payload to be parsed
  * @param end Used to store the position at which the parsing process stopped
  * @param flowData Pointer to the FlowData structure which contains information about the current flow
- * @param transferType Pointer to the message's #http_entity_transfer type
- * @return returns 1 if the entity end was reached, 0 otherwise
+ * @param transferType Pointer to the message's #http_msg_body_transfer_t type
+ * @return returns #PARSER_SUCCESS if the end of the message-body was reached
+ *                 #PARSER_DNF if the end was not reached
+ *                 #PARSER_FAILURE if the parsing failed
  */
-int HttpAggregation::processEntity(const char* data, const char* dataEnd, const char** end, FlowData* flowData) {
-	http_entity_transfer_t *transfer = flowData->getTransferType();
-
+int HttpAggregation::processMessageBody(const char* data, const char* dataEnd, const char** end, FlowData* flowData) {
+	http_msg_body_transfer_t *transfer = flowData->getTransferType();
 	*end = data;
 	if (*transfer == TRANSFER_CHUNKED) {
-		if (dataEnd-data<=0) {
-			// no remaining payload, wait for new chunk
-			*end = dataEnd;
-			return 0;
-		}
-		uint32_t* contentLength;
-		const char* start = data;
-
-		if (flowData->isRequest()) contentLength = &flowData->request.contentLength;
-		else contentLength = &flowData->response.contentLength;
-
-		while (start<dataEnd) {
-			uint32_t len = dataEnd-start;
-
-			if (*contentLength<=0) {
-				*contentLength = getChunkLength(start, dataEnd, end);
-				start = *end;
-				len = dataEnd - *end;
-			}
-
-			if (*contentLength>0) {
-				if (*contentLength < len) {
-					DPRINTFL(MSG_VDEBUG, "httpagg: this payload contains multiple chunks or multiple parts of chunks. current part range: %u to %u (%u bytes)", *end-data, (*end+*contentLength)-data, *contentLength);
-					start = *end + *contentLength;
-					*contentLength = 0;
-					if (!eatCRLF(start, dataEnd, &start)) {
-						DPRINTFL(MSG_ERROR, "httpagg: chunk did not end with a CRLF", *end-data, *end-data+len, len);
-					}
-				} else {
-					DPRINTFL(MSG_VDEBUG, "httpagg: this payload contains a part of a chunk. current part range: %u to %u (%u bytes)", *end-data, *end-data+len, len);
-					*contentLength = *contentLength-len;
-					start = *end + len;
-				}
-				DPRINTFL(MSG_INFO, "httpagg: current remaining chunk size: %u", *contentLength);
-			} else {
-				start = *end;
-
-				if (!eatCRLF(start, dataEnd, &start)) {
-					// every chunk has to end with CRLF
-					DPRINTFL(MSG_ERROR, "httpagg: error parsing chunked message");
-					return 0;
-				} else {
-					// skip trailing entity-header fields
-					bool endWithCRLF = true;
-					while (start<dataEnd) {
-						endWithCRLF = false;
-						if (*start == '\r') {
-							if (eatCRLF(start, dataEnd, &start))
-								endWithCRLF = true;
-							else
-								start++;
-						} else
-							start++;
-					}
-					if (!endWithCRLF) {
-						DPRINTFL(MSG_ERROR, "httpagg: error parsing chunked message");
-					}
-				}
-
-				DPRINTFL(MSG_INFO, "httpagg: end of chunked message");
-
-				*end = start;
-				return 1;
-			}
-		}
-		return 0;
+	    return processChunkedMsgBody(data, dataEnd, end, flowData);
 	} else if (*transfer == TRANSFER_CONTENT_LENGTH) {
-		uint32_t* contentLength = 0;
-		if (flowData->isRequest()) {
-			contentLength = &flowData->request.contentLength;
-		} else {
-			contentLength = &flowData->response.contentLength;
-		}
-		if (*contentLength<dataEnd-data) {
-			DPRINTFL(MSG_DEBUG, "httpagg: the payload of the http response stream is bigger than specified in the header field, the packet may contain multiple messages");
-			if (*contentLength>0) {
-				*end = data + *contentLength;
-				*contentLength = 0;
-			} else {
-				*end = data;
-			}
-			return 1;
-		} else {
-			*contentLength = *contentLength - (dataEnd-data);
-			*end = dataEnd;
-			DPRINTFL(MSG_INFO, "httpagg: processed %u bytes of the http entity, %u bytes left", dataEnd-data, *contentLength);
-			if (*contentLength<=0)
-				return 1; // we are finished
-			else
-				return 0;
-		}
-	} else if (*transfer == TRANSFER_CONNECTION_BASED) {
+	    return processFixedSizeMsgBody(data, dataEnd, end, flowData);
+	} else if (*transfer == TRANSFER_MULTIPART_BYTERANGE) {
+        while (data < (dataEnd - flowData->response.boundaryLength + 2)) {
+            // From RFC 2046:
+            // "The boundary delimiter MUST occur at the beginning of a line, ..."
+            // so first check for a CRLF and then try to match the final delimiter.
+            // the boundary delimiter is stored in the form "--delimiter--", what
+            // eases the string comparison here.
+            if (eatCRLF(data, dataEnd, end)) {
+                if (!strncmp(*end, flowData->response.boundary, flowData->response.boundaryLength)) {
+                    msg(MSG_ERROR, "httpagg: end of a multipart/byterange message-body");
+                    // we cut off everything what follows, because according to RFC 2046:
+                    // "...implementations must ignore anything that appears before the first
+                    // boundary delimiter line or after the last one."
+                    // these areas are generally only used to insert notes and should therefore
+                    // not be of interest for us.
+                    // so we just aggregate until the end of the final boundary delimiter
+                    *end = *end + flowData->response.boundaryLength;
+                    return PARSER_SUCCESS;
+                }
+            }
+            data++;
+        }
+        *end = data;
+        return PARSER_DNF;
+    } else if (*transfer == TRANSFER_CONNECTION_BASED) {
 	    // we are finished when the connection closes, hence aggregate the whole payload
 	    *end = dataEnd;
-	    return 1;
-	} else if (*transfer == TRANSFER_NO_ENTITY) {
+	    return PARSER_SUCCESS;
+	} else if (*transfer == TRANSFER_NO_MSG_BODY) {
 		// the http message contains no entitiy
-		DPRINTFL(MSG_DEBUG, "httpagg: http message contains no entity");
-		return 1;
+		DPRINTFL(MSG_DEBUG, "httpagg: http message contains no message-body");
+		return PARSER_SUCCESS;
 	} else {
-		ASSERT_(*transfer != TRANSFER_UNKNOWN, "transfer type was not set, should never happen");
-		DPRINTFL(MSG_DEBUG, "httpagg: no entity length was specified in the header fields");
+		ASSERT(*transfer != TRANSFER_UNKNOWN, "transfer type was not set, should never happen");
+		DPRINTFL(MSG_DEBUG, "httpagg: no message-body length was specified in the header fields");
+		return PARSER_FAILURE;
 	}
 
-	return 1;
+	return PARSER_FAILURE;
+}
+
+/**
+ * Parses a message-body of a HTTP message which is transferred in chunks.
+ * In this case the transfer type is set as TRANSFER_CHUNKED, which means that the 'Transfer-Encoding' header field has been parsed.
+ * @param data Pointer to the payload to be parsed
+ * @param dataEnd Pointer to the end of the payload to be parsed
+ * @param end Used to store the position at which the parsing process stopped
+ * @param flowData Pointer to the FlowData structure which contains information about the current flow
+ * @param transferType Pointer to the message's #http_msg_body_transfer_t type
+ * @return returns #PARSER_SUCCESS if the end of the message-body was reached
+ *                 #PARSER_DNF if the end was not reached
+ *                 #PARSER_FAILURE if the parsing failed
+ */
+int HttpAggregation::processChunkedMsgBody(const char* data, const char* dataEnd, const char** end, FlowData* flowData) {
+    /*-
+     * From RFC 2616 Section 3.6.1:
+     *
+     * Chunked-Body    = *chunk
+     *                   last-chunk
+     *                   trailer
+     *                   CRLF
+     *
+     * chunk           = chunk-size [ chunk-extension ] CRLF
+     *                   chunk-data CRLF
+     * chunk-size      = 1*HEX
+     * last-chunk      = 1*("0") [ chunk-extension ] CRLF
+     * chunk-extension = *( ";" chunk-ext-name [ "=" chunk-ext-val ] )
+     * chunk-ext-name  = token
+     * chunk-ext-val   = token | quoted-string
+     * chunk-data      = chunk-size(OCTET)
+     */
+
+    if (dataEnd-data<=0) {
+        // no remaining payload, wait for new chunk
+        *end = dataEnd;
+        return PARSER_DNF;
+    }
+    uint32_t* contentLength = 0;
+    uint8_t* chunkFlags = 0;
+    const char* start = data;
+
+    if (flowData->isRequest()) {
+        contentLength = &flowData->request.contentLength;
+        chunkFlags = &flowData->request.chunkFlags;
+    }
+    else {
+        contentLength = &flowData->response.contentLength;
+        chunkFlags = &flowData->response.chunkStatus;
+    }
+
+    while (*chunkFlags != CHUNK_TRAILER && start < dataEnd) {
+        uint32_t len = dataEnd-start;
+        if (*chunkFlags == CHUNK_START && *contentLength<=0) {
+            int result = getChunkLength(start, dataEnd, end, contentLength);
+            if (result == PARSER_FAILURE) {
+                msg(MSG_ERROR, "httpagg: error parsing chunked message, chunk-size header field value was malformed");
+                return PARSER_FAILURE;
+            } else if (result == PARSER_DNF) {
+                msg(MSG_ERROR, "httpagg: not enough payload to parse cunk-size");
+                // not enough payload remaining, wait for new payload
+                *end = start;
+                return PARSER_DNF;
+            }
+
+            if (*contentLength == 0)
+                *chunkFlags = CHUNK_ZERO;
+
+            start = *end;
+            len = dataEnd - *end;
+        }
+
+        if (*chunkFlags == CHUNK_CRLF || *chunkFlags == CHUNK_ZERO) {
+            if (dataEnd-start < 2) {
+                *end = start;
+                return PARSER_DNF;
+            }
+            if (*chunkFlags == CHUNK_ZERO && isToken(start)) {
+                // a trailer seems to follow as the next char is a token
+                *chunkFlags = CHUNK_TRAILER;
+            } else {
+                if (!eatCRLF(start, dataEnd, &start)) {
+                    msg(MSG_ERROR, "httpagg: chunk did not end with a CRLF");
+                    return PARSER_FAILURE;
+                }
+
+                if (*chunkFlags == CHUNK_ZERO) {
+                    // we are finished because the HTTP message seems to carry no trailer
+                    if (start != dataEnd)
+                        msg(MSG_ERROR, "httpagg: the chuncked HTTP message ended, but there is still payload remaining");
+                    *end = start;
+                    return PARSER_SUCCESS;
+                }
+
+                // we parsed an intermediate chunk, another chunk has to follow
+                *chunkFlags = CHUNK_START;
+                *end = start;
+            }
+        }
+
+        if (*contentLength>0) {
+            if (*contentLength <= len) {
+                DPRINTFL(MSG_VDEBUG, "httpagg: chunk ended. current part range: %u to %u (%u bytes)", *end-data, (*end+*contentLength)-data, *contentLength);
+                start = *end + *contentLength;
+                if (dataEnd - start > 2)
+                    DPRINTFL(MSG_VDEBUG, "httpagg: this payload contains multiple chunks or multiple parts of chunks.");
+                *contentLength = 0;
+                *chunkFlags = CHUNK_CRLF;
+            } else {
+                DPRINTFL(MSG_VDEBUG, "httpagg: this payload contains a part of a chunk. current part range: %u to %u (%u bytes)", *end-data, *end-data+len, len);
+                *contentLength = *contentLength-len;
+                start = *end + len;
+                DPRINTFL(MSG_INFO, "httpagg: current remaining chunk size: %u", *contentLength);
+            }
+            *end = start;
+        }
+    }
+
+    while (*chunkFlags == CHUNK_TRAILER && start < dataEnd) {
+        if (*contentLength != 0)
+            THROWEXCEPTION("remaining chunk size != 0 while parsing the trailer.");
+        int result = getHeaderField(start, dataEnd, end);
+
+        switch (result) {
+            case HEADER_FIELD_DNF:
+                 return PARSER_DNF;
+            case (HEADER_END|HEADER_FIELD_END):
+            /* no break */
+            case HEADER_END:
+                DPRINTFL(MSG_INFO, "httpagg: end of chunked message");
+                if (*end != dataEnd)
+                    THROWEXCEPTION("end != dataEnd");
+                return PARSER_SUCCESS;
+            case HEADER_ERROR:
+                msg(MSG_ERROR, "httpagg: error parsing trailer of chunked message");
+                return PARSER_FAILURE;
+            case HEADER_FIELD_END:
+                start = *end;
+                break;
+            default:
+                break;
+        }
+    }
+
+    return PARSER_DNF;
+}
+
+/**
+ * Parses the message-body of a HTTP message whose length has a fixed size.
+ * In this case the transfer type is set as #TRANSFER_CONTENT_LENGTH, that means the lenght was specified by the
+ * 'Content-Length' header field in the message-header.
+ * @param data Pointer to the payload to be parsed
+ * @param dataEnd Pointer to the end of the payload to be parsed
+ * @param end Used to store the position at which the parsing process stopped
+ * @param flowData Pointer to the FlowData structure which contains information about the current flow
+ * @param transferType Pointer to the message's #http_msg_body_transfer_t type
+ * @return returns #PARSER_SUCCESS if the end of the message-body was reached
+ *                 #PARSER_DNF if the end was not reached
+ *                 #PARSER_FAILURE if the parsing failed
+ */
+int HttpAggregation::processFixedSizeMsgBody(const char* data, const char* dataEnd, const char** end, FlowData* flowData) {
+    uint32_t* contentLength = 0;
+    if (flowData->isRequest()) {
+        contentLength = &flowData->request.contentLength;
+    } else {
+        contentLength = &flowData->response.contentLength;
+    }
+    if (*contentLength<dataEnd-data) {
+        DPRINTFL(MSG_DEBUG, "httpagg: the payload of the http response stream is bigger than specified in the header field, the packet may contain multiple messages");
+        if (*contentLength>0) {
+            *end = data + *contentLength;
+            *contentLength = 0;
+        } else {
+            *end = data;
+        }
+        return PARSER_SUCCESS;
+    } else {
+        *contentLength = *contentLength - (dataEnd-data);
+        *end = dataEnd;
+        DPRINTFL(MSG_INFO, "httpagg: processed %u bytes of the http message-body, %u bytes left", dataEnd-data, *contentLength);
+        if (*contentLength<=0)
+            return PARSER_SUCCESS; // we are finished
+        else
+            return PARSER_DNF; // still payload left
+    }
 }
 
 /**
@@ -1057,11 +1297,39 @@ int HttpAggregation::getDelimitedText(const char* data, const char* dataEnd, con
 }
 
 /**
- * Skips multiple consecutive line breaks
+ * Searches for text delimited by a whitespace, comma,  LF or CR. Initial delimiters are skipped.
+ * @param data Pointer to the payload to be parsed
+ * @param dataEnd Pointer to the end of the payload to be parsed
+ * @param start Used to store the position at which the parsed text begins
+ * @param end Used to store the position at which the parsed text ends. If no delimited text is
+ * found the pointer points to the end of the payload
+ * @return Returns 1 if text was found, 0 otherwise
+ */
+int HttpAggregation::getDelimitedHeaderFieldValue(const char* data, const char* dataEnd, const char** start, const char** end) {
+    *start = data;
+    bool found = false;
+    while (data<dataEnd) {
+        bool isDelimiter = *data==' ' || *data==',' || *data == '\n' || *data == '\r';
+        if (isDelimiter && found) {
+            // reached end of text
+            *end = data;
+            return 1;
+        } else if (!isDelimiter && !found) {
+            *start = data;
+            found = true;
+        }
+        data++;
+    }
+    *end=dataEnd;
+    return 0;
+}
+
+/**
+ * Skips a single CR LF sequence
  * @param data Pointer to the payload to be parsed
  * @param dataEnd Pointer to the end of the payload to be parsed
  * @param end Used to store the position at which the parsing process stopped
- * @return
+ * @return Returns 1 if a CR LF sequence was skipped, 0 otherwise
  */
 int HttpAggregation::eatCRLF(const char* data, const char* dataEnd, const char** end) {
 	*end = data;
@@ -1083,14 +1351,106 @@ int HttpAggregation::eatCRLF(const char* data, const char* dataEnd, const char**
 }
 
 /**
- * Tries to parse the length of a chunk.
+ * Skips a single line break
+ * @param data Pointer to the payload to be parsed
+ * @param dataEnd Pointer to the end of the payload to be parsed
+ * @param end Used to store the position at which the parsing process stopped
+ * @return Returns 1 if a line feed was skipped, 0 otherwise
+ */
+int HttpAggregation::eatLineFeed(const char* data, const char* dataEnd, const char** end) {
+    *end = data;
+    if (*data=='\n')
+    {
+        data++;
+        *end = data;
+        return 1;
+    }
+    return 0;
+}
+
+/**
+ * Check if a given char is a LWS token
+ * @param data Pointer to the char to check
+ * @return Returns true if the char is a LWS token, false otherwise
+ */
+bool HttpAggregation::isLWSToken(const char* data) {
+    /*-
+     * From RFC 2616
+     * LWS            = [CRLF] 1*( SP | HT )
+     */
+    switch (*data) {
+        case '\r':
+        case '\n':
+        case '\t':
+        case ' ':
+            return true;
+        default:
+            return false;
+    }
+}
+
+/**
+ * Check if a given character of a header field is a token
+ * @param data Pointer to the char to check
+ * @return true if the character is a token, false otherwise
+ */
+bool HttpAggregation::isToken(const char* data) {
+    /*-
+     * From RFC 2616:
+     *
+     * token        =  1*<any CHAR except CTLs or separators>
+     *
+     * separators   = "(" | ")" | "<" | ">" | "@"
+     *              | "," | ";" | ":" | "\" | <">
+     *              | "/" | "[" | "]" | "?" | "="
+     *              | "{" | "}" | SP | HT
+     *
+     * CTL          = <any US-ASCII control character
+     *              (octets 0 - 31) and DEL (127)>
+     */
+
+    // CTLs
+    if (*data < 32 || *data == 127)
+        return false;
+
+    // separators
+    switch (*data) {
+        case '(':
+        case ')':
+        case '<':
+        case '>':
+        case '@':
+        case ',':
+        case ';':
+        case ':':
+        case '\\':
+        case '"':
+        case '/':
+        case '[':
+        case ']':
+        case '?':
+        case '=':
+        case '{':
+        case '}':
+        case ' ':
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Tries to parse the size of a chunk.
  *
  * @param data Pointer to the payload to be parsed
  * @param dataEnd Pointer to the end of the payload to be parsed
  * @param end Used to store the position at which the parsing process stopped
- * @return Returns the size of the chunk in bytes
+ * @param chunkLength Used to store the size of the chunk in bytes
+ * @return Returns #PARSER_SUCCESS if a valid chunk size could be parsed
+ *                 #PARSER_FAILURE if a failure was encountered
+ *                 #PARSER_DNF if the end of payload has been reached
  */
-uint32_t HttpAggregation::getChunkLength(const char* data, const char* dataEnd, const char** end) {
+int HttpAggregation::getChunkLength(const char* data, const char* dataEnd, const char** end, uint32_t* chunkLength) {
 	/*
 	 * From RFC 2616, Section 3.6
 	 * chunk          = chunk-size [ chunk-extension ] CRLF
@@ -1099,20 +1459,32 @@ uint32_t HttpAggregation::getChunkLength(const char* data, const char* dataEnd, 
 	const char* start = data;
 	while (data<dataEnd) {
 		if (*data == '\r') {
-			if (data+1<dataEnd && *(data+1) == '\n') {
-				uint32_t length = strtol(start, NULL, 16); // works also if chunk extensions are present
-				DPRINTFL(MSG_INFO, "httpagg: start of a new chunk. chunk length = %u", length);
-				*end = data+2;
-				return length;
+			if (data+1<dataEnd) {
+			    if (*(data+1) != '\n') {
+			        printRange(start, data+1-start);
+			        *end = data+1;
+			        return PARSER_FAILURE;
+			    }
+			    *end = data+2;
+                long int length = strtol(start, NULL, 16); // works also if chunk extensions are present
+                if (length < 0 || length > 0xFFFFFFFF) {
+                    msg(MSG_ERROR, "httpagg: failure parsing chunk size, size = %u (parsed string = \"%.*s\")", length, data-start, start);
+                    *chunkLength = 0;
+                    return PARSER_FAILURE;
+                } else {
+                    *chunkLength = length & 0xFFFFFFFF;
+                    DPRINTFL(MSG_INFO, "httpagg: start of a new chunk. chunk size = %u (parsed string = \"%.*s\")", length, data-start, start);
+                    return PARSER_SUCCESS;
+                }
+			} else {
+			    *end=dataEnd;
+				return PARSER_DNF;
 			}
-			else
-				break;
 		}
 		data++;
 	}
-	DPRINTFL(MSG_ERROR, "error parsing chunk size");
 	*end=dataEnd;
-	return 0;
+	return PARSER_DNF;
 }
 
 /**
@@ -1258,7 +1630,7 @@ int HttpAggregation::getRequestOrResponse(const char* data, const char* dataEnd,
 	*start = data;
 	*end = data;
 
-	if (getSpaceDelimitedText(data, dataEnd, start, end, 16)) {
+	if (getSpaceDelimitedText(data, dataEnd, start, end, 18)) {
 		/*
 		 * From RFC 2774 - An HTTP Extension Framework
 		 *
@@ -1449,9 +1821,6 @@ int HttpAggregation::isVersion(const char* dataPtr, const char* dataEnd) {
 	return 0;
 }
 
-/*
- *
- */
 /**
  * Checks if the passed char range is a valid HTTP notification identifier
  * Currently HTTP notifications are unsupported, but may be used in future releases.
@@ -1488,13 +1857,13 @@ int HttpAggregation::isNotification(const char* data, const char* dataEnd) {
 }
 
 /**
- * Checks if the given status code forbids the use of an message entity
+ * Checks if the given status code forbids the use of a message-body
  * @param statusCode Code to check
- * @return Returns 1 if an entity is forbidden for this code, 0 otherwise
+ * @return Returns 1 if a message-body is forbidden for this code, 0 otherwise
  */
-int HttpAggregation::isMessageEntityForbidden(const int statusCode) {
+int HttpAggregation::isMessageBodyForbidden(const int statusCode) {
 	/*
-	 * certain response codes forbid an entitiy
+	 * certain response codes forbid a message-body
 	 *
 	 * From RFC 2616 Section 4.4
 	 * Any response message which "MUST NOT" include a message-body (such as the 1xx, 204,
@@ -1520,7 +1889,7 @@ int HttpAggregation::isMessageEntityForbidden(const int statusCode) {
  * @param size Number of bytes to copy
  */
 void HttpAggregation::copyToCharPointer(char** dst, const char* src, size_t size) {
-	*dst = (char*)malloc(sizeof(char)*(size));;
+	*dst = (char*)malloc(sizeof(char)*(size));
 	memcpy(*dst, src, size);
 }
 
@@ -1565,8 +1934,6 @@ void HttpAggregation::storeDataLeftOver(const char* data, const char* dataEnd, F
  */
 void HttpAggregation::initializeFlowData(FlowData* flowData, HttpStreamData* streamData) {
 	flowData->streamInfo = streamData;
-	flowData->forwardType = HTTP_TYPE_UNKNOWN;
-	flowData->reverseType = HTTP_TYPE_UNKNOWN;
 	flowData->tempBuffer = 0;
 
 	flowData->request.method = 0;
@@ -1576,7 +1943,7 @@ void HttpAggregation::initializeFlowData(FlowData* flowData, HttpStreamData* str
 	flowData->request.hostLength = 0;
 	flowData->request.uriLength = 0;
 	flowData->request.status = NO_MESSAGE;
-	flowData->request.entityTransfer = TRANSFER_UNKNOWN;
+	flowData->request.transfer = TRANSFER_UNKNOWN;
 	flowData->request.contentLength = 0;
 	flowData->request.pipelinedRequestOffset = 0;
 	flowData->request.pipelinedRequestOffsetEnd = 0;
@@ -1585,11 +1952,12 @@ void HttpAggregation::initializeFlowData(FlowData* flowData, HttpStreamData* str
 	flowData->response.statusCode = 0;
 	flowData->response.responsePhrase = 0;
 	flowData->response.status = NO_MESSAGE;
-	flowData->response.entityTransfer = TRANSFER_UNKNOWN;
+	flowData->response.transfer = TRANSFER_UNKNOWN;
 	flowData->response.contentLength = 0;
     flowData->response.pipelinedResponseOffset = 0;
     flowData->response.pipelinedResponseOffsetEnd = 0;
     flowData->response.statusCode_ = 0;
+    flowData->response.chunkStatus = 0;
 }
 
 /**
@@ -1600,8 +1968,9 @@ HttpAggregation::HttpStreamData* HttpAggregation::initHttpStreamData() {
 	streamBucket->forwardFlows = 0;
 	streamBucket->reverseFlows = 0;
 	streamBucket->direction = 0;
+	streamBucket->forwardType = HTTP_TYPE_UNKNOWN;
+	streamBucket->reverseType = HTTP_TYPE_UNKNOWN;
 
-	streamBucket->responseFirst = false;
 	streamBucket->pipelinedRequest = false;
 	streamBucket->pipelinedResponse = false;
 
@@ -1652,15 +2021,15 @@ bool HttpAggregation::FlowData::isResponse() {
 HttpAggregation::http_type_t* HttpAggregation::FlowData::getType(bool oppositeDirection) {
     if (*streamInfo->direction == 0) {
         if (oppositeDirection)
-            return &reverseType;
+            return &streamInfo->reverseType;
         else
-            return &forwardType;
+            return &streamInfo->forwardType;
     }
     else if (*streamInfo->direction == 1) {
         if (oppositeDirection)
-            return &forwardType;
+            return &streamInfo->forwardType;
         else
-            return &reverseType;
+            return &streamInfo->reverseType;
     }
     THROWEXCEPTION("TCP stream direction was set incorrect");
     return NULL;
@@ -1673,9 +2042,9 @@ HttpAggregation::http_type_t* HttpAggregation::FlowData::getType(bool oppositeDi
  */
 uint8_t* HttpAggregation::FlowData::getFlowcount(bool oppositeDirection) {
     http_type_t type =*getType(oppositeDirection);
-    if (type == forwardType) {
+    if (type == streamInfo->forwardType) {
         return &(streamInfo->forwardFlows);
-    } else if (type == this->reverseType) {
+    } else if (type == streamInfo->reverseType) {
         return &(streamInfo->reverseFlows);
     }
     THROWEXCEPTION("HTTP type was set incorrect");
@@ -1683,14 +2052,27 @@ uint8_t* HttpAggregation::FlowData::getFlowcount(bool oppositeDirection) {
 }
 
 /**
- * Get the @c http_entity_transfer_t in the specified direction. Throws if the HTTP type was set incorrect.
- * @return a pointer to the http_entity_transfer_t in the specified direction
+ * Get the @c http_msg_body_transfer_t in the specified direction. Throws if the HTTP type was set incorrect.
+ * @return a pointer to the http_msg_body_transfer_t in the specified direction
  */
-HttpAggregation::http_entity_transfer_t* HttpAggregation::FlowData::getTransferType() {
+HttpAggregation::http_msg_body_transfer_t* HttpAggregation::FlowData::getTransferType() {
     if (isRequest())
-        return &request.entityTransfer;
+        return &request.transfer;
     else if (isResponse())
-        return &response.entityTransfer;
+        return &response.transfer;
+    THROWEXCEPTION("HTTP type was set incorrect");
+    return NULL;
+}
+
+/**
+ * Get the @c http_status_t in the specified direction. Throws if the HTTP type was set incorrect.
+ * @return a pointer to the http_msg_body_transfer_t in the specified direction
+ */
+HttpAggregation::http_status_t* HttpAggregation::FlowData::getStatus() {
+    if (isRequest())
+        return &request.status;
+    else if (isResponse())
+        return &response.status;
     THROWEXCEPTION("HTTP type was set incorrect");
     return NULL;
 }
@@ -1744,23 +2126,24 @@ uint32_t HttpAggregation::min_(uint32_t a, uint32_t b) {
         return b;
 }
 
-const char HttpAggregation::STR_CONTENT_LENGTH[] = "content-length:";
-const char HttpAggregation::STR_TRANSFER_ENCODING[] = "transfer-encoding:";
-const char HttpAggregation::STR_HOST[] = "host:";
+const HttpAggregation::header_field_name HttpAggregation::FIELD_NAME_CONTENT_TYPE = {"content-type", 12};
+const HttpAggregation::header_field_name HttpAggregation::FIELD_NAME_CONTENT_LENGTH = {"content-length", 14};
+const HttpAggregation::header_field_name HttpAggregation::FIELD_NAME_ENCODING = {"transfer-encoding", 17};
+const HttpAggregation::header_field_name HttpAggregation::FIELD_NAME_HOST = {"host", 4};
 
 void HttpAggregation::testFinishedMessage(FlowData* flowData) {
 	http_type_t type = *flowData->getType();
-	ASSERT_(type!=HTTP_TYPE_UNKNOWN, "http type unknown");
-	ASSERT_(flowData->reverseType!=flowData->forwardType, "equal http types");
+	ASSERT(type != HTTP_TYPE_UNKNOWN, "http type unknown");
+	ASSERT(flowData->streamInfo->reverseType!=flowData->streamInfo->forwardType, "equal http types");
 
-	if (type==HTTP_TYPE_REQUEST) {
-		ASSERT_(flowData->request.status == MESSAGE_END, "message did not end");
-		ASSERT_(!(flowData->request.status & MESSAGE_FLAG_FAILURE), "message end cannot be reached if a parsing error occurs");
-		ASSERT_(flowData->request.entityTransfer!=TRANSFER_UNKNOWN, "transfer type unknown");
-		ASSERT_(flowData->response.status != MESSAGE_END, "response must not end before request");
+	if (type == HTTP_TYPE_REQUEST) {
+		ASSERT(flowData->request.status == MESSAGE_END, "message did not end");
+		ASSERT(!(flowData->request.status & MESSAGE_FLAG_FAILURE), "message end cannot be reached if a parsing error occurs");
+		ASSERT(flowData->request.transfer != TRANSFER_UNKNOWN, "transfer type unknown");
+		ASSERT(flowData->response.status != MESSAGE_END, "response must not end before request");
 	} else {
-		ASSERT_(flowData->response.status == MESSAGE_END, "message did not end");
-		ASSERT_(!(flowData->response.status & MESSAGE_FLAG_FAILURE), "message end cannot be reached if a parsing error occurs");
-		ASSERT_(flowData->response.entityTransfer!=TRANSFER_UNKNOWN, "transfer type unknown");
+		ASSERT(flowData->response.status == MESSAGE_END, "message did not end");
+		ASSERT(!(flowData->response.status & MESSAGE_FLAG_FAILURE), "message end cannot be reached if a parsing error occurs");
+		ASSERT(flowData->response.transfer != TRANSFER_UNKNOWN, "transfer type unknown");
 	}
 }
