@@ -153,12 +153,12 @@ void PacketHashtable::copyDataTransportOctets(CopyFuncParameters* cfp)
 			ppd = reinterpret_cast<PayloadPrivateData*>(cfp->dst+cfp->efd->privDataOffset);
 			ppd->seq = ntohl(*reinterpret_cast<const uint32_t*>(p->data.netHeader+p->transportHeaderOffset+4))+plen+(p->data.netHeader[p->transportHeaderOffset+13] & 0x02 ? 1 : 0);
 			ppd->initialized = true;
+			DPRINTFL(MSG_VDEBUG, "%s=%lu, ppd->seq=%u", cfp->efd->typeId.toString().c_str(), ntohll(*reinterpret_cast<uint64_t*>(cfp->dst+cfp->efd->dstIndex)), ntohl(ppd->seq));
 			break;
 
 		default:
 			break;
 	}
-	DPRINTFL(MSG_VDEBUG, "%s=%lu, ppd->seq=%u", cfp->efd->typeId.toString().c_str(), ntohll(*reinterpret_cast<uint64_t*>(cfp->dst+cfp->efd->dstIndex)), ntohl(ppd->seq));
 }
 
 
@@ -370,14 +370,22 @@ void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* 
 	if (flowData->request.status == MESSAGE_END && flowData->response.status == MESSAGE_END) {
 		DPRINTFL(MSG_INFO, "forcing expiry of http flow");
 		hbucket->forceExpiry=true;
+	} else if (flowData->response.status == MESSAGE_END && flowData->isResponse()){
+	    uint8_t responseCount = *flowData->getFlowcount();
+	    uint8_t requestCount = *flowData->getFlowcount(true);
+
+	    if (responseCount>requestCount) {
+	        DPRINTFL(MSG_INFO, "forcing expiry of http flow");
+	        hbucket->forceExpiry=true;
+	    }
 	}
 
 	http_type_t type = *flowData->getType();
 	uint32_t* pipelinedOffsetEnd = 0;
 	if (type == HTTP_TYPE_REQUEST && flowData->request.status == MESSAGE_END)
-	    pipelinedOffsetEnd = &flowData->request.pipelinedRequestOffsetEnd;
+	    pipelinedOffsetEnd = &flowData->request.payloadOffsetEnd;
 	if (type == HTTP_TYPE_RESPONSE && flowData->response.status == MESSAGE_END)
-	        pipelinedOffsetEnd = &flowData->response.pipelinedResponseOffsetEnd;
+	        pipelinedOffsetEnd = &flowData->response.payloadOffsetEnd;
 
 	if (pipelinedOffsetEnd && aggregationEnd < dataEnd) {
 		// multiple requests are in this request, store the offset to the position and mark the request as pipelined
@@ -387,10 +395,10 @@ void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* 
 		*pipelinedOffsetEnd = (aggregationEnd - data) - bufferOffset;
 
 		if (type == HTTP_TYPE_REQUEST) {
-		    flowData->streamInfo->pipelinedRequest = true;
+		    flowData->streamInfo->multipleRequests = true;
 		}
 		if (type == HTTP_TYPE_RESPONSE) {
-		    flowData->streamInfo->pipelinedResponse = true;
+		    flowData->streamInfo->multipleResponses = true;
 		    // prevent expiry, since we need to access the bucket data when processing the pipelined respones
 		    hbucket->forceExpiry=false;
 		}
@@ -1372,10 +1380,10 @@ boost::shared_array<IpfixRecord::Data> PacketHashtable::createBucketDataCopy(con
 			// a TCP segment can contain multiple HTTP messages. each of these HTTP messages is processed separately. this offset
 			// specifies the position, in the current TCP segment payload, at which the last HTTP message ended or rather the position
 			// the new HTTP message starts
-			if (streamData->pipelinedRequest)
-			    flowData->request.pipelinedRequestOffset = srcFlowData->request.pipelinedRequestOffsetEnd;
+			if (streamData->multipleRequests)
+			    flowData->request.payloadOffset = srcFlowData->request.payloadOffsetEnd;
 			else
-			    flowData->response.pipelinedResponseOffset = srcFlowData->response.pipelinedResponseOffsetEnd;
+			    flowData->response.payloadOffset = srcFlowData->response.payloadOffsetEnd;
 
 			// erase all HTTP related fields
 			if (http.requestMethodOffset != ExpHelperTable::UNUSED)
@@ -2017,7 +2025,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
         }
 
         if (httpAggregation) {
-            if ((httpData->pipelinedRequest || httpData->pipelinedResponse))
+            if ((httpData->multipleRequests || httpData->multipleResponses))
                 processMultipleHttpMessages(tsrcData, httpData, p, tcpStream);
             p->removeReference();
 #ifdef DEBUG
@@ -2059,7 +2067,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
  * @param tcpStream TCP stream related to the Packet
  */
 void PacketHashtable::processMultipleHttpMessages(IpfixRecord::Data* srcData,  HttpStreamData* streamData, Packet* p, TcpStream* tcpStream) {
-    if (streamData->pipelinedRequest && streamData->pipelinedResponse)
+    if (streamData->multipleRequests && streamData->multipleResponses)
         THROWEXCEPTION("error occurred, packet cannot contain multiple requests and responses at the same time");
 
     // the packet we are currently processing contains at least one more http message or part of it.
@@ -2087,7 +2095,7 @@ void PacketHashtable::processMultipleHttpMessages(IpfixRecord::Data* srcData,  H
             aggregateIntoExistingFlow(srcData, streamData, p, tcpStream);
     }
 
-    if (streamData->pipelinedRequest || streamData->pipelinedResponse)
+    if (streamData->multipleRequests || streamData->multipleResponses)
         aggregateIntoNewFlow(srcData, streamData, p, tcpStream);
 }
 
@@ -2114,7 +2122,7 @@ void PacketHashtable::aggregateIntoExistingFlow(IpfixRecord::Data* srcData,  Htt
     if (!efd)
         THROWEXCEPTION("could not find the right ExpFieldData");
 
-    while (streamData->pipelinedResponse) {
+    while (streamData->multipleResponses) {
         DPRINTFL(MSG_VDEBUG, "the payload of the segment was not parsed completely, look for another http response");
         // get the FlowData from the flow in which previous part of the TCP segment payload was aggregated
         FlowData* srcFlowData = reinterpret_cast<FlowData*>(srcData+efd->typeSpecData.http.flowDataOffset);
@@ -2137,15 +2145,19 @@ void PacketHashtable::aggregateIntoExistingFlow(IpfixRecord::Data* srcData,  Htt
          }
 
          if (!found) {
+             // no flow was found, we have to create one
              msg(MSG_ERROR, "could not find a reverse flow for a HTTP response.");
              return;
          }
 
+         // if a flow is found we can aggregate into the flow
          FlowData* dstFlowData = reinterpret_cast<FlowData*>(srcData+efd->typeSpecData.http.flowDataOffset);
-         dstFlowData->response.pipelinedResponseOffset = srcFlowData->response.pipelinedResponseOffsetEnd;
-         streamData->pipelinedResponse = false;
+         dstFlowData->response.payloadOffsetEnd = srcFlowData->response.payloadOffsetEnd;
+         // reset the status
+         streamData->multipleResponses = false;
          aggregateHttp(srcData, bucket, p, efd, false, false);
 
+         // expire the bucket if needed
          if (bucket->forceExpiry) {
              DPRINTFL(MSG_VDEBUG, "forced expiry of bucket");
              removeBucket(bucket);
@@ -2175,8 +2187,8 @@ void PacketHashtable::aggregateIntoNewFlow(IpfixRecord::Data* srcData,  HttpStre
     if (!efd)
         THROWEXCEPTION("could not find the right ExpFieldData");
 
-    while (streamData->pipelinedRequest || streamData->pipelinedResponse) {
-        DPRINTFL(MSG_VDEBUG, "the payload of the segment was not parsed completely, look for another http %s", streamData->pipelinedRequest ? "request" : "response");
+    while (streamData->multipleRequests || streamData->multipleResponses) {
+        DPRINTFL(MSG_VDEBUG, "the payload of the segment was not parsed completely, look for another http %s", streamData->multipleRequests ? "request" : "response");
         // get the FlowData from the flow in which previous part of the TCP segment payload was aggregated
         FlowData* srcFlowData = reinterpret_cast<FlowData*>(srcData+efd->typeSpecData.http.flowDataOffset);
 
@@ -2189,10 +2201,10 @@ void PacketHashtable::aggregateIntoNewFlow(IpfixRecord::Data* srcData,  HttpStre
         // create the new bucket
         buckets[hash] = createBucket(htdata, p->observationDomainID, firstbucket, 0, hash);
 
-        // reset the pipelining status and start restart the HTTP aggregation for the remaining part of the payload
+        // reset the status and start restart the HTTP aggregation for the remaining part of the payload
         // if the payload still contains more then one HTTP message, this status will be reset to true
-        streamData->pipelinedRequest = false;
-        streamData->pipelinedResponse = false;
+        streamData->multipleRequests = false;
+        streamData->multipleResponses = false;
 
         aggregateHttp(htdata.get(), buckets[hash], p, efd, true, false);
 
@@ -2208,6 +2220,12 @@ void PacketHashtable::aggregateIntoNewFlow(IpfixRecord::Data* srcData,  HttpStre
         buckets[hash]->inTable = true;
         updateBucketData(buckets[hash]);
         srcData = htdata.get();
+
+        // expire the bucket if needed
+        if (buckets[hash]->forceExpiry) {
+            DPRINTFL(MSG_VDEBUG, "forced expiry of bucket");
+            removeBucket(buckets[hash]);
+        }
     }
 }
 

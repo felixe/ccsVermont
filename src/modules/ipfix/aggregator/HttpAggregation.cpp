@@ -45,17 +45,17 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
 
 	*aggregationStart = *data;
 
-	uint32_t* pipelinedOffset = 0;
-    if (flowData->isRequest()) pipelinedOffset = &flowData->request.pipelinedRequestOffset;
-    if (flowData->isResponse()) pipelinedOffset = &flowData->response.pipelinedResponseOffset;
+	uint32_t* payloadOffset = 0;
+    if (flowData->isRequest()) payloadOffset = &flowData->request.payloadOffset;
+    if (flowData->isResponse()) payloadOffset = &flowData->response.payloadOffset;
 
-	if (pipelinedOffset && *pipelinedOffset) {
+	if (payloadOffset && *payloadOffset) {
 	    // we are continuing to process the payload of a packet which has been processed before.
 	    // this means this packet contains multiple requests
-		DPRINTFL(MSG_DEBUG, "httpagg: http detection is starting with %u bytes offset", *pipelinedOffset);
-		*aggregationStart = *data+*pipelinedOffset;
-		*pipelinedOffset = 0;
-	} else if (!pipelinedOffset || !*pipelinedOffset) {
+		DPRINTFL(MSG_DEBUG, "httpagg: http detection is starting with %u bytes offset", *payloadOffset);
+		*aggregationStart = *data+*payloadOffset;
+		*payloadOffset = 0;
+	} else if (!payloadOffset || !*payloadOffset) {
 		uint16_t plen = *dataEnd - *data;
 
 		// check if the last processed packet in this direction has some left over bytes of payload which
@@ -527,6 +527,9 @@ int HttpAggregation::processHttpMessage(const char* data, const char* dataEnd, F
  * @return returns 0 if the message-header did not end yet, 1 otherwise
  */
 int HttpAggregation::processMessageHeader(const char* data, const char* dataEnd, const char** end, FlowData* flowData) {
+    if (data >= dataEnd)
+        return 0;
+
 	http_msg_body_transfer_t* transferType = flowData->getTransferType();
     *end = data;
 
@@ -544,7 +547,6 @@ int HttpAggregation::processMessageHeader(const char* data, const char* dataEnd,
                     printRange(data, *end-data);
 #endif
                 }
-
             }
             /* no break */
             case HEADER_END:
@@ -564,7 +566,7 @@ int HttpAggregation::processMessageHeader(const char* data, const char* dataEnd,
             case HEADER_FIELD_END: {
                 if (processMessageHeaderField(data, *end, flowData) == PARSER_FAILURE) {
                     msg(MSG_ERROR, "header field parsing error. could not parse header field.");
-#if DEBUG
+#ifdef DEBUG
                     printf("Header Field ");
                     printRange(data, *end-data);
 #endif
@@ -582,9 +584,9 @@ int HttpAggregation::processMessageHeader(const char* data, const char* dataEnd,
         }
         data = *end;
         if (data == dataEnd)
-            THROWEXCEPTION("invalid message-header parsing status");;
+            msg(MSG_ERROR, "invalid message-header parsing status");
     }
-    THROWEXCEPTION("invalid message-header parsing status");
+    msg(MSG_ERROR, "invalid message-header parsing status");
 
 	return 0;
 }
@@ -791,7 +793,7 @@ int HttpAggregation::processMessageHeaderField(const char* data, const char* dat
                         if (len <= 0 || len > 70)
                             return PARSER_FAILURE;
 
-                        msg(MSG_ERROR, "httpagg: read multipart/byterange header field with boundary delimiter: \"%.*s\"", len, fieldValueStart);
+                        DPRINTFL(MSG_VDEBUG, "httpagg: read multipart/byterange header field with boundary delimiter: \"%.*s\"", len, fieldValueStart);
 
                         flowData->response.transfer = TRANSFER_MULTIPART_BYTERANGE;
 
@@ -808,7 +810,7 @@ int HttpAggregation::processMessageHeaderField(const char* data, const char* dat
                     data++;
                 }
             }
-            return PARSER_FAILURE;
+            return PARSER_STOP;
         }
         if (status != PARSER_STOP) {
             // we don't have to check for the other field names, because we had a match
@@ -928,6 +930,7 @@ void HttpAggregation::setContentLength(const char* data, const char* dataEnd, Fl
  *  - case #TRANSFER_CHUNKED: 'Transfer-Encoding' was set in the message-header. estimate the size of each chunk and skip those bytes
  *  - case #TRANSFER_CONTENT_LENGTH: 'Content-Length' was set in the message-header, a fixed value of bytes can be skipped
  *  - case #TRANSFER_CONNECTION_BASED: the message length is determined by the server closing the connection
+ *  - case #TRANSFER_MULTIPART_BYTERANGE: the message length is defined by the media type multipart/byteranges
  * @param data Pointer to the payload to be parsed
  * @param dataEnd Pointer to the end of the payload to be parsed
  * @param end Used to store the position at which the parsing process stopped
@@ -945,29 +948,7 @@ int HttpAggregation::processMessageBody(const char* data, const char* dataEnd, c
 	} else if (*transfer == TRANSFER_CONTENT_LENGTH) {
 	    return processFixedSizeMsgBody(data, dataEnd, end, flowData);
 	} else if (*transfer == TRANSFER_MULTIPART_BYTERANGE) {
-        while (data < (dataEnd - flowData->response.boundaryLength + 2)) {
-            // From RFC 2046:
-            // "The boundary delimiter MUST occur at the beginning of a line, ..."
-            // so first check for a CRLF and then try to match the final delimiter.
-            // the boundary delimiter is stored in the form "--delimiter--", what
-            // eases the string comparison here.
-            if (eatCRLF(data, dataEnd, end)) {
-                if (!strncmp(*end, flowData->response.boundary, flowData->response.boundaryLength)) {
-                    msg(MSG_ERROR, "httpagg: end of a multipart/byterange message-body");
-                    // we cut off everything what follows, because according to RFC 2046:
-                    // "...implementations must ignore anything that appears before the first
-                    // boundary delimiter line or after the last one."
-                    // these areas are generally only used to insert notes and should therefore
-                    // not be of interest for us.
-                    // so we just aggregate until the end of the final boundary delimiter
-                    *end = *end + flowData->response.boundaryLength;
-                    return PARSER_SUCCESS;
-                }
-            }
-            data++;
-        }
-        *end = data;
-        return PARSER_DNF;
+	    return processFixedSizeMsgBody(data, dataEnd, end, flowData);
     } else if (*transfer == TRANSFER_CONNECTION_BASED) {
 	    // we are finished when the connection closes, hence aggregate the whole payload
 	    *end = dataEnd;
@@ -1022,21 +1003,21 @@ int HttpAggregation::processChunkedMsgBody(const char* data, const char* dataEnd
         return PARSER_DNF;
     }
     uint32_t* contentLength = 0;
-    uint8_t* chunkFlags = 0;
+    uint8_t* chunkStatus = 0;
     const char* start = data;
 
     if (flowData->isRequest()) {
         contentLength = &flowData->request.contentLength;
-        chunkFlags = &flowData->request.chunkFlags;
+        chunkStatus = &flowData->request.chunkStatus;
     }
     else {
         contentLength = &flowData->response.contentLength;
-        chunkFlags = &flowData->response.chunkStatus;
+        chunkStatus = &flowData->response.chunkStatus;
     }
 
-    while (*chunkFlags != CHUNK_TRAILER && start < dataEnd) {
+    while (*chunkStatus != CHUNK_TRAILER && start < dataEnd) {
         uint32_t len = dataEnd-start;
-        if (*chunkFlags == CHUNK_START && *contentLength<=0) {
+        if (*chunkStatus == CHUNK_START && *contentLength<=0) {
             int result = getChunkLength(start, dataEnd, end, contentLength);
             if (result == PARSER_FAILURE) {
                 msg(MSG_ERROR, "httpagg: error parsing chunked message, chunk-size header field value was malformed");
@@ -1049,27 +1030,27 @@ int HttpAggregation::processChunkedMsgBody(const char* data, const char* dataEnd
             }
 
             if (*contentLength == 0)
-                *chunkFlags = CHUNK_ZERO;
+                *chunkStatus = CHUNK_ZERO;
 
             start = *end;
             len = dataEnd - *end;
         }
 
-        if (*chunkFlags == CHUNK_CRLF || *chunkFlags == CHUNK_ZERO) {
+        if (*chunkStatus == CHUNK_CRLF || *chunkStatus == CHUNK_ZERO) {
             if (dataEnd-start < 2) {
                 *end = start;
                 return PARSER_DNF;
             }
-            if (*chunkFlags == CHUNK_ZERO && isToken(start)) {
+            if (*chunkStatus == CHUNK_ZERO && isToken(start)) {
                 // a trailer seems to follow as the next char is a token
-                *chunkFlags = CHUNK_TRAILER;
+                *chunkStatus = CHUNK_TRAILER;
             } else {
                 if (!eatCRLF(start, dataEnd, &start)) {
                     msg(MSG_ERROR, "httpagg: chunk did not end with a CRLF");
                     return PARSER_FAILURE;
                 }
 
-                if (*chunkFlags == CHUNK_ZERO) {
+                if (*chunkStatus == CHUNK_ZERO) {
                     // we are finished because the HTTP message seems to carry no trailer
                     if (start != dataEnd)
                         msg(MSG_ERROR, "httpagg: the chuncked HTTP message ended, but there is still payload remaining");
@@ -1078,7 +1059,7 @@ int HttpAggregation::processChunkedMsgBody(const char* data, const char* dataEnd
                 }
 
                 // we parsed an intermediate chunk, another chunk has to follow
-                *chunkFlags = CHUNK_START;
+                *chunkStatus = CHUNK_START;
                 *end = start;
             }
         }
@@ -1090,7 +1071,7 @@ int HttpAggregation::processChunkedMsgBody(const char* data, const char* dataEnd
                 if (dataEnd - start > 2)
                     DPRINTFL(MSG_VDEBUG, "httpagg: this payload contains multiple chunks or multiple parts of chunks.");
                 *contentLength = 0;
-                *chunkFlags = CHUNK_CRLF;
+                *chunkStatus = CHUNK_CRLF;
             } else {
                 DPRINTFL(MSG_VDEBUG, "httpagg: this payload contains a part of a chunk. current part range: %u to %u (%u bytes)", *end-data, *end-data+len, len);
                 *contentLength = *contentLength-len;
@@ -1101,7 +1082,7 @@ int HttpAggregation::processChunkedMsgBody(const char* data, const char* dataEnd
         }
     }
 
-    while (*chunkFlags == CHUNK_TRAILER && start < dataEnd) {
+    while (*chunkStatus == CHUNK_TRAILER && start < dataEnd) {
         if (*contentLength != 0)
             THROWEXCEPTION("remaining chunk size != 0 while parsing the trailer.");
         int result = getHeaderField(start, dataEnd, end);
@@ -1132,7 +1113,7 @@ int HttpAggregation::processChunkedMsgBody(const char* data, const char* dataEnd
 
 /**
  * Parses the message-body of a HTTP message whose length has a fixed size.
- * In this case the transfer type is set as #TRANSFER_CONTENT_LENGTH, that means the lenght was specified by the
+ * In this case the transfer type is set as #TRANSFER_CONTENT_LENGTH, that means the length was specified by the
  * 'Content-Length' header field in the message-header.
  * @param data Pointer to the payload to be parsed
  * @param dataEnd Pointer to the end of the payload to be parsed
@@ -1168,6 +1149,59 @@ int HttpAggregation::processFixedSizeMsgBody(const char* data, const char* dataE
         else
             return PARSER_DNF; // still payload left
     }
+}
+
+/**
+ * Parses a message-body, of a HTTP response, composed as several byteranges.
+ * In this case the transfer type is set as #TRANSFER_MULTIPART_BYTERANGE, which
+ * means the 'Content-type' header field indicates that the transfer-length is
+ * defined by the self-delimiting media type "multipart/byteranges".
+ * @param data Pointer to the payload to be parsed
+ * @param dataEnd Pointer to the end of the payload to be parsed
+ * @param end Used to store the position at which the parsing process stopped
+ * @param flowData Pointer to the FlowData structure which contains information about the current flow
+ * @param transferType Pointer to the message's #http_msg_body_transfer_t type
+ * @return returns #PARSER_SUCCESS if the end of the message-body was reached
+ *                 #PARSER_DNF if the end was not reached
+ */
+int HttpAggregation::processMultipartBody(const char* data, const char* dataEnd, const char** end, FlowData* flowData) {
+    /*
+     * If a HTTP response's message-body is transferred as multipart/byterange
+     * media type, the transported message-body consists of at least two byterange parts.
+     * Since the content of the payload does not matter to us, we can
+     * ignore how the message-body is composed and simply search for the
+     * final boundary delimiter in the payload to determine the end of the
+     * message.
+     *
+     * This transfer type is only valid for HTTP responses.
+     */
+    while (data < (dataEnd - flowData->response.boundaryLength + 2)) {
+        /*-
+         * From RFC 2046:
+         * "The boundary delimiter MUST occur at the beginning of a line, ..."
+         * so first check for a CRLF and then try to match the final delimiter.
+         * the boundary delimiter is stored in the form "--delimiter--", what
+         * eases the string comparison here.
+         */
+        if (eatCRLF(data, dataEnd, end)) {
+            if (!strncmp(*end, flowData->response.boundary, flowData->response.boundaryLength)) {
+                msg(MSG_ERROR, "httpagg: end of a multipart/byterange message-body");
+                /*-
+                 * we cut off everything what follows, because according to RFC 2046:
+                 * "...implementations must ignore anything that appears before the first
+                 * boundary delimiter line or after the last one."
+                 * these areas are generally only used to insert notes and should therefore
+                 * not be of interest for us.
+                 * so we just aggregate until the end of the final boundary delimiter
+                 */
+                *end = *end + flowData->response.boundaryLength;
+                return PARSER_SUCCESS;
+            }
+        }
+        data++;
+    }
+    *end = data;
+    return PARSER_DNF;
 }
 
 /**
@@ -1945,8 +1979,8 @@ void HttpAggregation::initializeFlowData(FlowData* flowData, HttpStreamData* str
 	flowData->request.status = NO_MESSAGE;
 	flowData->request.transfer = TRANSFER_UNKNOWN;
 	flowData->request.contentLength = 0;
-	flowData->request.pipelinedRequestOffset = 0;
-	flowData->request.pipelinedRequestOffsetEnd = 0;
+	flowData->request.payloadOffset = 0;
+	flowData->request.payloadOffsetEnd = 0;
 
 	flowData->response.version = 0;
 	flowData->response.statusCode = 0;
@@ -1954,8 +1988,8 @@ void HttpAggregation::initializeFlowData(FlowData* flowData, HttpStreamData* str
 	flowData->response.status = NO_MESSAGE;
 	flowData->response.transfer = TRANSFER_UNKNOWN;
 	flowData->response.contentLength = 0;
-    flowData->response.pipelinedResponseOffset = 0;
-    flowData->response.pipelinedResponseOffsetEnd = 0;
+    flowData->response.payloadOffsetEnd = 0;
+    flowData->response.payloadOffsetEnd = 0;
     flowData->response.statusCode_ = 0;
     flowData->response.chunkStatus = 0;
 }
@@ -1971,8 +2005,8 @@ HttpAggregation::HttpStreamData* HttpAggregation::initHttpStreamData() {
 	streamBucket->forwardType = HTTP_TYPE_UNKNOWN;
 	streamBucket->reverseType = HTTP_TYPE_UNKNOWN;
 
-	streamBucket->pipelinedRequest = false;
-	streamBucket->pipelinedResponse = false;
+	streamBucket->multipleRequests = false;
+	streamBucket->multipleResponses = false;
 
 	streamBucket->forwardLine = 0;
 	streamBucket->reverseLine = 0;

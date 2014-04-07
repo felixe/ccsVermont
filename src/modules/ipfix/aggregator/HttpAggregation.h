@@ -98,8 +98,8 @@ public:
 		uint8_t reverseFlows;   /**< counter for the http flows in reverse direction */
 		uint8_t *direction;     /**< the direction of the current packet */
 
-		bool pipelinedRequest;  /**< indicates if the current processed packet contains multiple requests */
-		bool pipelinedResponse; /**< indicates if the current processed packet contains multiple responses */
+		bool multipleRequests;  /**< indicates if the current processed packet contains multiple requests */
+		bool multipleResponses; /**< indicates if the current processed packet contains multiple responses */
 
 		// used to buffer unfinished http messages
 		char *forwardLine;      /**< buffer for payload in forward direction */
@@ -118,10 +118,22 @@ public:
 		char* tempBuffer; /** used when we payload of two different TCP segments has to be combined.
 		                    we cannot free it here as its content is used by PacketHashtable::aggregateHttp() */
 
+		/**
+		 * used to store flow related information about HTTP messages
+		 */
+		struct MessageData {
+            http_status_t status;                   /**< current state in the response parsing process */
+            http_msg_body_transfer_t transfer;      /**< information about a response's message-body */
+            uint32_t contentLength;                 /**< stores either the remaining length of the current processed chunk or message-body. max 4GB */
+            uint8_t chunkStatus;                    /**< stores status information while a chunk is parsed */
+            uint32_t payloadOffset;                 /**< a packet can contain multiple HTTP messages. this offset indicates at which position the currently processed message starts */
+            uint32_t payloadOffsetEnd;              /**< a packet can contain multiple HTTP messages. this offset indicates at which position the currently processed message ends */
+		};
+
 	    /**
 	     * structure used for storing flow related information about a request, which is needed for a proper aggregation
 	     */
-	    struct RequestData {
+	    struct RequestData : FlowData::MessageData {
 	        /*-
 	         * From RFC 2616
 	         * Request  = Request-Line              ; Section 5.1
@@ -140,21 +152,12 @@ public:
 
 	        uint16_t uriLength;     /**< max length of request uri */
 	        uint16_t hostLength;    /**< max length of request host */
-
-	        http_status_t status;                   /**< current state in the request parsing process */
-	        http_msg_body_transfer_t transfer;      /**< information about a request's message-body */
-	        uint32_t contentLength;                 /**< stores either the remaining length of the current processed chunk or message-body. max 4GB */
-	        uint8_t chunkFlags;                     /**< stores status information while a chunk is parsed */
-            char* boundary;                         /**< stores a boundary string value. used when the message-body is transferred as Content-type: multipart/byteranges */
-            uint8_t boundaryLength;                 /**< stores the length of a boundary string value. used when the message-body is transferred as Content-type: multipart/byteranges */
-	        uint32_t pipelinedRequestOffset;        /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request starts */
-	        uint32_t pipelinedRequestOffsetEnd;     /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request ends */
 	    } request;
 
 	    /**
 	     * structure used for storing flow related information about a request, which is needed for a proper aggregation
 	     */
-	    struct ResponseData {
+	    struct ResponseData : FlowData::MessageData{
 	        /*-
 	         * From RFC 2616
 	         * Response  = Status-Line               ; Section 6.1
@@ -169,16 +172,9 @@ public:
 	        uint16_t* statusCode;   /**< status code of a http request */
 	        char* responsePhrase;   /**< response phrase of a http request */
 
-	        int statusCode_;
-
-	        http_status_t status;                   /**< current state in the response parsing process */
-	        http_msg_body_transfer_t transfer;  /**< information about a response's message-body */
-	        uint32_t contentLength;                 /**< stores either the remaining length of the current processed chunk or message-body. max 4GB */
-	        uint8_t chunkStatus;                    /**< stores status information while a chunk is parsed */
-	        char* boundary;                         /**< stores a boundary string value. used when the message-body is transferred as Content-type: multipart/byteranges */
-	        uint8_t boundaryLength;                 /**< stores the length of a boundary string value. used when the message-body is transferred as Content-type: multipart/byteranges */
-	        uint32_t pipelinedResponseOffset;       /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request starts */
-	        uint32_t pipelinedResponseOffsetEnd;    /**< a packet can contain multiple requests. this offset indicates at which position the currently processed request ends */
+	        int statusCode_;        /**< stores the status code in host byte order */
+	        char* boundary;         /**< stores a boundary string value. used when the message-body is transferred as Content-type: multipart/byteranges */
+	        uint8_t boundaryLength; /**< stores the length of a boundary string value. used when the message-body is transferred as Content-type: multipart/byteranges */
 	    } response;
 
 		bool isForward();
@@ -243,6 +239,7 @@ private:
 	static int processMessageBody(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
 	static int processChunkedMsgBody(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
 	static int processFixedSizeMsgBody(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
+	static int processMultipartBody(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
 	static void storeDataLeftOver(const char* data, const char* dataEnd, FlowData* flowData);
 	static void copyToCharPointer(char** dst, const char* data, size_t size);
 	static void appendToCharPointer(char **dst, const char* data, size_t currentSize, size_t sizeToAdd);

@@ -98,7 +98,8 @@ std::size_t hash_value(const TcpStream& b) {
     return seed;
 }
 
-TcpStreamMonitor::TcpStreamMonitor(uint32_t htableSize, uint32_t timeoutOpened, uint32_t timeoutClosed) : streamCounter(0), TIMEOUT_OPENED(DEF_TIMEOUT_OPENED), TIMEOUT_CLOSED(DEF_TIMEOUT_CLOSED){
+TcpStreamMonitor::TcpStreamMonitor(uint32_t htableSize, uint32_t timeoutOpened, uint32_t timeoutClosed) :
+        streamCounter(0), TIMEOUT_OPENED(DEF_TIMEOUT_OPENED), TIMEOUT_CLOSED(DEF_TIMEOUT_CLOSED) {
     // initialize 'htableSize' buckets for the hashtable
     base_buckets = new StreamHashTable::bucket_type[htableSize];
     // initialize the hashtable
@@ -201,6 +202,9 @@ bool TcpStreamMonitor::analysePacket(Packet* p, TcpStream* ts) {
             if (ts->state != TcpStream::TCP_CLOSED) {
                 // move TcpStream to the TimoutList closedStreams
                 changeList(ts);
+                // clear all cached packets. after the connection close all further
+                // packets are rejected.
+                ts->releaseQueuedPackets();
             }
             ts->state = TcpStream::TCP_CLOSED;
         }
@@ -212,6 +216,9 @@ bool TcpStreamMonitor::analysePacket(Packet* p, TcpStream* ts) {
         if (ts->state != TcpStream::TCP_CLOSED) {
             // move TcpStream to the TimoutList closedStreams
             changeList(ts);
+            // clear all cached packets. after the connection close all further
+            // packets are rejected.
+            ts->releaseQueuedPackets();
         }
         ts->state = TcpStream::TCP_CLOSED;
         src->nextSeq = seq + 1;
@@ -287,6 +294,11 @@ Packet* TcpStreamMonitor::nextPacketForStream(TcpStream* ts) {
 
     // perform TCP analysis
     bool result = analysePacket(p, ts);
+
+    if (ts->state == TcpStream::TCP_CLOSED) {
+        p->removeReference();
+        return NULL;
+    }
 
 #ifdef DEBUG
     if (ts->packetQueue.find(nseq)!=ts->packetQueue.end())
@@ -376,7 +388,8 @@ void TcpStreamMonitor::expireStreams(bool all) {
  * @param list The list which should be checked
  * @param currentTime TcpStream instances whose timeout value is before or equal this point are expired
  */
-void TcpStreamMonitor::expireList(bool all, TimeoutList& list, timeval compare) {
+void
+TcpStreamMonitor::expireList(bool all, TimeoutList& list, timeval compare) {
     TimeoutList::size_type before = list.size();
     TimeoutList::iterator it = list.begin();
     while (it != list.end()) {
@@ -455,6 +468,9 @@ bool TcpStreamMonitor::isSet(uint8_t flags, uint8_t bitmask) {
  * Therefore the sequence number space 2^32 is divided in two equal parts, starting from
  * TcpData::nextSeq. If @p is in the range 2^31 starting from TcpData::nextSeq+1 it is
  * considered as fresh, otherwise it is considered as not fresh.
+ *
+ * TODO implement TCP PAWS (Protection Against Wrapped Sequence numbers) from RFC 1323
+ *
  * @param seq TCP sequence number to check
  * @param ts TcpData which supplies a reference to check against
  * @return true if the TCP sequence number is considered as fresh, false otherwise.
