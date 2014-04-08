@@ -179,7 +179,18 @@ bool TcpStreamMonitor::analysePacket(Packet* p, TcpStream* ts) {
     DPRINTFL(MSG_DEBUG, "tcpmon: seq#: %u, is next:%s, ack#: %u, flags: SYN=%d, ACK=%d, FIN=%d, RST=%d, plen: %u, slen:%u",
             seq, seq == src->nextSeq ? "yes":"no", ack, (bool)(flags&FLAG_SYN), (bool)(flags&FLAG_ACK), (bool)(flags&FLAG_FIN), (bool)(flags&FLAG_RST), p->pcapPacketLength, slen);
 
-    if (isSet(flags, FLAG_SYN) && !isSet(flags, FLAG_ACK) && src->initSeq==0 && src->initSeq != seq) {
+    if (isSet(flags, FLAG_SYN | FLAG_FIN) || isSet(flags, FLAG_SYN | FLAG_RST)) {
+        msg(MSG_ERROR, "tcpmon: dropping a packet with an illegal combination of TCP flags: : SYN=%d, ACK=%d, FIN=%d, RST=%d",
+                (bool)(flags&FLAG_SYN), (bool)(flags&FLAG_ACK), (bool)(flags&FLAG_FIN), (bool)(flags&FLAG_RST));
+        if (ts->state != TcpStream::TCP_CLOSED) {
+              // move TcpStream to the TimoutList closedStreams
+              changeList(ts);
+              // clear all cached packets. after the connection close all further
+              // packets are rejected.
+              ts->releaseQueuedPackets();
+          }
+          ts->state = TcpStream::TCP_CLOSED;
+    } else if (isSet(flags, FLAG_SYN) && !isSet(flags, FLAG_ACK) && src->initSeq==0 && src->initSeq != seq) {
         // this is a connection attempt, i.e. a SYN packet
         DPRINTFL(MSG_INFO, "tcpmon: TCP handshake: connection attempt (SYN)");
         src->initSeq = seq;
