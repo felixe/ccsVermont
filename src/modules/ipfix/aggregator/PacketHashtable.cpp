@@ -1871,7 +1871,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
 
     uint32_t slen = p->net_total_length - p->payloadOffset; // TCP segment length
 
-	DPRINTFL(MSG_DEBUG, "new packet #%lu| frame.len: %u, ip.len = %u, tcp.len = %u, captured bytes = %d",
+    DPRINTFL(MSG_DEBUG, "new packet #%lu| frame.len: %u, ip.len = %u, tcp.len = %u, captured bytes = %d",
 	        ++processedPackets, p->pcapPacketLength, p->net_total_length, slen, p->data_length_uncropped);
 
 #ifdef DEBUG
@@ -1882,10 +1882,16 @@ void PacketHashtable::aggregatePacket(Packet* p)
 
     TcpStream* tcpStream =  0;
     if (httpAggregation){
+        if (p->ipProtocolType != Packet::TCP) {
+            DPRINTFL(MSG_VDEBUG, "HTTP aggregation only supports TCP as IP protocol. skipping packet!");
+            atomic_release(&aggInProgress);
+            return;
+        }
+
         p->addReference();
         tcpStream = tcpmon->dissect(p);
         if (!tcpStream) {
-            DPRINTFL(MSG_INFO, "packet is out of order. skipping packet!");
+			tcpmon->expireStreams();
             atomic_release(&aggInProgress);
             return;
         }
@@ -1902,6 +1908,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
         // captured TCP segment length must be >0
         if (httpAggregation && slen <= 0) {
             DPRINTFL(MSG_INFO, "captured payload for packet is 0 bytes. skipping packet!");
+            tcpmon->expireStreams();
             p->removeReference();
 #ifdef DEBUG
     int32_t refCount = p->getReferenceCount();
@@ -1940,14 +1947,15 @@ void PacketHashtable::aggregatePacket(Packet* p)
             DPRINTFL(MSG_INFO, "bucket found for hash!");
             // This slot is already used, search spill chain for equal flow
             while (1) {
-                if (equalFlow(bucket->data.get(), p)) {
-                    DPRINTF("aggregate flow in normal direction");
+                bool equalStream = httpAggregation ? bucket->streamID == tcpStream->streamNum : true;
+                if (equalStream && equalFlow(bucket->data.get(), p)) {
+                    DPRINTFL(MSG_DEBUG, "aggregate flow in normal direction");
                     tsrcData = bucket->data.get();
                     aggregateFlow(bucket, p, 0);
                     if (!bucket->forceExpiry) {
                         flowfound = true;
                     } else {
-                        DPRINTFL(MSG_VDEBUG, "forced expiry of bucket");
+                        DPRINTFL(MSG_VDEBUG, "forced expiry of bucket hash=%d", hash);
                         removeBucket(bucket);
                         expiryforced = true;
                         if (expHelperTable.dpaFlowCountOffset != ExpHelperTable::UNUSED)
@@ -1974,14 +1982,15 @@ void PacketHashtable::aggregatePacket(Packet* p)
             if (bucket != 0) DPRINTFL(MSG_INFO, "revbucket found for hash!");
             else DPRINTFL(MSG_INFO, "no revbucket found for hash!");
             while (bucket!=0) {
-                if (equalFlowRev(bucket->data.get(), p)) {
-                    DPRINTF("aggregate flow in reverse direction");
+                bool equalStream = httpAggregation ? bucket->streamID == tcpStream->streamNum : true;
+                if (equalStream && equalFlowRev(bucket->data.get(), p) ) {
+                	DPRINTFL(MSG_DEBUG, "aggregate flow in reverse direction");
                     tsrcData = bucket->data.get();
                     aggregateFlow(bucket, p, 1);
                     if (!bucket->forceExpiry) {
                         flowfound = true;
                     } else {
-                        DPRINTFL(MSG_VDEBUG, "forced expiry of bucket");
+                        DPRINTFL(MSG_VDEBUG, "forced expiry of bucket hash=%d", rhash);
                         removeBucket(bucket);
                         expiryforced = true;
                         if (expHelperTable.dpaFlowCountOffset != ExpHelperTable::UNUSED)
@@ -1999,13 +2008,14 @@ void PacketHashtable::aggregatePacket(Packet* p)
 
         if (createAfterExpiry && (!flowfound || expiryforced)) {
             // create new flow
-            DPRINTFL(MSG_INFO, "creating new bucket for hash: %u", hash);
+            DPRINTFL(MSG_INFO, "creating new bucket for hash=%u", hash);
 
             HashtableBucket* firstbucket = buckets[hash];
             if (httpAggregation) {
                 boost::shared_array<IpfixRecord::Data> htdata; // just a temporary stopgap
                 buckets[hash] = createBucket(htdata, p->observationDomainID, firstbucket, 0, hash);
                 buckets[hash]->data = buildBucketData(p, httpData, &buckets[hash]);
+                buckets[hash]->streamID = tcpStream->streamNum;
                 tsrcData = buckets[hash]->data.get();
             }
             else
@@ -2159,8 +2169,9 @@ void PacketHashtable::aggregateIntoExistingFlow(IpfixRecord::Data* srcData,  Htt
 
          // expire the bucket if needed
          if (bucket->forceExpiry) {
-             DPRINTFL(MSG_VDEBUG, "forced expiry of bucket");
+             DPRINTFL(MSG_VDEBUG, "forced expiry of bucket hash=%d", rhash);
              removeBucket(bucket);
+             bucket = NULL;
          }
     }
 }
@@ -2196,10 +2207,13 @@ void PacketHashtable::aggregateIntoNewFlow(IpfixRecord::Data* srcData,  HttpStre
         uint32_t hash = calculateHash(p->data.netHeader, tcpStream);
         HashtableBucket* firstbucket = buckets[hash];
 
+        DPRINTF("creating bucket for hash=%d\n", hash);
+
         // create a copy of the bucket from previous flow
         boost::shared_array<IpfixRecord::Data> htdata = createBucketDataCopy(srcData, streamData, srcFlowData);
         // create the new bucket
         buckets[hash] = createBucket(htdata, p->observationDomainID, firstbucket, 0, hash);
+        buckets[hash]->streamID = tcpStream->streamNum;
 
         // reset the status and start restart the HTTP aggregation for the remaining part of the payload
         // if the payload still contains more then one HTTP message, this status will be reset to true
@@ -2223,8 +2237,9 @@ void PacketHashtable::aggregateIntoNewFlow(IpfixRecord::Data* srcData,  HttpStre
 
         // expire the bucket if needed
         if (buckets[hash]->forceExpiry) {
-            DPRINTFL(MSG_VDEBUG, "forced expiry of bucket");
+            DPRINTFL(MSG_VDEBUG, "forced expiry of bucket hash=%d", hash);
             removeBucket(buckets[hash]);
+            buckets[hash] = NULL;
         }
     }
 }

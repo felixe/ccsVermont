@@ -70,6 +70,17 @@ void TcpStream::releaseQueuedPackets() {
     packetQueue.clear();
 }
 
+/**
+ * Prints the TcpStream::hkey in a human readable format (network 4-tuple)
+ */
+void TcpStream::printKey() {
+    char srcIp[INET_ADDRSTRLEN];
+    char dstIp[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &hkey.srcIp, srcIp, INET_ADDRSTRLEN);
+    inet_ntop(AF_INET, &hkey.dstIp, dstIp, INET_ADDRSTRLEN);
+    DPRINTFL(MSG_DEBUG, "tcpmon: src ip=%s port=%d, dst ip=%s port=%d", srcIp, ntohs(hkey.srcPort), dstIp, ntohs(hkey.dstPort));
+}
+
 bool TcpStream::isForward() {
     return direction == FORWARD;
 }
@@ -86,7 +97,8 @@ bool operator==(const TcpStream& a, const TcpStream& b) {
             && a.hkey.dstPort == b.hkey.dstPort) ||
             (a.hkey.srcIp == b.hkey.dstIp
             && a.hkey.dstIp == b.hkey.srcIp
-            && a.hkey.srcPort == b.hkey.dstPort);
+            && a.hkey.srcPort == b.hkey.dstPort
+            && a.hkey.dstPort == b.hkey.srcPort);
 }
 
 // hash function for the StreamHashTable
@@ -108,7 +120,7 @@ TcpStreamMonitor::TcpStreamMonitor(uint32_t htableSize, uint32_t timeoutOpened, 
         TIMEOUT_OPENED = timeoutOpened;
     if (timeoutClosed)
         TIMEOUT_CLOSED = timeoutClosed;
-    msg(MSG_INFO, "tcpmon: Instantiated TcpMonitor with timeoutOpened: %u ms and timeoutClosed: %u ms", TIMEOUT_OPENED, TIMEOUT_CLOSED);
+    msg(MSG_INFO, "tcpmon: Instantiated TcpMonitor with timeoutOpened: %u ms and timeoutClosed: %u ms. Hashtablebucket size: %d", TIMEOUT_OPENED, TIMEOUT_CLOSED, htableSize);
 }
 
 TcpStreamMonitor::~TcpStreamMonitor() {
@@ -152,8 +164,22 @@ TcpStream* TcpStreamMonitor::dissect(Packet* p) {
     refreshTimeout(ts);
 
     // perform TCP connection analysis
-    if (!analysePacket(p, ts))
+    if (!analysePacket(p, ts)) {
+        DPRINTFL(MSG_DEBUG, "tcpmon: skipping packet, packet is out of order.");
         return NULL;
+    }
+
+    if (ts->state == TcpStream::TCP_CLOSED) {
+        DPRINTFL(MSG_DEBUG, "tcpmon: skipping packet, TCP connection is closed");
+        // remove the reference to the Packet instance
+        p->removeReference();
+#ifdef DEBUG
+    int32_t refCount = p->getReferenceCount();
+    if (refCount != 1)
+        THROWEXCEPTION("wrong reference count: %d. expected: 1", refCount);
+#endif
+        return NULL;
+    }
 
     return ts;
 }
@@ -312,7 +338,13 @@ Packet* TcpStreamMonitor::nextPacketForStream(TcpStream* ts) {
     bool result = analysePacket(p, ts);
 
     if (ts->state == TcpStream::TCP_CLOSED) {
+        // remove the reference to the Packet instance
         p->removeReference();
+#ifdef DEBUG
+    int32_t refCount = p->getReferenceCount();
+    if (refCount != 0)
+        THROWEXCEPTION("wrong reference count: %d. expected: 0", refCount);
+#endif
         return NULL;
     }
 
@@ -351,10 +383,16 @@ TcpStream* TcpStreamMonitor::findOrCreateStream(Packet* p) {
         // the current direction from other places like HttpAggregation
         ts->httpData->direction = &ts->direction;
 
-        DPRINTFL(MSG_INFO, "tcpmon: created new stream with hash: %u", hash_value(*ts));
+        DPRINTFL(MSG_INFO, "tcpmon: created new stream with hash: %lu", hash_value(*ts));
+#ifdef DEBUG
+		ts->printKey();
+#endif
     } else {
         ts =  &(*it);
-        DPRINTFL(MSG_DEBUG,"tcpmon: found existing stream, with hash: %u", hash_value(*ts));
+        DPRINTFL(MSG_DEBUG,"tcpmon: found existing stream, with hash: %lu", hash_value(*ts));
+#ifdef DEBUG
+		ts->printKey();
+#endif
     }
 
     return ts;

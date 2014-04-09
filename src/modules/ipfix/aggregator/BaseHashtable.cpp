@@ -293,6 +293,7 @@ void BaseHashtable::removeBucket(HashtableBucket* bucket)
 	bucket->prev = NULL;
 	bucket->hash = 0;
 	bucket->inTable = false;
+	bucket->streamID = 0;
 }
 
 /**

@@ -29,6 +29,7 @@
 #include <boost/intrusive/unordered_set_hook.hpp>
 #include <map>
 #include <sys/time.h>
+#include <arpa/inet.h>
 
 static const uint8_t FORWARD = 0; /**< the packet comes from the originator of the TCP connection */
 static const uint8_t REVERSE = 1; /**< the packet comes from the destination of the TCP connection */
@@ -119,6 +120,7 @@ public:
     bool isReverse();
     void updateDirection(Packet* p);
     void releaseQueuedPackets();
+    void printKey();
 };
 
 //! ordered list of TcpStreams

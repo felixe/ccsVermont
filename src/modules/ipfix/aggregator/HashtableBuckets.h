@@ -42,6 +42,7 @@ public:
 	uint32_t observationDomainID;
 	BucketListElement* listNode;
 	uint32_t hash;
+	uint32_t streamID; /**< TCP stream ID, helps to match the bucket to the proper TcpStream */
 };
 
 
