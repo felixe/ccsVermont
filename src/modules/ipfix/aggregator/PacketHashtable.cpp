@@ -1872,7 +1872,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
     uint32_t slen = p->net_total_length - p->payloadOffset; // TCP segment length
 
 	DPRINTFL(MSG_DEBUG, "new packet #%lu| frame.len: %u, ip.len = %u, tcp.len = %u, captured bytes = %d",
-	        ++processedPackets, p->pcapPacketLength, p->net_total_length, slen, p->data_length);
+	        ++processedPackets, p->pcapPacketLength, p->net_total_length, slen, p->data_length_uncropped);
 
 #ifdef DEBUG
 	int32_t refCount = p->getReferenceCount();

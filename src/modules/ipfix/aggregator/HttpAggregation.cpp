@@ -186,6 +186,7 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
             if (*requestCount < *responseCount) {
                 msg(MSG_ERROR, "httpagg: request count (%d) < response count (%d). either we missed a part of the HTTP dialog or a parsing failure was encountered.", *requestCount, *responseCount);
                 *requestCount = *responseCount + 1;
+                flowData->response.status == MESSAGE_END;
             } else {
                 (*requestCount)++;
             }
@@ -1094,8 +1095,6 @@ int HttpAggregation::processChunkedMsgBody(const char* data, const char* dataEnd
             /* no break */
             case HEADER_END:
                 DPRINTFL(MSG_INFO, "httpagg: end of chunked message");
-                if (*end != dataEnd)
-                    THROWEXCEPTION("end != dataEnd");
                 return PARSER_SUCCESS;
             case HEADER_ERROR:
                 msg(MSG_ERROR, "httpagg: error parsing trailer of chunked message");

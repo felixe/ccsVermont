@@ -132,8 +132,10 @@ public:
 	// note: protocol type is also specified in classification
 	IPProtocolType ipProtocolType;
 
-	// The number of captured bytes
+	// The number of captured bytes (layer 2 padding gets cropped)
 	unsigned int data_length;
+	// The uncropped number of captured bytes
+	unsigned int data_length_uncropped;
 	// original packet length
 	uint32_t pcapPacketLength;
 	// the length of the datagram, measured in octets, including internet header and data
@@ -172,6 +174,7 @@ public:
 		payloadOffset = 0;
 		classification = 0;
 		data_length = len;
+		data_length_uncropped = len;
 		timestamp = time;
 		varlength_index = 0;
 		ipProtocolType = NONE;
@@ -226,6 +229,7 @@ public:
 			memcpy((data.netHeader - layer2HeaderLen)+data_length, datasegments[i], segmentlens[i]);
 			data_length += segmentlens[i];
 		}
+		data_length_uncropped = data_length;
 
 		// timestamps in network byte order (needed for export or concentrator)
 		time_sec_nbo = htonl(timestamp.tv_sec);

@@ -21,7 +21,7 @@
 
 #include "TcpStream.h"
 
-TcpStream::TcpStream(Packet* p, uint32_t num) : streamNum(num), direction(FORWARD), state(TcpStream::TCP_UNDEFINED), httpData(0) {
+TcpStream::TcpStream(Packet* p, uint32_t num) : streamNum(num), direction(FORWARD), state(TcpStream::TCP_UNDEFINED), httpData(0), trunkatedPackets(false) {
     // values are stored in network byte order since the values are only used for calculating the hash
     hkey.srcIp = *reinterpret_cast<uint32_t*>(p->data.netHeader + OFFSET_SRC_IP);       // source IP
     hkey.dstIp = *reinterpret_cast<uint32_t*>(p->data.netHeader + OFFSET_DST_IP);       // destination IP
@@ -129,6 +129,11 @@ TcpStreamMonitor::~TcpStreamMonitor() {
 TcpStream* TcpStreamMonitor::dissect(Packet* p) {
     TcpStream* ts = findOrCreateStream(p);
     ts->updateDirection(p);
+
+    if (!ts->trunkatedPackets && p->pcapPacketLength > p->data_length_uncropped) {
+        ts->trunkatedPackets = true;
+        msg(MSG_ERROR, "tcpmon: WARNING, this TCP connection contains truncated packets");
+    }
 
     // if the TCP stream was closed before we do not have to consider this Packet
     if (ts->state == TcpStream::TCP_CLOSED) {
@@ -496,5 +501,5 @@ bool TcpStreamMonitor::isFresh(uint32_t seq, TcpData* td) {
 }
 
 void TcpStreamMonitor::printStreamCount() {
-    DPRINTFL(MSG_VDEBUG, "total streams: %lu, open streams: %lu, closed streams: %lu.", htable->size(), openedStreams.size(), closedStreams.size());
+    DPRINTFL(MSG_VDEBUG, "total streams: %lu, open streams: %lu, closed streams: %lu, stream counter: %u", htable->size(), openedStreams.size(), closedStreams.size(), streamCounter);
 }

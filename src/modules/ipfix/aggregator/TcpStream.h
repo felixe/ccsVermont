@@ -113,6 +113,8 @@ public:
     timeval timeout;    /**< Timestamp at which this TcpStream expires */
     list_member_hook<> timeoutHook; /**< Public member hook which allows to put this class into a boost::intrusive::list */
 
+    bool trunkatedPackets;  /**< set to true if a truncated packet was observed to be part of this stream */
+
     bool isForward();
     bool isReverse();
     void updateDirection(Packet* p);
