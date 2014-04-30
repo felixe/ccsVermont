@@ -24,6 +24,7 @@
 
 #include "HTTPAggregation.h"
 #include "common/Time.h"
+#include "common/Sensor.h"
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/hashtable.hpp>
 #include <boost/intrusive/unordered_set_hook.hpp>
@@ -51,6 +52,19 @@ static const uint32_t DEF_TIMEOUT_OPENED = 30000; /**< Default expiry timeout in
 static const uint32_t DEF_TIMEOUT_CLOSED =  2000; /**< Default expiry timeout in ms that is kept after connection close before expiring. */
 
 static const uint32_t DEF_TCP_BUFFER_SIZE = 1024 * 1024; /**< Default TCP buffer size for buffering out-of-order segments is defined as 1 MiB */
+
+// statistics
+static uint32_t statTotalConnections;                 /**< Total number of observed TCP connections */
+static uint32_t statTotalPackets;                     /**< Total number of processed packets */
+static uint32_t statTruncatedPackets;                 /**< Number of truncated packets */
+static uint32_t statOutOfOrderPackets;                /**< Number of packets out-of-order */
+static uint32_t statBufferedOutOfOrderPackets;        /**< Number of packets out-of-order which were buffered*/
+static uint32_t statSkippedPackets;                   /**< Number of packets which were skipped */
+static uint32_t statBufferOverflows;                  /**< Number of Buffer overflows */
+static uint32_t statRegularEstablishedConnections;    /**< Connections which were established with a TCP handshake */
+static uint32_t statNonRegularEstablishedConnections; /**< Connections which were not established with a TCP handshake */
+static uint32_t statExpiredOpenConnections;           /**< Number of expiries of open connections */
+static uint32_t statExpiredClosedConnections;         /**< Number of expiries of open connections */
 
 using namespace boost;
 using namespace boost::intrusive;
@@ -163,7 +177,7 @@ typedef boost::intrusive::hashtable<TCPStream> StreamHashTable;
  * all the TCPStreams managed by the list are stored in order of their expiry. Which
  * makes the access faster and easier.
  */
-class TCPMonitor {
+class TCPMonitor : public Sensor {
 public:
     TCPMonitor(uint32_t htableSize, uint32_t timeoutOpened, uint32_t timeoutClosed, uint32_t maxBufferedBytes, uint32_t maxBufferedBytesHTTP);
     ~TCPMonitor();
@@ -171,6 +185,7 @@ public:
     Packet* nextPacketForStream(TCPStream* ts);
     void expireStreams(bool all = false);
     void printStreamCount();
+    virtual std::string getStatisticsXML(double interval);
 
 private:
     bool analysePacket(Packet* p, TCPStream* ts);
