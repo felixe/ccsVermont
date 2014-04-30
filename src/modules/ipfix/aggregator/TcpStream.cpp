@@ -21,7 +21,7 @@
 
 #include "TcpStream.h"
 
-TcpStream::TcpStream(Packet* p, uint32_t num) : streamNum(num), direction(FORWARD), state(TcpStream::TCP_UNDEFINED), httpData(0), trunkatedPackets(false) {
+TcpStream::TcpStream(Packet* p, uint32_t num) : streamNum(num), direction(FORWARD), state(TcpStream::TCP_UNDEFINED), httpData(0), truncatedPackets(false), bufferedSize(0) {
     // values are stored in network byte order since the values are only used for calculating the hash
     hkey.srcIp = *reinterpret_cast<uint32_t*>(p->data.netHeader + OFFSET_SRC_IP);       // source IP
     hkey.dstIp = *reinterpret_cast<uint32_t*>(p->data.netHeader + OFFSET_DST_IP);       // destination IP
@@ -68,6 +68,7 @@ void TcpStream::releaseQueuedPackets() {
 #endif
     }
     packetQueue.clear();
+    bufferedSize = 0;
 }
 
 /**
@@ -79,6 +80,10 @@ void TcpStream::printKey() {
     inet_ntop(AF_INET, &hkey.srcIp, srcIp, INET_ADDRSTRLEN);
     inet_ntop(AF_INET, &hkey.dstIp, dstIp, INET_ADDRSTRLEN);
     DPRINTFL(MSG_DEBUG, "tcpmon: src ip=%s port=%d, dst ip=%s port=%d", srcIp, ntohs(hkey.srcPort), dstIp, ntohs(hkey.dstPort));
+}
+
+void TcpStream::printQueueStats() {
+    msg(MSG_ERROR, "tcpmon: queued packets: %lu", packetQueue.size());
 }
 
 bool TcpStream::isForward() {
@@ -110,20 +115,21 @@ std::size_t hash_value(const TcpStream& b) {
     return seed;
 }
 
-TcpStreamMonitor::TcpStreamMonitor(uint32_t htableSize, uint32_t timeoutOpened, uint32_t timeoutClosed) :
-        streamCounter(0), TIMEOUT_OPENED(DEF_TIMEOUT_OPENED), TIMEOUT_CLOSED(DEF_TIMEOUT_CLOSED) {
+TcpMonitor::TcpMonitor(uint32_t htableSize, uint32_t timeoutOpened, uint32_t timeoutClosed, uint32_t maxBufferedBytes, uint32_t maxBufferedBytesHTTP) :
+        streamCounter(0) {
     // initialize 'htableSize' buckets for the hashtable
     base_buckets = new StreamHashTable::bucket_type[htableSize];
     // initialize the hashtable
     htable = new StreamHashTable(StreamHashTable::bucket_traits(base_buckets, htableSize));
-    if (timeoutOpened)
-        TIMEOUT_OPENED = timeoutOpened;
-    if (timeoutClosed)
-        TIMEOUT_CLOSED = timeoutClosed;
-    msg(MSG_INFO, "tcpmon: Instantiated TcpMonitor with timeoutOpened: %u ms and timeoutClosed: %u ms. Hashtablebucket size: %d", TIMEOUT_OPENED, TIMEOUT_CLOSED, htableSize);
+    TIMEOUT_OPENED = timeoutOpened ? timeoutOpened : DEF_TIMEOUT_OPENED;
+    TIMEOUT_CLOSED = timeoutClosed ? timeoutClosed : DEF_TIMEOUT_CLOSED;
+    MAX_BUFFERED_BYTES = maxBufferedBytes ? maxBufferedBytes : DEF_TCP_BUFFER_SIZE;
+    MAX_BUFFERED_BYTES_HTTP = maxBufferedBytesHTTP ? maxBufferedBytes : HttpAggregation::DEF_MAX_BUFFERED_BYTES;
+    msg(MSG_INFO, "tcpmon: Instantiated TcpMonitor with timeoutOpened: %u ms and timeoutClosed: %u ms. Hashtablebucket size: %d. TCP buffer size: %u bytes. HTTP message buffer size: %u bytes",
+            TIMEOUT_OPENED, TIMEOUT_CLOSED, htableSize, MAX_BUFFERED_BYTES, MAX_BUFFERED_BYTES_HTTP);
 }
 
-TcpStreamMonitor::~TcpStreamMonitor() {
+TcpMonitor::~TcpMonitor() {
     expireStreams(true);
     delete htable;
     delete[] base_buckets;
@@ -135,17 +141,19 @@ TcpStreamMonitor::~TcpStreamMonitor() {
  * Afterwards the Packet gets analyzed and the TcpStream gets updated with new TCP
  * connection related information. If a Packet is out of order it gets registered to
  * the TcpStream and NULL is returned.
- * @param p The packet which should be analyzed and registered to the TcpStreamMonitor
+ * @param p The packet which should be analyzed and registered to the TcpMonitor
  * @return a matching TcpStream or NULL if the Packet is out of order
  */
-TcpStream* TcpStreamMonitor::dissect(Packet* p) {
+TcpStream* TcpMonitor::dissect(Packet* p) {
     TcpStream* ts = findOrCreateStream(p);
-    ts->updateDirection(p);
 
-    if (!ts->trunkatedPackets && p->pcapPacketLength > p->data_length_uncropped) {
-        ts->trunkatedPackets = true;
+    if (!ts->truncatedPackets && p->pcapPacketLength > p->data_length_uncropped) {
+        ts->truncatedPackets = true;
         msg(MSG_ERROR, "tcpmon: WARNING, this TCP connection contains truncated packets");
     }
+
+    // update the timeout timestamp of the TcpStream
+    refreshTimeout(ts);
 
     // if the TCP stream was closed before we do not have to consider this Packet
     if (ts->state == TcpStream::TCP_CLOSED) {
@@ -158,10 +166,9 @@ TcpStream* TcpStreamMonitor::dissect(Packet* p) {
         THROWEXCEPTION("wrong reference count: %d. expected: 1", refCount);
 #endif
         return NULL;
-    };
+    }
 
-    // update the timeout timestamp of the TcpStream
-    refreshTimeout(ts);
+    ts->updateDirection(p);
 
     // perform TCP connection analysis
     if (!analysePacket(p, ts)) {
@@ -186,7 +193,7 @@ TcpStream* TcpStreamMonitor::dissect(Packet* p) {
 
 /**
  * Analyze a Packet and manage the TCP connection accordingly.
- * This is the place where most of the TcpStreamMonitor magic happens. We perform
+ * This is the place where most of the TcpMonitor magic happens. We perform
  * several checks regarding the sequence number and acknowledgement number, which
  * allows us to determine when a TCP connection starts and ends, Packets are
  * observed in order and more.
@@ -194,7 +201,7 @@ TcpStream* TcpStreamMonitor::dissect(Packet* p) {
  * @param ts the TcpStream to which the Packet belongs
  * @return True if the Packet is in order, false otherwise
  */
-bool TcpStreamMonitor::analysePacket(Packet* p, TcpStream* ts) {
+bool TcpMonitor::analysePacket(Packet* p, TcpStream* ts) {
     // get required fields from the TCP header
     uint32_t ack = ntohl(*reinterpret_cast<uint32_t*>(p->transportHeader + OFFSET_ACK));
     uint32_t seq = ntohl(*reinterpret_cast<uint32_t*>(p->transportHeader + OFFSET_SEQ));
@@ -282,8 +289,22 @@ bool TcpStreamMonitor::analysePacket(Packet* p, TcpStream* ts) {
                 // this is a new unseen packet
                 PacketQueue::iterator it = ts->packetQueue.find(PacketQueue::key_type(seq));
                 if (it == ts->packetQueue.end()) {
+                    if (ts->bufferedSize + p->pcapPacketLength > MAX_BUFFERED_BYTES) {
+                        msg(MSG_ERROR, "tcpmon: out of buffer space! cannot proceed with TCP reassembly for stream with hash %lu.", hash_value(*ts));
+                        if (ts->state != TcpStream::TCP_CLOSED) {
+                            // move TcpStream to the TimoutList closedStreams
+                            changeList(ts);
+                            // clear all cached packets. after the connection close all further
+                            // packets are rejected.
+                            ts->releaseQueuedPackets();
+                        }
+                        ts->state = TcpStream::TCP_CLOSED;
+                        p->removeReference();
+                        return false;
+                    }
                     ts->packetQueue.insert(PacketQueue::value_type(seq, p));
                     DPRINTFL(MSG_DEBUG, "tcpmon: non contiguous sequence number. inserting packet with seq# %u into PacketQueue for later processing.", seq);
+                    ts->bufferedSize += p->pcapPacketLength;
                 }
             } else {
                 // this packet has been seen previously and should not have to be processed
@@ -313,7 +334,7 @@ bool TcpStreamMonitor::analysePacket(Packet* p, TcpStream* ts) {
  * @param ts TcpStream which should be checked
  * @return The next queued Packet in order, or NULL if no Packet was queued which is in order.
  */
-Packet* TcpStreamMonitor::nextPacketForStream(TcpStream* ts) {
+Packet* TcpMonitor::nextPacketForStream(TcpStream* ts) {
     // lookup for a queued Packet which is in order
     TcpData* src = ts->isForward() ? &ts->fwdData : &ts->revData;
     uint32_t nseq = src->nextSeq;
@@ -327,6 +348,7 @@ Packet* TcpStreamMonitor::nextPacketForStream(TcpStream* ts) {
 
     // delete the Packet from the queue
     ts->packetQueue.erase(it);
+    ts->bufferedSize -= p->pcapPacketLength;
 
 #ifdef DEBUG
     uint32_t seq = ntohl(*reinterpret_cast<uint32_t*>(p->transportHeader + OFFSET_SEQ));
@@ -366,7 +388,7 @@ Packet* TcpStreamMonitor::nextPacketForStream(TcpStream* ts) {
  * @param p the Packet to match against
  * @return a new or existing TcpStream matching the Packet
  */
-TcpStream* TcpStreamMonitor::findOrCreateStream(Packet* p) {
+TcpStream* TcpMonitor::findOrCreateStream(Packet* p) {
     TcpStream* ts = 0;
     StreamHashTable::iterator it = htable->find(TcpStream(p));
     if (it == htable->end()) {
@@ -378,7 +400,11 @@ TcpStream* TcpStreamMonitor::findOrCreateStream(Packet* p) {
         ts = &(*result.first);
 
         // initialize HTTP related data
-        ts->httpData = HttpAggregation::initHttpStreamData();
+        if (MAX_BUFFERED_BYTES_HTTP > 0)
+            ts->httpData = HttpAggregation::initHttpStreamData(MAX_BUFFERED_BYTES_HTTP);
+        else
+            ts->httpData = HttpAggregation::initHttpStreamData();
+
         // update the pointer to the TcpStream::direction, so we can access
         // the current direction from other places like HttpAggregation
         ts->httpData->direction = &ts->direction;
@@ -406,7 +432,7 @@ TcpStream* TcpStreamMonitor::findOrCreateStream(Packet* p) {
  * list which it belongs to. That way we keep stored TcpStreams in order of their
  * expiry.
  */
-void TcpStreamMonitor::refreshTimeout(TcpStream* ts)
+void TcpMonitor::refreshTimeout(TcpStream* ts)
 {
     if ( ts->state == TcpStream::TCP_CLOSED) {
         if (ts->timeoutHook.is_linked()) {
@@ -429,7 +455,7 @@ void TcpStreamMonitor::refreshTimeout(TcpStream* ts)
  * Checks for expired streams and removes them
  * @param all If true all TcpStream instances are expired, otherwise only the expired ones. Default is false.
  */
-void TcpStreamMonitor::expireStreams(bool all) {
+void TcpMonitor::expireStreams(bool all) {
     timeval currentTime;
     gettimeofday(&currentTime, NULL);
     expireList(all, openedStreams, currentTime);
@@ -443,7 +469,7 @@ void TcpStreamMonitor::expireStreams(bool all) {
  * @param currentTime TcpStream instances whose timeout value is before or equal this point are expired
  */
 void
-TcpStreamMonitor::expireList(bool all, TimeoutList& list, timeval compare) {
+TcpMonitor::expireList(bool all, TimeoutList& list, timeval compare) {
     TimeoutList::size_type before = list.size();
     TimeoutList::iterator it = list.begin();
     while (it != list.end()) {
@@ -474,7 +500,7 @@ TcpStreamMonitor::expireList(bool all, TimeoutList& list, timeval compare) {
     }
 
     if (list.size() != before)
-        DPRINTFL(MSG_DEBUG, "tcpmon: expired %lu %s streams", before - list.size(),  list == openedStreams ? "open" : "closed");
+        DPRINTFL(MSG_DEBUG, "tcpmon: expired %lu %s streams", before - list.size(),  &list == &openedStreams ? "open" : "closed");
 
 #ifdef DEBUG
     TimeoutList::iterator it2 = list.begin();
@@ -493,7 +519,7 @@ TcpStreamMonitor::expireList(bool all, TimeoutList& list, timeval compare) {
  * timeout accordingly.
  * @param ts TcpStream to move
  */
-void TcpStreamMonitor::changeList(TcpStream* ts) {
+void TcpMonitor::changeList(TcpStream* ts) {
     if (ts->timeoutHook.is_linked()) {
         TimeoutList::iterator it = openedStreams.iterator_to(*ts);
         openedStreams.erase(it);
@@ -508,7 +534,7 @@ void TcpStreamMonitor::changeList(TcpStream* ts) {
  * @param bitmask
  * @return
  */
-bool TcpStreamMonitor::isSet(uint8_t flags, uint8_t bitmask) {
+bool TcpMonitor::isSet(uint8_t flags, uint8_t bitmask) {
     return ((flags & bitmask) ^ bitmask) == 0;
 }
 
@@ -529,7 +555,7 @@ bool TcpStreamMonitor::isSet(uint8_t flags, uint8_t bitmask) {
  * @param ts TcpData which supplies a reference to check against
  * @return true if the TCP sequence number is considered as fresh, false otherwise.
  */
-bool TcpStreamMonitor::isFresh(uint32_t seq, TcpData* td) {
+bool TcpMonitor::isFresh(uint32_t seq, TcpData* td) {
     uint32_t MAX_HALF = 0x7FFFFFFF;
     if (td->nextSeq < seq && seq - td->nextSeq < MAX_HALF)
         return true;
@@ -538,6 +564,6 @@ bool TcpStreamMonitor::isFresh(uint32_t seq, TcpData* td) {
     return false;
 }
 
-void TcpStreamMonitor::printStreamCount() {
-    DPRINTFL(MSG_VDEBUG, "total streams: %lu, open streams: %lu, closed streams: %lu, stream counter: %u", htable->size(), openedStreams.size(), closedStreams.size(), streamCounter);
+void TcpMonitor::printStreamCount() {
+    msg(MSG_ERROR, "total streams: %lu, open streams: %lu, closed streams: %lu, stream counter: %u", htable->size(), openedStreams.size(), closedStreams.size(), streamCounter);
 }

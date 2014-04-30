@@ -24,6 +24,8 @@
 			<httpAggregation>1</httpAggregation>
 			<tcpmonTimeoutOpened>30000</tcpmonTimeoutOpened>
 			<tcpmonTimeoutClosed>2000</tcpmonTimeoutClosed>
+			<tcpmonBufferSize>1048576</tcpmonBufferSize>
+            <httpaggBufferSize>10240</httpaggBufferSize>
 			<flowKey>
 				<ieName>sourceIPv4Address</ieName>
 			</flowKey>

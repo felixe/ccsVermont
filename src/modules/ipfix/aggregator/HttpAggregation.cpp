@@ -120,12 +120,21 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
 		processHttpMessage(*aggregationStart, *dataEnd, flowData, aggregationStart, aggregationEnd);
 	}
 
-    if (flowData->isResponse()) {
-        if (flowData->response.status & MESSAGE_FLAG_WAITING) { // more payload required to finish processing
-            // copy the bytes left over (i.e. the bytes of payload which could not be parsed) into the buffer
-            storeDataLeftOver(*aggregationEnd, *dataEnd, flowData);
-            flowData->response.status &= ~MESSAGE_FLAG_WAITING;
-        } else if (flowData->response.status == MESSAGE_END) { // response message ended
+	http_status_t* status = flowData->getStatus();
+	if (*status & MESSAGE_FLAG_WAITING) { // more payload required to finish processing
+        // copy the bytes left over (i.e. the bytes of payload which could not be parsed) into the buffer
+        storeDataLeftOver(*aggregationEnd, *dataEnd, flowData);
+        *status &= ~MESSAGE_FLAG_WAITING;
+	}
+
+    if (*status & MESSAGE_FLAG_FAILURE) {
+        // encountered a critical error
+        msg(MSG_ERROR, "an unrecoverable failure has encountered, skipping the rest of the message.");
+        *status = MESSAGE_END;
+    }
+
+    if (*status == MESSAGE_END) { // HTTP message ended
+         if (flowData->isResponse()) {
             if (flowData->response.statusCode_ == 100) {
                 DPRINTFL(MSG_VDEBUG, "httpagg: intermediate http response ended");
                 /*
@@ -162,41 +171,31 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
             } else {
                 DPRINTFL(MSG_INFO, "httpagg: http response ended");
                 (*flowData->getFlowcount())++;
-#if 0
-// XXX the following test throws an exception, if a response ends before a request. this can happen if the observer
-//     misses certain parts of a HTTP dialog and we therefore are not able to match HTTP dialog pairs properly.
-                testFinishedMessage(flowData);
-#endif
             }
-        }
-    } else if (flowData->isRequest()) {
-        if (flowData->request.status & MESSAGE_FLAG_WAITING) { // more payload required to finish processing
-            // copy the bytes left over (i.e. the bytes of payload which could not be parsed) into the buffer
-            storeDataLeftOver(*aggregationEnd, *dataEnd, flowData);
-            flowData->request.status &= ~MESSAGE_FLAG_WAITING;
-        } else if (flowData->request.status == MESSAGE_END) { // request message ended
-            DPRINTFL(MSG_INFO, "httpagg: http request ended");
+        } else if (flowData->isRequest()) {
+             DPRINTFL(MSG_INFO, "httpagg: http request ended");
 
-            uint8_t* requestCount = flowData->getFlowcount();
-            uint8_t* responseCount = flowData->getFlowcount(true);
+             uint8_t* requestCount = flowData->getFlowcount();
+             uint8_t* responseCount = flowData->getFlowcount(true);
 
-            // since we started with a request the next request should be put into a new flow
-            flowData->request.status = MESSAGE_END;
+             // since we started with a request the next request should be put into a new flow
+             flowData->request.status = MESSAGE_END;
 
-            if (*requestCount < *responseCount) {
-                msg(MSG_ERROR, "httpagg: request count (%d) < response count (%d). either we missed a part of the HTTP dialog or a parsing failure was encountered.", *requestCount, *responseCount);
-                *requestCount = *responseCount + 1;
-                flowData->response.status == MESSAGE_END;
-            } else {
-                (*requestCount)++;
-            }
+             if (*requestCount < *responseCount) {
+                 msg(MSG_ERROR, "httpagg: request count (%d) < response count (%d). either we missed a part of the HTTP dialog or a parsing failure was encountered.", *requestCount, *responseCount);
+                 *requestCount = *responseCount + 1;
+                 flowData->response.status == MESSAGE_END;
+             } else {
+                 (*requestCount)++;
+             }
+         }
+    }
+
 #if 0
 // XXX the following test throws an exception, if a response ends before a request. this can happen if the observer
 //     misses certain parts of a HTTP dialog and we therefore are not able to match HTTP dialog pairs properly.
             testFinishedMessage(flowData);
 #endif
-        }
-    }
 
     DPRINTFL(MSG_VDEBUG, "httpagg: forwardFlows: %d, reverse Flows: %d, request status=%X, response status=%X",
             flowData->streamInfo->forwardFlows, flowData->streamInfo->reverseFlows, flowData->request.status, flowData->response.status);
@@ -388,7 +387,7 @@ int HttpAggregation::processHttpMessage(const char* data, const char* dataEnd, F
 					status = MESSAGE_END;
 					*aggregationEnd = end;
 					if (end<dataEnd) {
-						DPRINTFL(MSG_INFO, "httpagg: still %d bytes payload remaining, the packet may contain multiple requests", dataEnd-end);
+						DPRINTFL(MSG_INFO, "httpagg: still %d bytes payload remaining, the segment may contain multiple requests", dataEnd-end);
 						return 1;
 					}
 					return 1;
@@ -415,7 +414,7 @@ int HttpAggregation::processHttpMessage(const char* data, const char* dataEnd, F
                     // the status in both direction has to be changed to MESSAGE_PROTO_UPGR.
                     // but we still need to parse the response phrase...
                     // so for now the new state is only applied for the request.
-                    status = MESSAGE_PROTO_UPGR;
+                    flowData->request.status = MESSAGE_PROTO_UPGR;
                     uint8_t* requestCount = flowData->getFlowcount(true);
                     uint8_t* responseCount = flowData->getFlowcount();
                     // new flows MUST NOT be created from now on, therefore the request
@@ -472,7 +471,7 @@ int HttpAggregation::processHttpMessage(const char* data, const char* dataEnd, F
                     // we are finished here since the message should not contain a message-body
                     status = MESSAGE_END;
                     if (end!=dataEnd) {
-                        DPRINTFL(MSG_INFO, "httpagg: still %d bytes payload remaining, the packet may contain multiple responses", dataEnd-data);
+                        DPRINTFL(MSG_INFO, "httpagg: still %d bytes payload remaining, the segment may contain multiple responses", dataEnd-data);
                     }
                     *aggregationEnd = end;
                     return 1;
@@ -1131,7 +1130,7 @@ int HttpAggregation::processFixedSizeMsgBody(const char* data, const char* dataE
         contentLength = &flowData->response.contentLength;
     }
     if (*contentLength<dataEnd-data) {
-        DPRINTFL(MSG_DEBUG, "httpagg: the payload of the http response stream is bigger than specified in the header field, the packet may contain multiple messages");
+        DPRINTFL(MSG_DEBUG, "httpagg: processed the last %u bytes of the http message-body. the segment may contain multiple messages, %u bytes remaining.", dataEnd-(data + *contentLength));
         if (*contentLength>0) {
             *end = data + *contentLength;
             *contentLength = 0;
@@ -1142,7 +1141,7 @@ int HttpAggregation::processFixedSizeMsgBody(const char* data, const char* dataE
     } else {
         *contentLength = *contentLength - (dataEnd-data);
         *end = dataEnd;
-        DPRINTFL(MSG_INFO, "httpagg: processed %u bytes of the http message-body, %u bytes left", dataEnd-data, *contentLength);
+        DPRINTFL(MSG_INFO, "httpagg: processed %u bytes of the http message-body, %u bytes left. message body did not end yet.", dataEnd-data, *contentLength);
         if (*contentLength<=0)
             return PARSER_SUCCESS; // we are finished
         else
@@ -1949,9 +1948,17 @@ void HttpAggregation::appendToCharPointer(char **dst, const char* src, size_t ds
 void HttpAggregation::storeDataLeftOver(const char* data, const char* dataEnd, FlowData* flowData) {
     // not enough characters remaining to proceed processing now.
     // put remaining characters in the buffer and wait for new data to arrive.
-    if (dataEnd-data > 0) {
+    uint16_t size = dataEnd-data;
+    if (size > 0) {
+        uint16_t &length = flowData->isForward() ? flowData->streamInfo->forwardLength : flowData->streamInfo->reverseLength;
+        if (length + size > flowData->streamInfo->MAX_BUFFERED_BYTES) {
+            msg(MSG_ERROR, "httpagg: reached the max number of bytes allowed to be buffered for a HTTP message.");
+            http_status_t* status = flowData->getStatus();
+            *status |= MESSAGE_FLAG_FAILURE;
+            return;
+        }
         char **dst = flowData->isReverse() ? &flowData->streamInfo->reverseLine : &flowData->streamInfo->forwardLine;
-        uint16_t size = dataEnd-data;
+
         copyToCharPointer(dst, data, size);
         if (flowData->isReverse()) flowData->streamInfo->reverseLength = size;
         else flowData->streamInfo->forwardLength = size;
@@ -1996,22 +2003,25 @@ void HttpAggregation::initializeFlowData(FlowData* flowData, HttpStreamData* str
 /**
  * Initializes a new HttpStreamData structure
  */
-HttpAggregation::HttpStreamData* HttpAggregation::initHttpStreamData() {
-	HttpStreamData* streamBucket = new HttpStreamData;
-	streamBucket->forwardFlows = 0;
-	streamBucket->reverseFlows = 0;
-	streamBucket->direction = 0;
-	streamBucket->forwardType = HTTP_TYPE_UNKNOWN;
-	streamBucket->reverseType = HTTP_TYPE_UNKNOWN;
+HttpAggregation::HttpStreamData* HttpAggregation::initHttpStreamData(uint32_t maxBufferedBytes) {
+	HttpStreamData* httpData = new HttpStreamData;
+	httpData->forwardFlows = 0;
+	httpData->reverseFlows = 0;
+	httpData->direction = 0;
+	httpData->forwardType = HTTP_TYPE_UNKNOWN;
+	httpData->reverseType = HTTP_TYPE_UNKNOWN;
 
-	streamBucket->multipleRequests = false;
-	streamBucket->multipleResponses = false;
+	httpData->multipleRequests = false;
+	httpData->multipleResponses = false;
 
-	streamBucket->forwardLine = 0;
-	streamBucket->reverseLine = 0;
-	streamBucket->forwardLength = 0;
-	streamBucket->reverseLength = 0;
-	return streamBucket;
+	httpData->forwardLine = 0;
+	httpData->reverseLine = 0;
+	httpData->forwardLength = 0;
+	httpData->reverseLength = 0;
+
+	httpData->MAX_BUFFERED_BYTES = maxBufferedBytes;
+
+	return httpData;
 }
 
 /**

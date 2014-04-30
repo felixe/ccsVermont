@@ -86,6 +86,10 @@ Rule* AggregatorBaseCfg::readRule(XMLElement* elem) {
             rule->tcpmonTimeoutOpened = getUInt32("tcpmonTimeoutOpened", 0, e);
         } else if (e->matches("tcpmonTimeoutClosed")) {
             rule->tcpmonTimeoutClosed = getUInt32("tcpmonTimeoutClosed", 0, e);
+        } else if (e->matches("tcpmonBufferSize")) {
+            rule->tcpmonMaxBufferedBytes = getUInt32("tcpmonBufferSize", 0, e);
+        } else if (e->matches("httpaggBufferSize")) {
+            rule->httpaggMaxBufferedBytes = getUInt32("httpaggBufferSize", 0, e);
         } else if (e->matches("flowKey")) {
 			Rule::Field* ruleField = readFlowKeyRule(e);
 			if (ruleField)
@@ -111,8 +115,8 @@ Rule* AggregatorBaseCfg::readRule(XMLElement* elem) {
         msg(MSG_DIALOG, "Implicitly enabling biflowAggregation, since httpAggregation only works in conjunction with biflowAggregation.");
     }
 
-    if (!rule->httpAggregation && (rule->tcpmonTimeoutOpened || rule->tcpmonTimeoutClosed)) {
-        msg(MSG_INFO, "The options tcpmonTimeoutOpened and tcpmonTimeoutClose have no impact if httpAggregation is disabled.");
+    if (!rule->httpAggregation && (rule->tcpmonTimeoutOpened || rule->tcpmonTimeoutClosed || rule->tcpmonMaxBufferedBytes || rule->httpaggMaxBufferedBytes)) {
+        msg(MSG_INFO, "The options tcpmonTimeoutOpened, tcpmonTimeoutClose, tcpmonBufferSize and httpaggBufferSize have no impact if httpAggregation is disabled.");
     }
 
 	// exclude coexistence of patterns and biflow aggregation

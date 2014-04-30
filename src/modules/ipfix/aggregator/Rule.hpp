@@ -80,6 +80,9 @@ class Rule : private PrintHelpers {
 		uint32_t httpAggregation;	/**< true if http-flows have to be aggregated */
 		uint32_t tcpmonTimeoutOpened; /**< expiry timeout for opened TCP connections in the TcpMonitor */
 		uint32_t tcpmonTimeoutClosed; /**< expiry timeout for closed TCP connections in the TcpMonitor */
+		uint32_t tcpmonMaxBufferedBytes; /**< The maximal number of bytes buffered per TCP connection if segments are out-of-order. */
+		uint32_t httpaggMaxBufferedBytes; /**< The maximal number of bytes buffered per HTTP message if payload needs to be combined to be parsed successfully. */
+
 		Rule::Field* field[MAX_RULE_FIELDS];
 		BaseHashtable* hashtable;
 

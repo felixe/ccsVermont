@@ -50,6 +50,8 @@ static const int FLAG_ACK = 0x10;   /**< TCP ACK flag */
 static const uint32_t DEF_TIMEOUT_OPENED = 30000; /**< Default expiry timeout in ms a TCP stream may remain idle before expiring. */
 static const uint32_t DEF_TIMEOUT_CLOSED =  2000; /**< Default expiry timeout in ms that is kept after connection close before expiring. */
 
+static const uint32_t DEF_TCP_BUFFER_SIZE = 1024 * 1024; /**< Default TCP buffer size for buffering out-of-order segments is defined as 1 MiB */
+
 using namespace boost;
 using namespace boost::intrusive;
 
@@ -68,7 +70,7 @@ typedef std::map<uint32_t, Packet*> PacketQueue;
 
 /**
  * Representation of a TCP connection.
- * Instances of this class are inserted into the hashtable TcpStreamMonitor::htable
+ * Instances of this class are inserted into the hashtable TcpMonitor::htable
  * in the TcpMonitor, which keeps track of registered TCP streams.
  * The hook for the hashtable is publicly derived from unordered_set_base_hook.
  * Moreover TcpStreams are inserted into lists to control their expiry.
@@ -110,17 +112,19 @@ public:
     TcpData revData;    /**< TCP data in reverse direction */
 
     PacketQueue packetQueue;    /**< Packets which are not in order are stored in this map for later processing */
+    uint32_t bufferedSize;      /**< The number of buffered bytes of all packets in the queue */
 
     timeval timeout;    /**< Timestamp at which this TcpStream expires */
     list_member_hook<> timeoutHook; /**< Public member hook which allows to put this class into a boost::intrusive::list */
 
-    bool trunkatedPackets;  /**< set to true if a truncated packet was observed to be part of this stream */
+    bool truncatedPackets;  /**< set to true if a truncated packet was observed to be part of this stream */
 
     bool isForward();
     bool isReverse();
     void updateDirection(Packet* p);
     void releaseQueuedPackets();
     void printKey();
+    void printQueueStats();
 };
 
 //! ordered list of TcpStreams
@@ -140,10 +144,10 @@ typedef boost::intrusive::hashtable<TcpStream> StreamHashTable;
  * Further this class provides basic TCP stream reassembly functionality. Packets
  * are analyzed and ordered properly.
  *
- * A call to the method TcpStreamMonitor::dissect(Packet* p) analyzes a Packet
+ * A call to the method TcpMonitor::dissect(Packet* p) analyzes a Packet
  * and returns the TcpStream representing the TCP connection, which the packet
  * belongs to. If a packet is not in order it is queued for later processing.
- * The method TcpStreamMonitor::nextPacketForStream(TcpStream*) returns those
+ * The method TcpMonitor::nextPacketForStream(TcpStream*) returns those
  * queued packets in order, as long as the TCP segments are contiguous. With
  * expireStreams() it is possible to expire either streams which have reached
  * their timeout value or all streams.
@@ -159,10 +163,10 @@ typedef boost::intrusive::hashtable<TcpStream> StreamHashTable;
  * all the TcpStreams managed by the list are stored in order of their expiry. Which
  * makes the access faster and easier.
  */
-class TcpStreamMonitor {
+class TcpMonitor {
 public:
-    TcpStreamMonitor(uint32_t htableSize, uint32_t timeoutOpened, uint32_t timeoutClosed);
-    ~TcpStreamMonitor();
+    TcpMonitor(uint32_t htableSize, uint32_t timeoutOpened, uint32_t timeoutClosed, uint32_t maxBufferedBytes, uint32_t maxBufferedBytesHTTP);
+    ~TcpMonitor();
     TcpStream* dissect(Packet* p);
     Packet* nextPacketForStream(TcpStream* ts);
     void expireStreams(bool all = false);
@@ -189,6 +193,9 @@ private:
 
     uint32_t TIMEOUT_OPENED; /**< Specifies the time in ms a TCP stream may remain idle before expiring. */
     uint32_t TIMEOUT_CLOSED; /**< Specifies the time in ms that is kept after connection close before expiring. useful to filter out packets which arrive delayed. */
+
+    uint32_t MAX_BUFFERED_BYTES; /**< The maximal number of bytes buffered per TCP connection if segments are out-of-order. */
+    uint32_t MAX_BUFFERED_BYTES_HTTP; /**< The maximal number of bytes buffered per HTTP message if payload needs to be combined to be parsed successfully. */
 };
 
 #endif

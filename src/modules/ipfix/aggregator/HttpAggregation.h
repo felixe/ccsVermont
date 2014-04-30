@@ -33,7 +33,8 @@
  */
 class HttpAggregation {
 public:
-	static const uint8_t MAX_STREAM_DEPTH	= 0xFF;	//TODO unused
+	static const uint8_t  MAX_STREAM_DEPTH	 = 0xFF;	//TODO unused
+	static const uint32_t DEF_MAX_BUFFERED_BYTES = 10240; /**< Default limit of bytes which may be buffered per HTTP message is specified as 10 KiB. */
 
 	 //! this type represents the current state of the message parsing process
 	typedef uint16_t http_status_t;
@@ -106,6 +107,10 @@ public:
 		char *reverseLine;      /**< buffer for payload in reverse direction */
 		uint16_t forwardLength; /**< size of the buffer buffer forward direction */
 		uint16_t reverseLength; /**< size of the buffer buffer reverse direction */
+
+	    uint32_t MAX_BUFFERED_BYTES; /**< Maximal number of bytes of payload which may be buffered per HTTP message.
+                                          (If the payload of a segment cannot be parsed completely we have to buffer
+                                          the non-parsed part.)*/
 	};
 
 	/**
@@ -197,7 +202,7 @@ public:
     static const header_field_name FIELD_NAME_ENCODING;
     static const header_field_name FIELD_NAME_HOST;
 
-	static HttpStreamData* initHttpStreamData();
+	static HttpStreamData* initHttpStreamData(uint32_t maxBufferedBytes = DEF_MAX_BUFFERED_BYTES);
 
 protected:
 	static void detectHttp(const char** data, const char** dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd);

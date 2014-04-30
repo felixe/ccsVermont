@@ -42,7 +42,7 @@ PacketHashtable::PacketHashtable(Source<IpfixRecord*>* recordsource, Rule* rule,
 {
 	buildExpHelperTable();
 	if (httpAggregation) {
-		tcpmon = new TcpStreamMonitor(htableSize, tcpmonTimeoutOpened, tcpmonTimeoutClosed);
+		tcpmon = new TcpMonitor(htableSize, tcpmonTimeoutOpened, tcpmonTimeoutClosed, tcpmonMaxBufferedBytes, httpaggMaxBufferedBytes);
 	}
 }
 
@@ -374,7 +374,11 @@ void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* 
 	    uint8_t responseCount = *flowData->getFlowcount();
 	    uint8_t requestCount = *flowData->getFlowcount(true);
 
-	    if (responseCount>requestCount) {
+	    if (responseCount>requestCount+1) {
+	        // special case: requests and responses out of order.
+	        // we can be sure that this bucket is not and will never be used
+	        // by a request, since the request counter will be set to skip this
+	        // number
 	        DPRINTFL(MSG_INFO, "forcing expiry of http flow");
 	        hbucket->forceExpiry=true;
 	    }
@@ -2101,7 +2105,7 @@ void PacketHashtable::processMultipleHttpMessages(IpfixRecord::Data* srcData,  H
             responseCount = &tcpStream->httpData->forwardFlows;
         }
 
-        if (requestCount >= responseCount)
+        if (*requestCount >= *responseCount)
             aggregateIntoExistingFlow(srcData, streamData, p, tcpStream);
     }
 
@@ -2162,7 +2166,7 @@ void PacketHashtable::aggregateIntoExistingFlow(IpfixRecord::Data* srcData,  Htt
 
          // if a flow is found we can aggregate into the flow
          FlowData* dstFlowData = reinterpret_cast<FlowData*>(srcData+efd->typeSpecData.http.flowDataOffset);
-         dstFlowData->response.payloadOffsetEnd = srcFlowData->response.payloadOffsetEnd;
+         dstFlowData->response.payloadOffset = srcFlowData->response.payloadOffsetEnd;
          // reset the status
          streamData->multipleResponses = false;
          aggregateHttp(srcData, bucket, p, efd, false, false);
