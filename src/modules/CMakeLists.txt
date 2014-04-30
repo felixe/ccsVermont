@@ -106,8 +106,8 @@ ADD_LIBRARY(modules
     ipfix/aggregator/PacketAggregator.cpp
     ipfix/aggregator/Rules.cpp
     ipfix/aggregator/Rule.cpp
-    ipfix/aggregator/HttpAggregation.cpp
-    ipfix/aggregator/TcpStream.cpp
+    ipfix/aggregator/HTTPAggregation.cpp
+    ipfix/aggregator/TCPStream.cpp
 
     ipfix/database/IpfixDbWriterSQL.cpp
     ipfix/database/IpfixDbWriterCfg.cpp

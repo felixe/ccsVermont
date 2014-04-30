@@ -25,8 +25,8 @@
 #include "Rule.hpp"
 #include "modules/packet/Packet.h"
 #include "BaseHashtable.h"
-#include "HttpAggregation.h"
-#include "TcpStream.h"
+#include "HTTPAggregation.h"
+#include "TCPStream.h"
 #include <iostream>
 #include <fstream>
 
@@ -34,7 +34,7 @@
 
 
 
-class PacketHashtable : public BaseHashtable, public HttpAggregation
+class PacketHashtable : public BaseHashtable, public HTTPAggregation
 {
 public:
 	PacketHashtable(Source<IpfixRecord*>* recordsource, Rule* rule,
@@ -107,18 +107,18 @@ private:
 				uint32_t fpaLenOffset; /**< offset from start of record data to IPFIX_ETYPE_FRONTPAYLOADLEN, 0xFFFFFFFF if not used */
 				bool dpa; /**< set to true, if DPA was activated */
 			} frontPayload;
-			struct HttpAggregationData {
+			struct HTTPAggregationData {
 			    uint32_t flowDataOffset;        /**< offset from start of record data to @c FlowData structure*/
 			    uint32_t requestMethodOffset;   /**< offset from start of record data to IPFIX_ETYPEID_httpRequestMethod */
 			    uint32_t requestUriOffset;      /**< offset from start of record data to IPFIX_ETYPEID_httpRequestUri */
 			    uint32_t requestVersionOffset;  /**< offset from start of record data to IPFIX_ETYPEID_httpRequestVersion */
 			    uint32_t requestHostOffset;     /**< offset from start of record data to IPFIX_ETYPEID_httpRequestHost */
-			    uint16_t requestUriLength;      /**< max length of the http request uri field */
-			    uint16_t requestHostLength;     /**< max length of the http request host header field */
+			    uint16_t requestUriLength;      /**< max length of the HTTP request uri field */
+			    uint16_t requestHostLength;     /**< max length of the HTTP request host header field */
 			    uint32_t responseVersionOffset;    /**< offset from start of record data to IPFIX_ETYPEID_httpResponseVersion */
 			    uint32_t responseCodeOffset;    /**< offset from start of record data to IPFIX_ETYPEID_httpResponseCode */
 			    uint32_t responsePhraseOffset;    /**< offset from start of record data to IPFIX_ETYPEID_httpResponsePhrase */
-			    bool aggregate;                 /**< set to true, if http aggregation was activated */
+			    bool aggregate;                 /**< set to true, if HTTP aggregation was activated */
 			} http;
 		} typeSpecData;
 
@@ -149,7 +149,7 @@ private:
 
 	ExpHelperTable expHelperTable;
 
-	TcpMonitor* tcpmon; /**< Manages and monitors TCP connections and performs packet analysis and TCP stream reassembly */
+	TCPMonitor* tcpmon; /**< Manages and monitors TCP connections and performs packet analysis and TCP stream reassembly */
 
 	bool snapshotWritten; /**< set to true, if snapshot of hashtable was already written */
 	time_t startTime; /**< if a snapshot of the hashtable should be performed, this variable is used and stores initialization time of this hashtable */
@@ -172,20 +172,20 @@ private:
 	static void copyDataTransportOctets(CopyFuncParameters* cfp);
 	static void aggregateFrontPayload(IpfixRecord::Data* bucket, HashtableBucket* hbucket, const Packet* src,
 									  const ExpFieldData* efd, bool firstpacket, bool onlyinit);
-	static void aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* hbucket, const Packet* src,
+	static void aggregateHTTP(IpfixRecord::Data* bucket, HashtableBucket* hbucket, const Packet* src,
 									  const ExpFieldData* efd, bool firstpacket, bool onlyinit);
 	void (*getCopyDataFunction(const ExpFieldData* efd))(CopyFuncParameters*);
 	void fillExpFieldData(ExpFieldData* efd, TemplateInfo::FieldInfo* hfi, Rule::Field::Modifier fieldModifier, uint16_t index);
-	uint32_t calculateHash(const IpfixRecord::Data* data, TcpStream* ts);
-	uint32_t calculateHashRev(const IpfixRecord::Data* data, TcpStream* ts);
-	boost::shared_array<IpfixRecord::Data> buildBucketData(Packet* p, HttpStreamData* streamData = NULL, HashtableBucket** hbucket = NULL);
-	boost::shared_array<IpfixRecord::Data> createBucketDataCopy(const IpfixRecord::Data* srcData, HttpStreamData* streamData, FlowData* srcFlowData);
+	uint32_t calculateHash(const IpfixRecord::Data* data, TCPStream* ts);
+	uint32_t calculateHashRev(const IpfixRecord::Data* data, TCPStream* ts);
+	boost::shared_array<IpfixRecord::Data> buildBucketData(Packet* p, HTTPStreamData* streamData = NULL, HashtableBucket** hbucket = NULL);
+	boost::shared_array<IpfixRecord::Data> createBucketDataCopy(const IpfixRecord::Data* srcData, HTTPStreamData* streamData, FlowData* srcFlowData);
 	void aggregateField(const ExpFieldData* efd, HashtableBucket* hbucket,
 					    const IpfixRecord::Data* deltaData, IpfixRecord::Data* data);
 	void aggregateFlow(HashtableBucket* bucket, const Packet* p, bool reverse);
-	void processMultipleHttpMessages(IpfixRecord::Data* srcData, HttpStreamData* streamData, Packet* p, TcpStream* ts);
-	void aggregateIntoExistingFlow(IpfixRecord::Data* srcData, HttpStreamData* streamData, Packet* p, TcpStream* ts);
-	void aggregateIntoNewFlow(IpfixRecord::Data* srcData, HttpStreamData* streamData, Packet* p, TcpStream* ts);
+	void processMultipleHTTPMessages(IpfixRecord::Data* srcData, HTTPStreamData* streamData, Packet* p, TCPStream* ts);
+	void aggregateIntoExistingFlow(IpfixRecord::Data* srcData, HTTPStreamData* streamData, Packet* p, TCPStream* ts);
+	void aggregateIntoNewFlow(IpfixRecord::Data* srcData, HTTPStreamData* streamData, Packet* p, TCPStream* ts);
 	bool equalFlow(IpfixRecord::Data* bucket, const Packet* p);
 	bool equalFlowRev(IpfixRecord::Data* bucket, const Packet* p);
 	void createMaskedField(IpfixRecord::Data* address, uint8_t imask);

@@ -28,7 +28,7 @@
 #include "common/Misc.h"
 #include "common/Time.h"
 #include "HashtableBuckets.h"
-#include "HttpAggregation.h"
+#include "HTTPAggregation.h"
 
 using namespace InformationElement;
 
@@ -42,7 +42,7 @@ PacketHashtable::PacketHashtable(Source<IpfixRecord*>* recordsource, Rule* rule,
 {
 	buildExpHelperTable();
 	if (httpAggregation) {
-		tcpmon = new TcpMonitor(htableSize, tcpmonTimeoutOpened, tcpmonTimeoutClosed, tcpmonMaxBufferedBytes, httpaggMaxBufferedBytes);
+		tcpmon = new TCPMonitor(htableSize, tcpmonTimeoutOpened, tcpmonTimeoutClosed, tcpmonMaxBufferedBytes, httpaggMaxBufferedBytes);
 	}
 }
 
@@ -101,7 +101,7 @@ void PacketHashtable::copyDataFrontPayload(CopyFuncParameters* cfp)
 {
 	ExpFieldData* efd = cfp->efd;
 	if (efd->typeSpecData.http.aggregate) {
-		aggregateHttp(cfp->dst, *cfp->hbucket, reinterpret_cast<const Packet*>(cfp->src), efd, true, false);
+		aggregateHTTP(cfp->dst, *cfp->hbucket, reinterpret_cast<const Packet*>(cfp->src), efd, true, false);
 	}
 	else
 		aggregateFrontPayload(cfp->dst, NULL, reinterpret_cast<const Packet*>(cfp->src), efd, true, false);
@@ -110,7 +110,7 @@ void PacketHashtable::copyDataFrontPayloadNoInit(CopyFuncParameters* cfp)
 {
 	ExpFieldData* efd = cfp->efd;
 	if (efd->typeSpecData.http.aggregate) {
-		aggregateHttp(cfp->dst, *cfp->hbucket, reinterpret_cast<const Packet*>(cfp->src), efd, true, true);
+		aggregateHTTP(cfp->dst, *cfp->hbucket, reinterpret_cast<const Packet*>(cfp->src), efd, true, true);
 	}
 	else
 		aggregateFrontPayload(cfp->dst, NULL, reinterpret_cast<const Packet*>(cfp->src), efd, true, true);
@@ -283,7 +283,7 @@ void PacketHashtable::aggregateFrontPayload(IpfixRecord::Data* bucket, Hashtable
  * will overwrite data
  * ATTENTION: no stream reassembly is performed!
  */
-void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* hbucket, const Packet* p,
+void PacketHashtable::aggregateHTTP(IpfixRecord::Data* bucket, HashtableBucket* hbucket, const Packet* p,
 		const ExpFieldData* efd, bool firstpacket, bool initialize)
 {
 	DPRINTFL(MSG_INFO, "aggregateHttp() of type: %s, firstpacket:%s, onlyinit:%s", efd->typeId.toString().c_str(), firstpacket ? "true" : "false", initialize ? "true" : "false");
@@ -342,7 +342,7 @@ void PacketHashtable::aggregateHttp(IpfixRecord::Data* bucket, HashtableBucket* 
 	const char* aggregationStart = 0;
 	const char* aggregationEnd = 0;
 
-	detectHttp(&data, &dataEnd, flowData, &aggregationStart, &aggregationEnd);
+	detectHTTP(&data, &dataEnd, flowData, &aggregationStart, &aggregationEnd);
 
 	if (!aggregationStart || !aggregationEnd || aggregationEnd <= aggregationStart) {
 		DPRINTFL(MSG_INFO, "no payload has to be aggregated, skip packet payload");
@@ -1275,7 +1275,7 @@ void PacketHashtable::buildExpHelperTable()
 /**
  * calculates hash for given raw packet data in express aggregator
  */
-uint32_t PacketHashtable::calculateHash(const IpfixRecord::Data* data, TcpStream* ts)
+uint32_t PacketHashtable::calculateHash(const IpfixRecord::Data* data, TCPStream* ts)
 {
 	uint32_t hash = 0xAAAAAAAA;
 	for (int i=0; i<expHelperTable.noKeyFields; i++) {
@@ -1297,7 +1297,7 @@ uint32_t PacketHashtable::calculateHash(const IpfixRecord::Data* data, TcpStream
 /**
  * calculates hash for given raw packet data in express aggregator for reverse flows
  */
-uint32_t PacketHashtable::calculateHashRev(const IpfixRecord::Data* data, TcpStream* ts)
+uint32_t PacketHashtable::calculateHashRev(const IpfixRecord::Data* data, TCPStream* ts)
 {
 	uint32_t hash = 0xAAAAAAAA;
 	for (int i=0; i<expHelperTable.noKeyFields; i++) {
@@ -1320,7 +1320,7 @@ uint32_t PacketHashtable::calculateHashRev(const IpfixRecord::Data* data, TcpStr
  * copies data from raw packet to a bucket which will be inserted into the hashtable
  * for aggregation (part of express aggregator)
  */
-boost::shared_array<IpfixRecord::Data> PacketHashtable::buildBucketData(Packet* p, HttpStreamData* streamData, HashtableBucket** hbucket)
+boost::shared_array<IpfixRecord::Data> PacketHashtable::buildBucketData(Packet* p, HTTPStreamData* streamData, HashtableBucket** hbucket)
 {
     DPRINTFL(MSG_DEBUG, "building bucket data");
 	// new field for insertion into hashtable
@@ -1363,7 +1363,7 @@ boost::shared_array<IpfixRecord::Data> PacketHashtable::buildBucketData(Packet* 
  * @param srcFlowData Source flow information. Used to calculate payload offset
  * @return Returns the newly created copy of the
  */
-boost::shared_array<IpfixRecord::Data> PacketHashtable::createBucketDataCopy(const IpfixRecord::Data* srcData, HttpStreamData* streamData, FlowData* srcFlowData)
+boost::shared_array<IpfixRecord::Data> PacketHashtable::createBucketDataCopy(const IpfixRecord::Data* srcData, HTTPStreamData* streamData, FlowData* srcFlowData)
 {
     DPRINTFL(MSG_DEBUG, "copying bucket data");
 	// new field for insertion into hashtable
@@ -1376,7 +1376,7 @@ boost::shared_array<IpfixRecord::Data> PacketHashtable::createBucketDataCopy(con
 	for (vector<ExpFieldData*>::const_iterator iter=expHelperTable.allFields.begin(); iter!=expHelperTable.allFields.end(); iter++) {
 		ExpFieldData* efd = *iter;
 		if (efd->typeSpecData.http.aggregate) {
-		    ExpFieldData::TypeSpecificData::HttpAggregationData& http = efd->typeSpecData.http;
+		    ExpFieldData::TypeSpecificData::HTTPAggregationData& http = efd->typeSpecData.http;
 		    DPRINTFL(MSG_INFO, "initializing flow data");
 			FlowData* flowData = reinterpret_cast<FlowData*> (data + http.flowDataOffset);
 			initializeFlowData(flowData, streamData);
@@ -1609,7 +1609,7 @@ void PacketHashtable::aggregateField(const ExpFieldData* efd, HashtableBucket* h
 				switch (efd->typeId.id) {
 					case IPFIX_ETYPEID_frontPayload:
 						if (httpAggregation)
-							aggregateHttp(data, hbucket, reinterpret_cast<const Packet*>(deltaData), efd, false, false);
+							aggregateHTTP(data, hbucket, reinterpret_cast<const Packet*>(deltaData), efd, false, false);
 						else
 							aggregateFrontPayload(data, hbucket, reinterpret_cast<const Packet*>(deltaData), efd, false, false);
 						break;
@@ -1644,7 +1644,7 @@ void PacketHashtable::aggregateField(const ExpFieldData* efd, HashtableBucket* h
 				switch (efd->typeId.id) {
 					case IPFIX_ETYPEID_frontPayload:
 						if (httpAggregation)
-							aggregateHttp(data, hbucket, reinterpret_cast<const Packet*>(deltaData), efd, false, false);
+							aggregateHTTP(data, hbucket, reinterpret_cast<const Packet*>(deltaData), efd, false, false);
 						else
 							aggregateFrontPayload(data, hbucket, reinterpret_cast<const Packet*>(deltaData), efd, false, false);
 						break;
@@ -1884,7 +1884,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
 	    THROWEXCEPTION("wrong reference count: %d. expected: 1", refCount);
 #endif
 
-    TcpStream* tcpStream =  0;
+    TCPStream* tcpStream =  0;
     if (httpAggregation){
         if (p->ipProtocolType != Packet::TCP) {
             DPRINTFL(MSG_VDEBUG, "HTTP aggregation only supports TCP as IP protocol. skipping packet!");
@@ -1930,7 +1930,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
         bool createAfterExpiry = true;
         IpfixRecord::Data* tsrcData = 0;
 
-        HttpStreamData* httpData = NULL;
+        HTTPStreamData* httpData = NULL;
 
         if (httpAggregation) {
             httpData = tcpStream->httpData;
@@ -2040,7 +2040,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
 
         if (httpAggregation) {
             if ((httpData->multipleRequests || httpData->multipleResponses))
-                processMultipleHttpMessages(tsrcData, httpData, p, tcpStream);
+                processMultipleHTTPMessages(tsrcData, httpData, p, tcpStream);
             p->removeReference();
 #ifdef DEBUG
     int32_t refCount = p->getReferenceCount();
@@ -2080,7 +2080,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
  * @param p The Packet whose TCP payload should be processed
  * @param tcpStream TCP stream related to the Packet
  */
-void PacketHashtable::processMultipleHttpMessages(IpfixRecord::Data* srcData,  HttpStreamData* streamData, Packet* p, TcpStream* tcpStream) {
+void PacketHashtable::processMultipleHTTPMessages(IpfixRecord::Data* srcData,  HTTPStreamData* streamData, Packet* p, TCPStream* tcpStream) {
     if (streamData->multipleRequests && streamData->multipleResponses)
         THROWEXCEPTION("error occurred, packet cannot contain multiple requests and responses at the same time");
 
@@ -2124,7 +2124,7 @@ void PacketHashtable::processMultipleHttpMessages(IpfixRecord::Data* srcData,  H
  * @param p The Packet whose TCP payload should be processed
  * @param tcpStream TCP stream related to the Packet
  */
-void PacketHashtable::aggregateIntoExistingFlow(IpfixRecord::Data* srcData,  HttpStreamData* streamData, Packet* p, TcpStream* tcpStream) {
+void PacketHashtable::aggregateIntoExistingFlow(IpfixRecord::Data* srcData,  HTTPStreamData* streamData, Packet* p, TCPStream* tcpStream) {
     ExpFieldData* efd = 0;
     for (int i=0;i<expHelperTable.noRevAggFields;i++) {
         ExpFieldData* tefd = &expHelperTable.revAggFields[i];
@@ -2169,7 +2169,7 @@ void PacketHashtable::aggregateIntoExistingFlow(IpfixRecord::Data* srcData,  Htt
          dstFlowData->response.payloadOffset = srcFlowData->response.payloadOffsetEnd;
          // reset the status
          streamData->multipleResponses = false;
-         aggregateHttp(srcData, bucket, p, efd, false, false);
+         aggregateHTTP(srcData, bucket, p, efd, false, false);
 
          // expire the bucket if needed
          if (bucket->forceExpiry) {
@@ -2190,7 +2190,7 @@ void PacketHashtable::aggregateIntoExistingFlow(IpfixRecord::Data* srcData,  Htt
  * @param p The Packet whose TCP payload should be processed
  * @param tcpStream TCP stream related to the Packet
  */
-void PacketHashtable::aggregateIntoNewFlow(IpfixRecord::Data* srcData,  HttpStreamData* streamData, Packet* p, TcpStream* tcpStream) {
+void PacketHashtable::aggregateIntoNewFlow(IpfixRecord::Data* srcData,  HTTPStreamData* streamData, Packet* p, TCPStream* tcpStream) {
     ExpFieldData* efd = 0;
     for (int i=0;i<expHelperTable.noAggFields;i++) {
         ExpFieldData* tefd = &expHelperTable.aggFields[i];
@@ -2224,7 +2224,7 @@ void PacketHashtable::aggregateIntoNewFlow(IpfixRecord::Data* srcData,  HttpStre
         streamData->multipleRequests = false;
         streamData->multipleResponses = false;
 
-        aggregateHttp(htdata.get(), buckets[hash], p, efd, true, false);
+        aggregateHTTP(htdata.get(), buckets[hash], p, efd, true, false);
 
         // statistics...
         if (firstbucket) {

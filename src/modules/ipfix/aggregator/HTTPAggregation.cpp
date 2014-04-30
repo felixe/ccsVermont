@@ -19,7 +19,7 @@
  *
  */
 
-#include "HttpAggregation.h"
+#include "HTTPAggregation.h"
 
 /**
  * Parses a given TCP payload and tries to detect HTTP traffic information. With the gathered knowledge it is
@@ -37,7 +37,7 @@
  * @param aggregationStart Used to store the position in the payload from which the aggregation should start.
  * @param aggregationEnd Used to store the position in the payload at which the aggregation should stop.
  */
-void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd) {
+void HTTPAggregation::detectHTTP(const char** data, const char** dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd) {
 	DPRINTFL(MSG_VDEBUG, "httpagg: START in %s direction, message type: %s",
 	        flowData->isReverse() ? "reverse" : "forward", flowData->isForward() ? toString(flowData->streamInfo->forwardType) : toString(flowData->streamInfo->reverseType));
 	DPRINTFL(MSG_VDEBUG, "httpagg: forwardFlows: %d, reverse Flows: %d, request status=%X, response status=%X",
@@ -52,7 +52,7 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
 	if (payloadOffset && *payloadOffset) {
 	    // we are continuing to process the payload of a packet which has been processed before.
 	    // this means this packet contains multiple requests
-		DPRINTFL(MSG_DEBUG, "httpagg: http detection is starting with %u bytes offset", *payloadOffset);
+		DPRINTFL(MSG_DEBUG, "httpagg: HTTP detection is starting with %u bytes offset", *payloadOffset);
 		*aggregationStart = *data+*payloadOffset;
 		*payloadOffset = 0;
 	} else if (!payloadOffset || !*payloadOffset) {
@@ -103,10 +103,10 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
 		 *  requests/responses are transferred.
 		 */
 
-		DPRINTFL(MSG_DEBUG, "httpagg: processing new traffic. trying to detect http data.");
+		DPRINTFL(MSG_DEBUG, "httpagg: processing new traffic. trying to detect HTTP data.");
 
-		if (!processNewHttpTraffic(*aggregationStart, *dataEnd, flowData, aggregationStart, aggregationEnd))
-		    return; // this message is not a start of a http request or response
+		if (!processNewHTTPTraffic(*aggregationStart, *dataEnd, flowData, aggregationStart, aggregationEnd))
+		    return; // this message is not a start of a HTTP request or response
 
 	} else {
 	    // in this case we know the type of HTTP message which should be transferred in this direction
@@ -115,9 +115,9 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
 			THROWEXCEPTION("response and request are already finished, this flow should have been exported!");
 
 		if (flowData->streamInfo->reverseType == flowData->streamInfo->forwardType || flowData->streamInfo->reverseType == HTTP_TYPE_UNKNOWN || flowData->streamInfo->forwardType == HTTP_TYPE_UNKNOWN)
-			THROWEXCEPTION("http types were set faulty, this should never happen!");
+			THROWEXCEPTION("HTTP types were set faulty, this should never happen!");
 
-		processHttpMessage(*aggregationStart, *dataEnd, flowData, aggregationStart, aggregationEnd);
+		processHTTPMessage(*aggregationStart, *dataEnd, flowData, aggregationStart, aggregationEnd);
 	}
 
 	http_status_t* status = flowData->getStatus();
@@ -136,7 +136,7 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
     if (*status == MESSAGE_END) { // HTTP message ended
          if (flowData->isResponse()) {
             if (flowData->response.statusCode_ == 100) {
-                DPRINTFL(MSG_VDEBUG, "httpagg: intermediate http response ended");
+                DPRINTFL(MSG_VDEBUG, "httpagg: intermediate HTTP response ended");
                 /*
                  * HTTP responses with a status code of 100 are intermediate responses. a server for example sends
                  * such a response to confirm, that a client, who requested to POST data, might deliver the message-body
@@ -169,11 +169,11 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
                 flowData->response.contentLength = 0;
                 flowData->response.transfer = TRANSFER_UNKNOWN;
             } else {
-                DPRINTFL(MSG_INFO, "httpagg: http response ended");
+                DPRINTFL(MSG_INFO, "httpagg: HTTP response ended");
                 (*flowData->getFlowcount())++;
             }
         } else if (flowData->isRequest()) {
-             DPRINTFL(MSG_INFO, "httpagg: http request ended");
+             DPRINTFL(MSG_INFO, "httpagg: HTTP request ended");
 
              uint8_t* requestCount = flowData->getFlowcount();
              uint8_t* responseCount = flowData->getFlowcount(true);
@@ -203,7 +203,7 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
 }
 
 /**
- * Checks if the payload starts with a valid http method or a http version code identifier.
+ * Checks if the payload starts with a valid HTTP method or a HTTP version code identifier.
  * On success the current flow direction can be classified as request and the other as response
  * or vice versa, depending on the identifier. Afterwards the rest of the payload is processed.
  *
@@ -213,7 +213,7 @@ void HttpAggregation::detectHttp(const char** data, const char** dataEnd, FlowDa
  * @param aggregationStart Used to store the position in the payload from which the aggregation should start
  * @param aggregationEnd Used to store the position in the payload at which the aggregation should stop.
  */
-int HttpAggregation::processNewHttpTraffic(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd) {
+int HTTPAggregation::processNewHTTPTraffic(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd) {
 	const char* start = data;
 	const char* end = data;
 
@@ -221,7 +221,7 @@ int HttpAggregation::processNewHttpTraffic(const char* data, const char* dataEnd
 
 	// check for a request or response at the beginning.
 	if (getRequestOrResponse(data, dataEnd, &start, &end, &type)) {
-		DPRINTFL(MSG_INFO, "httpagg: start of a new http %s: '%.*s'", toString(type), end-start, start);
+		DPRINTFL(MSG_INFO, "httpagg: start of a new HTTP %s: '%.*s'", toString(type), end-start, start);
 		if (type == HTTP_TYPE_REQUEST) {
 			flowData->request.status = MESSAGE_REQ_METHOD;
             if (flowData->request.method)
@@ -235,7 +235,7 @@ int HttpAggregation::processNewHttpTraffic(const char* data, const char* dataEnd
 				flowData->streamInfo->reverseType = HTTP_TYPE_RESPONSE;
 			}
 
-			processHttpMessage(end, dataEnd, flowData, aggregationStart, aggregationEnd);
+			processHTTPMessage(end, dataEnd, flowData, aggregationStart, aggregationEnd);
 		} else if (type == HTTP_TYPE_RESPONSE) {
 		    // the first message observed was a HTTP response, that almost never be the case.
 		    // usually that means we are at the start of the Packet observation process and
@@ -255,20 +255,20 @@ int HttpAggregation::processNewHttpTraffic(const char* data, const char* dataEnd
 				flowData->streamInfo->reverseType = HTTP_TYPE_REQUEST;
 			}
 
-			processHttpMessage(end, dataEnd, flowData, aggregationStart, aggregationEnd);
+			processHTTPMessage(end, dataEnd, flowData, aggregationStart, aggregationEnd);
 		}
 
 		return 1;
 	}
 
 	/*
-	 * this packet seems not to be the start of a http request or response, this can have several reasons, e.g.:
-	 *  - this isn't a http stream
-	 *  - this packet is a subsequent packet of a previous unreceived http request/response
+	 * this packet seems not to be the start of a HTTP request or response, this can have several reasons, e.g.:
+	 *  - this isn't a HTTP stream
+	 *  - this packet is a subsequent packet of a previous unreceived HTTP request/response
 	 */
 
 	// skip package, do not aggregate payload
-	DPRINTFL(MSG_DEBUG, "httpagg: no http traffic in this flow direction yet!");
+	DPRINTFL(MSG_DEBUG, "httpagg: no HTTP traffic in this flow direction yet!");
 	*aggregationStart = dataEnd;
 	*aggregationEnd = dataEnd;
 	return 0;
@@ -286,7 +286,7 @@ int HttpAggregation::processNewHttpTraffic(const char* data, const char* dataEnd
  * @param aggregationEnd Used to store the position in the payload at which the aggregation should stop.
  * @return Returns 1 if the end of the message was reached, 0 otherwise
  */
-int HttpAggregation::processHttpMessage(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd) {
+int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd) {
 	const char* start = data;
 	const char* end = data;
 	http_type_t type = *(flowData->getType());
@@ -498,14 +498,14 @@ int HttpAggregation::processHttpMessage(const char* data, const char* dataEnd, F
                 status = status | MESSAGE_FLAG_WAITING;
                 return 0;
             } else if (result == PARSER_FAILURE) {
-                msg(MSG_ERROR, "httpagg: a failure was encountered while processing the http message-body");
+                msg(MSG_ERROR, "httpagg: a failure was encountered while processing the HTTP message-body");
             }
 			*aggregationEnd = dataEnd;
 			return 0;
 			break;
 		}
 		default:
-			THROWEXCEPTION("unhandled or unknown http %s status: 0x%x", toString(type), flowData->response.status);
+			THROWEXCEPTION("unhandled or unknown HTTP %s status: 0x%x", toString(type), flowData->response.status);
 		}
 	}
 
@@ -526,7 +526,7 @@ int HttpAggregation::processHttpMessage(const char* data, const char* dataEnd, F
  * @param flowData Pointer to the FlowData structure which contains information about the current flow
  * @return returns 0 if the message-header did not end yet, 1 otherwise
  */
-int HttpAggregation::processMessageHeader(const char* data, const char* dataEnd, const char** end, FlowData* flowData) {
+int HTTPAggregation::processMessageHeader(const char* data, const char* dataEnd, const char** end, FlowData* flowData) {
     if (data >= dataEnd)
         return 0;
 
@@ -598,9 +598,9 @@ int HttpAggregation::processMessageHeader(const char* data, const char* dataEnd,
  * @param end On success used to store the position at which the parsing process stopped
  * @return Returns 1 if the sequence is valid, else otherwise
  */
-int HttpAggregation::isValidMessageHeaderTerminatorSuffix(const char* data, const char* dataEnd, const char** end) {
+int HTTPAggregation::isValidMessageHeaderTerminatorSuffix(const char* data, const char* dataEnd, const char** end) {
 	/*
-	 * The four possible ways to terminate a http request are:
+	 * The four possible ways to terminate a HTTP request are:
 	 * - '\r\n\r\n'
 	 * - '\r\n\n'
 	 * - '\n\r\n'
@@ -641,7 +641,7 @@ int HttpAggregation::isValidMessageHeaderTerminatorSuffix(const char* data, cons
  *          #HEADER_FIELD_DNF if the end of a header field was not reached yet
  *          #HEADER_FIELD_END if the end of a header field was reached
  */
-int HttpAggregation::getHeaderField(const char* data, const char* dataEnd, const char** end) {
+int HTTPAggregation::getHeaderField(const char* data, const char* dataEnd, const char** end) {
     *end = data;
 
     if (eatCRLF(data, dataEnd, end) || eatLineFeed(data, dataEnd, &data)) {
@@ -693,7 +693,7 @@ int HttpAggregation::getHeaderField(const char* data, const char* dataEnd, const
  *         #PARSER_FAILURE if an error was encountered
  *         #PARSER_STOP if none of the header field names, which are relevant to us, did match
  */
-int HttpAggregation::processMessageHeaderField(const char* data, const char* dataEnd, FlowData* flowData) {
+int HTTPAggregation::processMessageHeaderField(const char* data, const char* dataEnd, FlowData* flowData) {
     http_msg_body_transfer_t* transferType = flowData->getTransferType();
 
     const char* fieldValueStart = 0;
@@ -834,7 +834,7 @@ int HttpAggregation::processMessageHeaderField(const char* data, const char* dat
  *         #PARSER_FAILURE if an error was encountered
  *         #PARSER_STOP if the HTTP header field name did not match
  */
-int HttpAggregation::matchFieldName(const char* data, const char* dataEnd, const char** start, const char** end, const header_field_name field) {
+int HTTPAggregation::matchFieldName(const char* data, const char* dataEnd, const char** start, const char** end, const header_field_name field) {
     if (tolower(*data) != field.name[0])
         return PARSER_STOP;
 
@@ -887,7 +887,7 @@ int HttpAggregation::matchFieldName(const char* data, const char* dataEnd, const
  * @param dataEnd Pointer to the end of the payload to be parsed
  * @param flowData Pointer to the FlowData structure which contains information about the current flow
  */
-void HttpAggregation::setTransferEncoding(const char* data, const char* dataEnd, FlowData* flowData) {
+void HTTPAggregation::setTransferEncoding(const char* data, const char* dataEnd, FlowData* flowData) {
 	if (!strncmp(data, "identity", dataEnd-data)) {
 		// if transfer encoding is set to "identity" the message length is not affected by this field.
 		// so we can ignore it
@@ -911,7 +911,7 @@ void HttpAggregation::setTransferEncoding(const char* data, const char* dataEnd,
  * @param dataEnd Pointer to the end of the payload to be parsed
  * @param flowData Pointer to the FlowData structure which contains information about the current flow
  */
-void HttpAggregation::setContentLength(const char* data, const char* dataEnd, FlowData* flowData) {
+void HTTPAggregation::setContentLength(const char* data, const char* dataEnd, FlowData* flowData) {
 	if (flowData->isRequest()) {
 		flowData->request.transfer = TRANSFER_CONTENT_LENGTH;
 		flowData->request.contentLength = strtol(data, NULL, 10);
@@ -940,7 +940,7 @@ void HttpAggregation::setContentLength(const char* data, const char* dataEnd, Fl
  *                 #PARSER_DNF if the end was not reached
  *                 #PARSER_FAILURE if the parsing failed
  */
-int HttpAggregation::processMessageBody(const char* data, const char* dataEnd, const char** end, FlowData* flowData) {
+int HTTPAggregation::processMessageBody(const char* data, const char* dataEnd, const char** end, FlowData* flowData) {
 	http_msg_body_transfer_t *transfer = flowData->getTransferType();
 	*end = data;
 	if (*transfer == TRANSFER_CHUNKED) {
@@ -954,8 +954,8 @@ int HttpAggregation::processMessageBody(const char* data, const char* dataEnd, c
 	    *end = dataEnd;
 	    return PARSER_SUCCESS;
 	} else if (*transfer == TRANSFER_NO_MSG_BODY) {
-		// the http message contains no entitiy
-		DPRINTFL(MSG_DEBUG, "httpagg: http message contains no message-body");
+		// the HTTP message contains no entitiy
+		DPRINTFL(MSG_DEBUG, "httpagg: HTTP message contains no message-body");
 		return PARSER_SUCCESS;
 	} else {
 		ASSERT(*transfer != TRANSFER_UNKNOWN, "transfer type was not set, should never happen");
@@ -978,7 +978,7 @@ int HttpAggregation::processMessageBody(const char* data, const char* dataEnd, c
  *                 #PARSER_DNF if the end was not reached
  *                 #PARSER_FAILURE if the parsing failed
  */
-int HttpAggregation::processChunkedMsgBody(const char* data, const char* dataEnd, const char** end, FlowData* flowData) {
+int HTTPAggregation::processChunkedMsgBody(const char* data, const char* dataEnd, const char** end, FlowData* flowData) {
     /*-
      * From RFC 2616 Section 3.6.1:
      *
@@ -1122,7 +1122,7 @@ int HttpAggregation::processChunkedMsgBody(const char* data, const char* dataEnd
  *                 #PARSER_DNF if the end was not reached
  *                 #PARSER_FAILURE if the parsing failed
  */
-int HttpAggregation::processFixedSizeMsgBody(const char* data, const char* dataEnd, const char** end, FlowData* flowData) {
+int HTTPAggregation::processFixedSizeMsgBody(const char* data, const char* dataEnd, const char** end, FlowData* flowData) {
     uint32_t* contentLength = 0;
     if (flowData->isRequest()) {
         contentLength = &flowData->request.contentLength;
@@ -1130,7 +1130,7 @@ int HttpAggregation::processFixedSizeMsgBody(const char* data, const char* dataE
         contentLength = &flowData->response.contentLength;
     }
     if (*contentLength<dataEnd-data) {
-        DPRINTFL(MSG_DEBUG, "httpagg: processed the last %u bytes of the http message-body. the segment may contain multiple messages, %u bytes remaining.", dataEnd-(data + *contentLength));
+        DPRINTFL(MSG_DEBUG, "httpagg: processed the last %u bytes of the HTTP message-body. the segment may contain multiple messages, %u bytes remaining.", dataEnd-(data + *contentLength));
         if (*contentLength>0) {
             *end = data + *contentLength;
             *contentLength = 0;
@@ -1141,7 +1141,7 @@ int HttpAggregation::processFixedSizeMsgBody(const char* data, const char* dataE
     } else {
         *contentLength = *contentLength - (dataEnd-data);
         *end = dataEnd;
-        DPRINTFL(MSG_INFO, "httpagg: processed %u bytes of the http message-body, %u bytes left. message body did not end yet.", dataEnd-data, *contentLength);
+        DPRINTFL(MSG_INFO, "httpagg: processed %u bytes of the HTTP message-body, %u bytes left. message body did not end yet.", dataEnd-data, *contentLength);
         if (*contentLength<=0)
             return PARSER_SUCCESS; // we are finished
         else
@@ -1162,7 +1162,7 @@ int HttpAggregation::processFixedSizeMsgBody(const char* data, const char* dataE
  * @return returns #PARSER_SUCCESS if the end of the message-body was reached
  *                 #PARSER_DNF if the end was not reached
  */
-int HttpAggregation::processMultipartBody(const char* data, const char* dataEnd, const char** end, FlowData* flowData) {
+int HTTPAggregation::processMultipartBody(const char* data, const char* dataEnd, const char** end, FlowData* flowData) {
     /*
      * If a HTTP response's message-body is transferred as multipart/byterange
      * media type, the transported message-body consists of at least two byterange parts.
@@ -1213,7 +1213,7 @@ int HttpAggregation::processMultipartBody(const char* data, const char* dataEnd,
  * found the pointer points to the end of the payload
  * @return Returns 1 if text was found, 0 otherwise
  */
-int HttpAggregation::getSpaceDelimitedText(const char* data, const char* dataEnd, const char** start, const char** end, int max) {
+int HTTPAggregation::getSpaceDelimitedText(const char* data, const char* dataEnd, const char** start, const char** end, int max) {
     if (max == 0)
         max = dataEnd-data;
 	*start = data;
@@ -1255,7 +1255,7 @@ int HttpAggregation::getSpaceDelimitedText(const char* data, const char* dataEnd
  * found the pointer points to the end of the payload
  * @return Returns 1 if text was found, 0 otherwise
  */
-int HttpAggregation::getCRLFDelimitedText(const char* data, const char* dataEnd, const char** start, const char** end, int max) {
+int HTTPAggregation::getCRLFDelimitedText(const char* data, const char* dataEnd, const char** start, const char** end, int max) {
     if (max == 0)
         max = dataEnd-data;
     *start = data;
@@ -1297,7 +1297,7 @@ int HttpAggregation::getCRLFDelimitedText(const char* data, const char* dataEnd,
  * found the pointer points to the end of the payload
  * @return Returns 1 if text was found, 0 otherwise
  */
-int HttpAggregation::getDelimitedText(const char* data, const char* dataEnd, const char** start, const char** end, int max) {
+int HTTPAggregation::getDelimitedText(const char* data, const char* dataEnd, const char** start, const char** end, int max) {
     if (max == 0)
         max = dataEnd-data;
 	*start = data;
@@ -1337,7 +1337,7 @@ int HttpAggregation::getDelimitedText(const char* data, const char* dataEnd, con
  * found the pointer points to the end of the payload
  * @return Returns 1 if text was found, 0 otherwise
  */
-int HttpAggregation::getDelimitedHeaderFieldValue(const char* data, const char* dataEnd, const char** start, const char** end) {
+int HTTPAggregation::getDelimitedHeaderFieldValue(const char* data, const char* dataEnd, const char** start, const char** end) {
     *start = data;
     bool found = false;
     while (data<dataEnd) {
@@ -1363,7 +1363,7 @@ int HttpAggregation::getDelimitedHeaderFieldValue(const char* data, const char* 
  * @param end Used to store the position at which the parsing process stopped
  * @return Returns 1 if a CR LF sequence was skipped, 0 otherwise
  */
-int HttpAggregation::eatCRLF(const char* data, const char* dataEnd, const char** end) {
+int HTTPAggregation::eatCRLF(const char* data, const char* dataEnd, const char** end) {
 	*end = data;
 	while (data<dataEnd) {
 		if (*data=='\r') {
@@ -1389,7 +1389,7 @@ int HttpAggregation::eatCRLF(const char* data, const char* dataEnd, const char**
  * @param end Used to store the position at which the parsing process stopped
  * @return Returns 1 if a line feed was skipped, 0 otherwise
  */
-int HttpAggregation::eatLineFeed(const char* data, const char* dataEnd, const char** end) {
+int HTTPAggregation::eatLineFeed(const char* data, const char* dataEnd, const char** end) {
     *end = data;
     if (*data=='\n')
     {
@@ -1405,7 +1405,7 @@ int HttpAggregation::eatLineFeed(const char* data, const char* dataEnd, const ch
  * @param data Pointer to the char to check
  * @return Returns true if the char is a LWS token, false otherwise
  */
-bool HttpAggregation::isLWSToken(const char* data) {
+bool HTTPAggregation::isLWSToken(const char* data) {
     /*-
      * From RFC 2616
      * LWS            = [CRLF] 1*( SP | HT )
@@ -1426,7 +1426,7 @@ bool HttpAggregation::isLWSToken(const char* data) {
  * @param data Pointer to the char to check
  * @return true if the character is a token, false otherwise
  */
-bool HttpAggregation::isToken(const char* data) {
+bool HTTPAggregation::isToken(const char* data) {
     /*-
      * From RFC 2616:
      *
@@ -1482,7 +1482,7 @@ bool HttpAggregation::isToken(const char* data) {
  *                 #PARSER_FAILURE if a failure was encountered
  *                 #PARSER_DNF if the end of payload has been reached
  */
-int HttpAggregation::getChunkLength(const char* data, const char* dataEnd, const char** end, uint32_t* chunkLength) {
+int HTTPAggregation::getChunkLength(const char* data, const char* dataEnd, const char** end, uint32_t* chunkLength) {
 	/*
 	 * From RFC 2616, Section 3.6
 	 * chunk          = chunk-size [ chunk-extension ] CRLF
@@ -1528,7 +1528,7 @@ int HttpAggregation::getChunkLength(const char* data, const char* dataEnd, const
  * found the pointer points to the end of the payload
  * @return Returns 1 if the identifier is valid, 0 otherwise
  */
-int HttpAggregation::getRequestMethod(const char* data, const char* dataEnd, const char** start, const char** end) {
+int HTTPAggregation::getRequestMethod(const char* data, const char* dataEnd, const char** start, const char** end) {
 	*start = data;
 	*end = data;
 	/*
@@ -1546,7 +1546,7 @@ int HttpAggregation::getRequestMethod(const char* data, const char* dataEnd, con
 		if (isRequest(*start, *end)) {
 			return 1;
 		}
-		DPRINTFL(MSG_INFO, "httpagg: invalid http method identifier : %.*s", *end-*start, *start);
+		DPRINTFL(MSG_INFO, "httpagg: invalid HTTP method identifier : %.*s", *end-*start, *start);
 	}
 
 	return 0;
@@ -1560,7 +1560,7 @@ int HttpAggregation::getRequestMethod(const char* data, const char* dataEnd, con
  * @param end Used to store the position at which the parsed text ends
  * @return Returns 1 if a space delimited text could be parsed, 0 otherwise
  */
-int HttpAggregation::getRequestUri(const char* data, const char* dataEnd, const char** start, const char** end) {
+int HTTPAggregation::getRequestUri(const char* data, const char* dataEnd, const char** start, const char** end) {
 	return getSpaceDelimitedText(data, dataEnd, start, end);
 }
 
@@ -1572,12 +1572,12 @@ int HttpAggregation::getRequestUri(const char* data, const char* dataEnd, const 
  * @param end Used to store the position at which the parsed text ends
  * @return Returns 1 if the identifier is valid, 0 otherwise
  */
-int HttpAggregation::getRequestVersion(const char* data, const char* dataEnd, const char** start, const char** end) {
+int HTTPAggregation::getRequestVersion(const char* data, const char* dataEnd, const char** start, const char** end) {
 	if (getCRLFDelimitedText(data, dataEnd, start, end, 8)) {
 		if (isVersion(*start, *end)) {
 			return 1;
 		}
-		DPRINTFL(MSG_INFO, "httpagg: invalid http version specifier : '%.*s'", *end-*start, *start);
+		DPRINTFL(MSG_INFO, "httpagg: invalid HTTP version specifier : '%.*s'", *end-*start, *start);
 	}
 	return 0;
 }
@@ -1590,7 +1590,7 @@ int HttpAggregation::getRequestVersion(const char* data, const char* dataEnd, co
  * @param end Used to store the position at which the parsed text ends
  * @return Returns 1 if the identifier is valid, 0 otherwise
  */
-int HttpAggregation::getResponseVersion(const char* data, const char* dataEnd, const char** start, const char** end) {
+int HTTPAggregation::getResponseVersion(const char* data, const char* dataEnd, const char** start, const char** end) {
 	*start = data;
 	*end = data;
 	/*
@@ -1608,7 +1608,7 @@ int HttpAggregation::getResponseVersion(const char* data, const char* dataEnd, c
 		if (isResponse(*start, *end)) {
 			return 1;
 		}
-		DPRINTFL(MSG_INFO, "httpagg: invalid http version specifier : %.*s", *end-*start, *start);
+		DPRINTFL(MSG_INFO, "httpagg: invalid HTTP version specifier : %.*s", *end-*start, *start);
 		*start = dataEnd;
 	}
 	// nothing did match
@@ -1624,7 +1624,7 @@ int HttpAggregation::getResponseVersion(const char* data, const char* dataEnd, c
  * @param end Used to store the position at which the parsed text ends
  * @return Returns the response code if the string is valid, 0 otherwise
  */
-uint16_t HttpAggregation::getResponseCode(const char* data, const char* dataEnd, const char** start, const char** end) {
+uint16_t HTTPAggregation::getResponseCode(const char* data, const char* dataEnd, const char** start, const char** end) {
 	if (getSpaceDelimitedText(data, dataEnd, start, end, 3)) {
 		if (*end-*start!=3)
 			return 0;
@@ -1644,20 +1644,20 @@ uint16_t HttpAggregation::getResponseCode(const char* data, const char* dataEnd,
  * @param end Used to store the position at which the parsed text ends
  * @return Returns 1 if the identifier is valid, 0 otherwise
  */
-int HttpAggregation::getResponsePhrase(const char* data, const char* dataEnd, const char** start, const char** end) {
+int HTTPAggregation::getResponsePhrase(const char* data, const char* dataEnd, const char** start, const char** end) {
     return getCRLFDelimitedText(data, dataEnd, start, end);
 }
 
 /**
- * Checks if the passed payload starts with a request method or http version identifier.
+ * Checks if the passed payload starts with a request method or HTTP version identifier.
  * @param data Pointer to the payload to be parsed
  * @param dataEnd Pointer to the end of the payload to be parsed
  * @param start Used to store the position at which the parsed text begins
  * @param end Used to store the position at which the parsed text ends
  * @param type
- * @return Returns 1 if the passed payload starts with a request method or http version identifier, 0 otherwise
+ * @return Returns 1 if the passed payload starts with a request method or HTTP version identifier, 0 otherwise
  */
-int HttpAggregation::getRequestOrResponse(const char* data, const char* dataEnd, const char** start, const char** end, http_type_t* type)  {
+int HTTPAggregation::getRequestOrResponse(const char* data, const char* dataEnd, const char** start, const char** end, http_type_t* type)  {
 	*type = HTTP_TYPE_UNKNOWN;
 	*start = data;
 	*end = data;
@@ -1698,7 +1698,7 @@ int HttpAggregation::getRequestOrResponse(const char* data, const char* dataEnd,
  * @param dataEnd Pointer to the end of the payload to be parsed
  * @return Returns 1 if the range contains a valid method identifier
  */
-int HttpAggregation::isRequest(const char* data, const char* dataEnd) {
+int HTTPAggregation::isRequest(const char* data, const char* dataEnd) {
 	const int mlen = dataEnd-data;
 	/* Check the methods that have same length */
 	switch (mlen) {
@@ -1811,7 +1811,7 @@ int HttpAggregation::isRequest(const char* data, const char* dataEnd) {
  * @param dataEnd Pointer to the end of the payload to be parsed
  * @return Returns 1 if the range contains a valid response identifier
  */
-int HttpAggregation::isResponse(const char* data, const char* dataEnd) {
+int HTTPAggregation::isResponse(const char* data, const char* dataEnd) {
 	const int mlen = dataEnd-data;
 	/* Check the methods that have same length */
 	switch (mlen) {
@@ -1839,7 +1839,7 @@ int HttpAggregation::isResponse(const char* data, const char* dataEnd) {
  * @param dataEnd Pointer to the end of the payload to be parsed
  * @return Returns 1 if the range contains a valid response version identifier
  */
-int HttpAggregation::isVersion(const char* dataPtr, const char* dataEnd) {
+int HTTPAggregation::isVersion(const char* dataPtr, const char* dataEnd) {
 	const int mlen = dataEnd-dataPtr;
 
 	if (mlen != 8) {
@@ -1860,7 +1860,7 @@ int HttpAggregation::isVersion(const char* dataPtr, const char* dataEnd) {
  * @param dataEnd Pointer to the end of the payload to be parsed
  * @return Returns 1 if the range contains a valid notification identifier
  */
-int HttpAggregation::isNotification(const char* data, const char* dataEnd) {
+int HTTPAggregation::isNotification(const char* data, const char* dataEnd) {
 	const int mlen = dataEnd-data;
 	/* Check the methods that have same length */
 	switch (mlen) {
@@ -1893,7 +1893,7 @@ int HttpAggregation::isNotification(const char* data, const char* dataEnd) {
  * @param statusCode Code to check
  * @return Returns 1 if a message-body is forbidden for this code, 0 otherwise
  */
-int HttpAggregation::isMessageBodyForbidden(const int statusCode) {
+int HTTPAggregation::isMessageBodyForbidden(const int statusCode) {
 	/*
 	 * certain response codes forbid a message-body
 	 *
@@ -1920,7 +1920,7 @@ int HttpAggregation::isMessageBodyForbidden(const int statusCode) {
  * @param src Source
  * @param size Number of bytes to copy
  */
-void HttpAggregation::copyToCharPointer(char** dst, const char* src, size_t size) {
+void HTTPAggregation::copyToCharPointer(char** dst, const char* src, size_t size) {
 	*dst = (char*)malloc(sizeof(char)*(size));
 	memcpy(*dst, src, size);
 }
@@ -1932,7 +1932,7 @@ void HttpAggregation::copyToCharPointer(char** dst, const char* src, size_t size
  * @param dstLenth Current size of the destination buffer
  * @param size Number of bytes to add
  */
-void HttpAggregation::appendToCharPointer(char **dst, const char* src, size_t dstLenth, size_t size) {
+void HTTPAggregation::appendToCharPointer(char **dst, const char* src, size_t dstLenth, size_t size) {
 	*dst = (char*)realloc(*dst, dstLenth+size);
 	memcpy(*dst+dstLenth, src, size);
 }
@@ -1945,7 +1945,7 @@ void HttpAggregation::appendToCharPointer(char **dst, const char* src, size_t ds
  * @param flowData Pointer to the FlowData structure which contains information about the current flow
  * @param reverseDirection Whether the current flow is in reverse direction or not
  */
-void HttpAggregation::storeDataLeftOver(const char* data, const char* dataEnd, FlowData* flowData) {
+void HTTPAggregation::storeDataLeftOver(const char* data, const char* dataEnd, FlowData* flowData) {
     // not enough characters remaining to proceed processing now.
     // put remaining characters in the buffer and wait for new data to arrive.
     uint16_t size = dataEnd-data;
@@ -1972,7 +1972,7 @@ void HttpAggregation::storeDataLeftOver(const char* data, const char* dataEnd, F
 /**
  * Initializes the given FlowData structure
  */
-void HttpAggregation::initializeFlowData(FlowData* flowData, HttpStreamData* streamData) {
+void HTTPAggregation::initializeFlowData(FlowData* flowData, HTTPStreamData* streamData) {
 	flowData->streamInfo = streamData;
 	flowData->tempBuffer = 0;
 
@@ -2003,8 +2003,8 @@ void HttpAggregation::initializeFlowData(FlowData* flowData, HttpStreamData* str
 /**
  * Initializes a new HttpStreamData structure
  */
-HttpAggregation::HttpStreamData* HttpAggregation::initHttpStreamData(uint32_t maxBufferedBytes) {
-	HttpStreamData* httpData = new HttpStreamData;
+HTTPAggregation::HTTPStreamData* HTTPAggregation::initHTTPStreamData(uint32_t maxBufferedBytes) {
+    HTTPStreamData* httpData = new HTTPStreamData;
 	httpData->forwardFlows = 0;
 	httpData->reverseFlows = 0;
 	httpData->direction = 0;
@@ -2028,7 +2028,7 @@ HttpAggregation::HttpStreamData* HttpAggregation::initHttpStreamData(uint32_t ma
  * Convenience function
  * @return true if the current payload is transferred in forward direction, false otherwise
  */
-bool HttpAggregation::FlowData::isForward() {
+bool HTTPAggregation::FlowData::isForward() {
     return *streamInfo->direction == 0;
 }
 
@@ -2036,7 +2036,7 @@ bool HttpAggregation::FlowData::isForward() {
  * Convenience function
  * @return true if the current payload is transferred in reverse direction, false otherwise
  */
-bool HttpAggregation::FlowData::isReverse() {
+bool HTTPAggregation::FlowData::isReverse() {
     return *streamInfo->direction == 1;
 }
 
@@ -2044,7 +2044,7 @@ bool HttpAggregation::FlowData::isReverse() {
  * Convenience function
  * @return true if the current type is known to be a request, false otherwise
  */
-bool HttpAggregation::FlowData::isRequest() {
+bool HTTPAggregation::FlowData::isRequest() {
     return *getType() == HTTP_TYPE_REQUEST;
 }
 
@@ -2052,7 +2052,7 @@ bool HttpAggregation::FlowData::isRequest() {
  * Convenience function
  * @return true if the current type is known to be a response, false otherwise
  */
-bool HttpAggregation::FlowData::isResponse() {
+bool HTTPAggregation::FlowData::isResponse() {
     return *getType() == HTTP_TYPE_RESPONSE;
 }
 
@@ -2061,7 +2061,7 @@ bool HttpAggregation::FlowData::isResponse() {
  * @param oppositeDirection Specifies the direction. False for the current direction, true for the opposite direction. Default is false.
  * @return the type of
  */
-HttpAggregation::http_type_t* HttpAggregation::FlowData::getType(bool oppositeDirection) {
+HTTPAggregation::http_type_t* HTTPAggregation::FlowData::getType(bool oppositeDirection) {
     if (*streamInfo->direction == 0) {
         if (oppositeDirection)
             return &streamInfo->reverseType;
@@ -2083,7 +2083,7 @@ HttpAggregation::http_type_t* HttpAggregation::FlowData::getType(bool oppositeDi
  * @param oppositeDirection Specifies the direction. False for the current direction, true for the opposite direction. Default is false.
  * @return a pointer to the flow counter in the specified direction
  */
-uint8_t* HttpAggregation::FlowData::getFlowcount(bool oppositeDirection) {
+uint8_t* HTTPAggregation::FlowData::getFlowcount(bool oppositeDirection) {
     http_type_t type =*getType(oppositeDirection);
     if (type == streamInfo->forwardType) {
         return &(streamInfo->forwardFlows);
@@ -2098,7 +2098,7 @@ uint8_t* HttpAggregation::FlowData::getFlowcount(bool oppositeDirection) {
  * Get the @c http_msg_body_transfer_t in the specified direction. Throws if the HTTP type was set incorrect.
  * @return a pointer to the http_msg_body_transfer_t in the specified direction
  */
-HttpAggregation::http_msg_body_transfer_t* HttpAggregation::FlowData::getTransferType() {
+HTTPAggregation::http_msg_body_transfer_t* HTTPAggregation::FlowData::getTransferType() {
     if (isRequest())
         return &request.transfer;
     else if (isResponse())
@@ -2111,7 +2111,7 @@ HttpAggregation::http_msg_body_transfer_t* HttpAggregation::FlowData::getTransfe
  * Get the @c http_status_t in the specified direction. Throws if the HTTP type was set incorrect.
  * @return a pointer to the http_msg_body_transfer_t in the specified direction
  */
-HttpAggregation::http_status_t* HttpAggregation::FlowData::getStatus() {
+HTTPAggregation::http_status_t* HTTPAggregation::FlowData::getStatus() {
     if (isRequest())
         return &request.status;
     else if (isResponse())
@@ -2121,11 +2121,11 @@ HttpAggregation::http_status_t* HttpAggregation::FlowData::getStatus() {
 }
 
 /**
- * a string representation of the given http type
+ * a string representation of the given HTTP type
  * @param type type to represent
  * @return string representation of passed type
  */
-const char* HttpAggregation::toString(http_type_t type) {
+const char* HTTPAggregation::toString(http_type_t type) {
 	switch (type) {
 	case HTTP_TYPE_REQUEST: return "REQUEST";
 	case HTTP_TYPE_RESPONSE: return "RESPONSE";
@@ -2141,7 +2141,7 @@ const char* HttpAggregation::toString(http_type_t type) {
  * @param data pointer to the start of the string
  * @param range number of characters to print
  */
-void HttpAggregation::printRange(const char* data, int range) {
+void HTTPAggregation::printRange(const char* data, int range) {
 	printf("string: '");
 	for (int i=0;i<range;i++){
 		if (isprint(data[i]))
@@ -2162,22 +2162,22 @@ void HttpAggregation::printRange(const char* data, int range) {
  * @param b
  * @return
  */
-uint32_t HttpAggregation::min_(uint32_t a, uint32_t b) {
+uint32_t HTTPAggregation::min_(uint32_t a, uint32_t b) {
     if (a < b)
         return a;
     else
         return b;
 }
 
-const HttpAggregation::header_field_name HttpAggregation::FIELD_NAME_CONTENT_TYPE = {"content-type", 12};
-const HttpAggregation::header_field_name HttpAggregation::FIELD_NAME_CONTENT_LENGTH = {"content-length", 14};
-const HttpAggregation::header_field_name HttpAggregation::FIELD_NAME_ENCODING = {"transfer-encoding", 17};
-const HttpAggregation::header_field_name HttpAggregation::FIELD_NAME_HOST = {"host", 4};
+const HTTPAggregation::header_field_name HTTPAggregation::FIELD_NAME_CONTENT_TYPE = {"content-type", 12};
+const HTTPAggregation::header_field_name HTTPAggregation::FIELD_NAME_CONTENT_LENGTH = {"content-length", 14};
+const HTTPAggregation::header_field_name HTTPAggregation::FIELD_NAME_ENCODING = {"transfer-encoding", 17};
+const HTTPAggregation::header_field_name HTTPAggregation::FIELD_NAME_HOST = {"host", 4};
 
-void HttpAggregation::testFinishedMessage(FlowData* flowData) {
+void HTTPAggregation::testFinishedMessage(FlowData* flowData) {
 	http_type_t type = *flowData->getType();
-	ASSERT(type != HTTP_TYPE_UNKNOWN, "http type unknown");
-	ASSERT(flowData->streamInfo->reverseType!=flowData->streamInfo->forwardType, "equal http types");
+	ASSERT(type != HTTP_TYPE_UNKNOWN, "HTTP type unknown");
+	ASSERT(flowData->streamInfo->reverseType!=flowData->streamInfo->forwardType, "equal HTTP types");
 
 	if (type == HTTP_TYPE_REQUEST) {
 		ASSERT(flowData->request.status == MESSAGE_END, "message did not end");
