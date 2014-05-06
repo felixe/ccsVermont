@@ -68,6 +68,21 @@ inline void addToCurTime(struct timeval* tv, long timediff_ms)
 }
 
 /**
+ * adds timediff_ms to val and stores the result res
+ */
+inline void addToTime(struct timeval& res, const struct timeval& val, const long timediff_ms)
+{
+    res = val;
+    res.tv_sec += timediff_ms/1000;
+    res.tv_usec += (timediff_ms%1000)*1000;
+
+    if (res.tv_usec>=1000000) {
+        res.tv_sec++;
+        res.tv_usec -= 1000000;
+    }
+}
+
+/**
  * compares two timespec values
  * @returns -1 if ts1 is smaller, 0 if both are equal, 1 if ts2 is smaller
  */

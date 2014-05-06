@@ -33,16 +33,18 @@ BaseHashtable::BaseHashtable(Source<IpfixRecord*>* recordsource, Rule* rule,
 		uint16_t minBufferTime, uint16_t maxBufferTime, uint8_t hashbits)
 	: biflowAggregation(rule->biflowAggregation),
 	  httpAggregation(rule->httpAggregation),
+	  httpMsgBufferSize(rule->httpMsgBufferSize),
 	  revKeyMapper(NULL),
 	  switchArray(NULL),
 	  htableBits(hashbits),
 	  htableSize(1<<hashbits),
 	  minBufferTime(minBufferTime),
 	  maxBufferTime(maxBufferTime),
-	  tcpmonTimeoutOpened(rule->tcpmonTimeoutOpened),
+	  tcpmonTimeoutAttempted(rule->tcpmonTimeoutAttempt),
+	  tcpmonTimeoutEstablished(rule->tcpmonTimeoutEstablished),
 	  tcpmonTimeoutClosed(rule->tcpmonTimeoutClosed),
-	  tcpmonMaxBufferedBytes(rule->tcpmonMaxBufferedBytes),
-	  httpaggMaxBufferedBytes(rule->httpaggMaxBufferedBytes),
+	  tcpmonBufferSize(rule->tcpmonBufferSize),
+	  tcpmonPCAPTimestamps(rule->tcpmonPCAPTimestamps),
 	  statRecordsReceived(0),
 	  statRecordsSent(0),
 	  statTotalEntries(0),
@@ -315,30 +317,62 @@ void BaseHashtable::expireFlows(bool all)
 	HashtableBucket* bucket = 0;
 	BucketListElement* node = 0;
 
-	if (!exportList.isEmpty) {
-		while (exportList.head) { //check the first entry in the BucketList
-			node = exportList.head;
-			bucket = node->bucket;
-			// TODO: change this one list to two lists: one for active, one for passive timeout
-			// problem here: flows with active timeout may be exported passive timeout seconds too late
-			if ((bucket->expireTime < now) || (bucket->forceExpireTime < now) || all) {
-				if (now > bucket->forceExpireTime)
-					DPRINTF("expireFlows: forced expiry");
-				else if (now > bucket->expireTime)
-					DPRINTF("expireFlows: normal expiry");
-				if (bucket->inTable) removeBucket(bucket);
-				statExportedBuckets++;
-				exportBucket(bucket);
-				exportList.remove(node);
-				destroyBucket(bucket);
-				node->removeReference();
-				statTotalEntries--;
-			}//end if
-			else
-				break;
-		}//end while
-	}
+    if (!exportList.isEmpty) {
+        if (httpAggregation) {
+            // when using HTTP aggregation instead of waiting for the inactive and active timeouts buckets are exported earlier.
+            // namely if a TCPStream objects gets deleted or a HTTP dialog ends (in fact we consider a HTTP dialog as ended upon
+            // the end of a HTTP response)
+            node = exportList.head;
+            while (node) {
+                BucketListElement* next = node->next;
+                bucket = node->bucket;
 
+                if (bucket->expireTime < now || bucket->forceExpireTime < now || all ||
+                        *bucket->tcpForcedExpiry.get() || bucket->forceExpiry ) {
+                    if (*bucket->tcpForcedExpiry.get())
+                        DPRINTFL(MSG_VDEBUG, "expireFlows: TCP forced expiry");
+                    else if (bucket->forceExpiry)
+                        DPRINTFL(MSG_VDEBUG, "expireFlows: HTTP forced expiry\n");
+                    else if (now > bucket->forceExpireTime)
+                        DPRINTF("expireFlows: forced expiry");
+                    else if (now > bucket->expireTime)
+                        DPRINTF("expireFlows: normal expiry");
+                    if (bucket->inTable) removeBucket(bucket);
+                    statExportedBuckets++;
+                    exportBucket(bucket);
+                    exportList.remove(node);
+                    destroyBucket(bucket);
+                    node->removeReference();
+                    statTotalEntries--;
+                }
+
+                node = next;
+            }
+        } else {
+            while (exportList.head) { //check the first entry in the BucketList
+                node = exportList.head;
+                bucket = node->bucket;
+
+                // TODO: change this one list to two lists: one for active, one for passive timeout
+                // problem here: flows with active timeout may be exported passive timeout seconds too late
+                if ((bucket->expireTime < now) || (bucket->forceExpireTime < now) || all) {
+                    if (now > bucket->forceExpireTime)
+                        DPRINTF("expireFlows: forced expiry");
+                    else if (now > bucket->expireTime)
+                        DPRINTF("expireFlows: normal expiry");
+                    if (bucket->inTable) removeBucket(bucket);
+                    statExportedBuckets++;
+                    exportBucket(bucket);
+                    exportList.remove(node);
+                    destroyBucket(bucket);
+                    node->removeReference();
+                    statTotalEntries--;
+                }//end if
+                else
+                    break;
+            }//end while
+        }
+    }
 	atomic_release(&aggInProgress);
 }
 

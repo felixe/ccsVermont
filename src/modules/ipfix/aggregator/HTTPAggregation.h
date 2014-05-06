@@ -24,6 +24,7 @@
 
 #include "modules/packet/Packet.h"
 #include "common/msg.h"
+#include "common/Sensor.h"
 #include <stdint.h>
 #include "common/ipfixlolib/ipfix.h"
 
@@ -31,7 +32,7 @@
  * This class provides methods to parse HTTP messages and data structures which are used to
  * store relevant information about HTTP request and response messages.
  */
-class HTTPAggregation {
+class HTTPAggregation : public Sensor {
 public:
 	static const uint8_t  MAX_STREAM_DEPTH	 = 0xFF;	//TODO unused
 	static const uint32_t DEF_MAX_BUFFERED_BYTES = 10240; /**< Default limit of bytes which may be buffered per HTTP message is specified as 10 KiB. */
@@ -111,6 +112,9 @@ public:
 	    uint32_t MAX_BUFFERED_BYTES; /**< Maximal number of bytes of payload which may be buffered per HTTP message.
                                           (If the payload of a segment cannot be parsed completely we have to buffer
                                           the non-parsed part.)*/
+
+	    uint32_t forwardLostBytes; /**< Number of lost bytes in forward direction. We update this value in the TCPMonitor if we realize, that some packets were not captured. */
+	    uint32_t reverseLostBytes; /**< Number of lost bytes in reverse direction. We update this value in the TCPMonitor if we realize, that some packets were not captured. */
 	};
 
 	/**
@@ -203,6 +207,17 @@ public:
     static const header_field_name FIELD_NAME_HOST;
 
 	static HTTPStreamData* initHTTPStreamData(uint32_t maxBufferedBytes = DEF_MAX_BUFFERED_BYTES);
+
+    // statistics
+    static uint64_t statTotalRequests;
+    static uint64_t statTotalResponses;
+    static uint64_t statTotalPartialRequests;
+    static uint64_t statTotalPartialResponses;
+    static uint64_t statTotalMatchedDialogPairs;
+    static uint64_t statTotalBufferedBytes;
+    static uint64_t statBufferedBytes;
+
+	virtual std::string getStatisticsXML(double interval);
 
 protected:
 	static void detectHTTP(const char** data, const char** dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd);

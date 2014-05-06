@@ -20,16 +20,22 @@
  */
 
 #include "TCPStream.h"
+#include <sstream>
 
-TCPStream::TCPStream(Packet* p, uint32_t num) : streamNum(num), direction(FORWARD), state(TCPStream::TCP_UNDEFINED), httpData(0), truncatedPackets(false), bufferedSize(0) {
+TCPStream::TCPStream(Packet* p, uint32_t num) :
+        streamNum(num), direction(FORWARD), state(TCPStream::TCP_UNDEFINED), httpData(0), truncatedPackets(false), bufferedSize(0), sequenceGaps(false) {
     // values are stored in network byte order since the values are only used for calculating the hash
     hkey.srcIp = *reinterpret_cast<uint32_t*>(p->data.netHeader + OFFSET_SRC_IP);       // source IP
     hkey.dstIp = *reinterpret_cast<uint32_t*>(p->data.netHeader + OFFSET_DST_IP);       // destination IP
     hkey.srcPort = *reinterpret_cast<uint16_t*>(p->transportHeader + OFFSET_SRC_PORT);  // source port
     hkey.dstPort = *reinterpret_cast<uint16_t*>(p->transportHeader + OFFSET_DST_PORT);  // destination port
+    tcpForcedExpiry.reset(new bool);
+    (*tcpForcedExpiry.get()) = false;
 }
 
+
 TCPStream::~TCPStream() {
+    (*tcpForcedExpiry.get()) = true;
     if (!httpData)
         return;
     if (httpData->forwardLine)
@@ -54,9 +60,19 @@ void TCPStream::updateDirection(Packet* p) {
 }
 
 /**
- * Releases all queued packets from the TCPStream::packetQueue.
+ * Releases all queued packets.
  */
 void TCPStream::releaseQueuedPackets() {
+    releaseQueuedPackets(fwdData.packetQueue);
+    releaseQueuedPackets(revData.packetQueue);
+    bufferedSize = 0;
+}
+
+/**
+ * Releases all queued packets from the given PacketQueue.
+ * @param packetQueue
+ */
+void TCPStream::releaseQueuedPackets(PacketQueue& packetQueue) {
     PacketQueue::const_iterator pit = packetQueue.begin();
     for (;pit!=packetQueue.end();pit++) {
         // remove reference to Packet instance
@@ -67,8 +83,38 @@ void TCPStream::releaseQueuedPackets() {
         THROWEXCEPTION("wrong reference count: %d. expected: 0", refCount);
 #endif
     }
+    TCPMonitor::statTotalSkippedBufferedPackets+=packetQueue.size();
     packetQueue.clear();
-    bufferedSize = 0;
+}
+
+/**
+ * Releases all obsolete queued packets from the given PacketQueue.
+ * @param packetQueue
+ */
+void TCPStream::releaseObsoleteQueuedPackets(TCPData& tcpData) {
+    PacketQueue& packetQueue = tcpData.packetQueue;
+    PacketQueue::iterator pit = packetQueue.begin();
+    for (;pit!=packetQueue.end();) {
+        Packet* p = (*pit).second;
+        uint32_t seq = ntohl(*reinterpret_cast<uint32_t*>(p->transportHeader + OFFSET_SEQ));
+        if (seq != tcpData.nextSeq && !TCPMonitor::isFresh(seq, tcpData)) {
+            uint32_t slen = p->net_total_length - p->payloadOffset; // TCP segment length
+            bufferedSize -= slen;
+            // remove reference to Packet instance
+            p->removeReference();
+#ifdef DEBUG
+            int32_t refCount = p.second->getReferenceCount();
+            if (refCount != 0)
+                THROWEXCEPTION("wrong reference count: %d. expected: 0", refCount);
+#endif
+            TCPMonitor::statTotalSkippedPacketsInGaps++;
+            packetQueue.erase(pit++);
+        } else {
+            if (seq==tcpData.nextSeq)
+                tcpData.packetsAvailable = true;
+            ++pit;
+        }
+    }
 }
 
 /**
@@ -79,11 +125,14 @@ void TCPStream::printKey() {
     char dstIp[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &hkey.srcIp, srcIp, INET_ADDRSTRLEN);
     inet_ntop(AF_INET, &hkey.dstIp, dstIp, INET_ADDRSTRLEN);
-    DPRINTFL(MSG_DEBUG, "tcpmon: src ip=%s port=%d, dst ip=%s port=%d", srcIp, ntohs(hkey.srcPort), dstIp, ntohs(hkey.dstPort));
+    msg(MSG_DEBUG, "tcpmon: src ip=%s port=%d, dst ip=%s port=%d", srcIp, ntohs(hkey.srcPort), dstIp, ntohs(hkey.dstPort));
 }
 
+/**
+ * Prints the number of queued packets for a stream
+ */
 void TCPStream::printQueueStats() {
-    msg(MSG_ERROR, "tcpmon: queued packets: %lu", packetQueue.size());
+    msg(MSG_ERROR, "tcpmon: queued packets: %lu", fwdData.packetQueue.size() + revData.packetQueue.size());
 }
 
 bool TCPStream::isForward() {
@@ -115,19 +164,30 @@ std::size_t hash_value(const TCPStream& b) {
     return seed;
 }
 
-TCPMonitor::TCPMonitor(uint32_t htableSize, uint32_t timeoutOpened, uint32_t timeoutClosed, uint32_t maxBufferedBytes, uint32_t maxBufferedBytesHTTP) :
+TCPMonitor::TCPMonitor(uint32_t htableSize, uint32_t timeoutAttempted, uint32_t timeoutEstablished, uint32_t timeoutClosed, uint32_t maxBufferedBytes, uint32_t maxBufferedBytesHTTP, bool usePCAPTimestamps_) :
         streamCounter(0) {
     // initialize 'htableSize' buckets for the hashtable
     base_buckets = new StreamHashTable::bucket_type[htableSize];
     // initialize the hashtable
     htable = new StreamHashTable(StreamHashTable::bucket_traits(base_buckets, htableSize));
-    TIMEOUT_OPENED = timeoutOpened ? timeoutOpened : DEF_TIMEOUT_OPENED;
+
+    TIMEOUT_ATTEMPTED = timeoutAttempted ? timeoutAttempted : DEF_TIMEOUT_ATTEMPTED;
+    TIMEOUT_ESTABLISHED = timeoutEstablished ? timeoutEstablished : DEF_TIMEOUT_ESTABLISHED;
     TIMEOUT_CLOSED = timeoutClosed ? timeoutClosed : DEF_TIMEOUT_CLOSED;
     MAX_BUFFERED_BYTES = maxBufferedBytes ? maxBufferedBytes : DEF_TCP_BUFFER_SIZE;
-    MAX_BUFFERED_BYTES_HTTP = maxBufferedBytesHTTP ? maxBufferedBytes : HTTPAggregation::DEF_MAX_BUFFERED_BYTES;
-    msg(MSG_INFO, "tcpmon: Instantiated TCPMonitor with timeoutOpened: %u ms and timeoutClosed: %u ms. Hashtablebucket size: %d. TCP buffer size: %u bytes. HTTP message buffer size: %u bytes",
-            TIMEOUT_OPENED, TIMEOUT_CLOSED, htableSize, MAX_BUFFERED_BYTES, MAX_BUFFERED_BYTES_HTTP);
+    MAX_BUFFERED_BYTES_HTTP = maxBufferedBytesHTTP ? maxBufferedBytesHTTP : HTTPAggregation::DEF_MAX_BUFFERED_BYTES;
+
+    usePCAPTimestamps = usePCAPTimestamps_;
+
     SensorManager::getInstance().addSensor(this, "TCPMonitor", 0);
+
+    msg(MSG_INFO, "TCPMonitor initialized with the following parameters:");
+    msg(MSG_INFO, "  - attemptedConnectionTimeout = %u ms", TIMEOUT_ATTEMPTED);
+    msg(MSG_INFO, "  - establishedConnectionTimeout = %u ms", TIMEOUT_ESTABLISHED);
+    msg(MSG_INFO, "  - closedConnectionTimeout = %u ms", TIMEOUT_CLOSED);
+    msg(MSG_INFO, "  - use PCAP timestamps = %s", usePCAPTimestamps ? "yes" : "no" );
+    msg(MSG_INFO, "  - TCP connection buffer size = %u bytes", MAX_BUFFERED_BYTES);
+    msg(MSG_INFO, "  - HTTP message buffer size = %u bytes", MAX_BUFFERED_BYTES_HTTP);
 }
 
 TCPMonitor::~TCPMonitor() {
@@ -145,56 +205,50 @@ TCPMonitor::~TCPMonitor() {
  * @param p The packet which should be analyzed and registered to the TCPMonitor
  * @return a matching TCPStream or NULL if the Packet is out of order
  */
-TCPStream* TCPMonitor::dissect(Packet* p) {
+int TCPMonitor::dissect(Packet* p, TCPStream** ts) {
     statTotalPackets++;
-    TCPStream* ts = findOrCreateStream(p);
+    *ts = findOrCreateStream(p);
+
+    if (usePCAPTimestamps)
+        currentTimestamp = p->timestamp;
 
     if (p->pcapPacketLength > p->data_length_uncropped) {
-        statTruncatedPackets++;
-        if (!ts->truncatedPackets) {
-            ts->truncatedPackets = true;
-            msg(MSG_ERROR, "tcpmon: WARNING, this TCP connection contains truncated packets");
+        statTotalTruncatedPackets++;
+        if (!(*ts)->truncatedPackets) {
+            (*ts)->truncatedPackets = true;
+            msg(MSG_DEBUG, "tcpmon: WARNING, this TCP connection contains truncated packets");
         }
     }
 
     // update the timeout timestamp of the TCPStream
-    refreshTimeout(ts);
+    refreshTimeout((*ts));
 
-    // if the TCP stream was closed before we do not have to consider this Packet
-    if (ts->state == TCPStream::TCP_CLOSED) {
-        DPRINTFL(MSG_DEBUG, "tcpmon: skipping packet, TCP connection was closed before");
-        // remove the reference to the Packet instance
-        p->removeReference();
-        statSkippedPackets++;
-#ifdef DEBUG
-    int32_t refCount = p->getReferenceCount();
-    if (refCount != 1)
-        THROWEXCEPTION("wrong reference count: %d. expected: 1", refCount);
-#endif
-        return NULL;
-    }
+// To reconsider: Packets which arrive after a stream was marked as closed could be
+// skipped... But for now we don't skip them
+//
+//    // if the TCP stream was closed before we do not have to consider this Packet
+//    if ((*ts)->state == TCPStream::TCP_CLOSED) {
+//        DPRINTFL(MSG_DEBUG, "tcpmon: skipping packet, TCP connection was closed before");
+//        // remove the reference to the Packet instance
+//        p->removeReference();
+//        statTotalSkippedPacketsAfterClose++;
+//#ifdef DEBUG
+//    int32_t refCount = p->getReferenceCount();
+//    if (refCount != 1)
+//        THROWEXCEPTION("wrong reference count: %d. expected: 1", refCount);
+//#endif
+//        return TCPMonitor::CLOSED;
+//    }
 
-    ts->updateDirection(p);
+    (*ts)->updateDirection(p);
 
     // perform TCP connection analysis
-    if (!analysePacket(p, ts)) {
+    if (!analysePacket(p, (*ts))) {
         DPRINTFL(MSG_DEBUG, "tcpmon: skipping packet, packet is out of order.");
-        return NULL;
+        return TCPMonitor::OUT_OF_ORDER;
     }
 
-    if (ts->state == TCPStream::TCP_CLOSED) {
-        DPRINTFL(MSG_DEBUG, "tcpmon: skipping packet, TCP connection is closed");
-        // remove the reference to the Packet instance
-        p->removeReference();
-#ifdef DEBUG
-    int32_t refCount = p->getReferenceCount();
-    if (refCount != 1)
-        THROWEXCEPTION("wrong reference count: %d. expected: 1", refCount);
-#endif
-        return NULL;
-    }
-
-    return ts;
+    return TCPMonitor::IN_ORDER;
 }
 
 /**
@@ -214,41 +268,70 @@ bool TCPMonitor::analysePacket(Packet* p, TCPStream* ts) {
     uint8_t flags = *reinterpret_cast<uint8_t*>(p->transportHeader + OFFSET_FLAGS) & 0x3F;
 
     // TCPData from the originator of the Packet
-    TCPData* src = ts->isForward() ? &ts->fwdData : &ts->revData;
+    TCPData& src = ts->isForward() ? ts->fwdData : ts->revData;
     // TCPData from the destination of the Packet
-    TCPData* dst = ts->isReverse() ? &ts->fwdData : &ts->revData;
+    TCPData& dst = ts->isReverse() ? ts->fwdData : ts->revData;
 
     uint32_t slen = p->net_total_length - p->payloadOffset; // TCP segment length
 
     DPRINTFL(MSG_DEBUG, "tcpmon: seq#: %u, is next:%s, ack#: %u, flags: SYN=%d, ACK=%d, FIN=%d, RST=%d, plen: %u, slen:%u",
-            seq, seq == src->nextSeq ? "yes":"no", ack, (bool)(flags&FLAG_SYN), (bool)(flags&FLAG_ACK), (bool)(flags&FLAG_FIN), (bool)(flags&FLAG_RST), p->pcapPacketLength, slen);
+            seq, seq == src.nextSeq ? "yes":"no", ack, (bool)(flags&FLAG_SYN), (bool)(flags&FLAG_ACK), (bool)(flags&FLAG_FIN), (bool)(flags&FLAG_RST), p->pcapPacketLength, slen);
 
     if (isSet(flags, FLAG_SYN | FLAG_FIN) || isSet(flags, FLAG_SYN | FLAG_RST)) {
-        msg(MSG_ERROR, "tcpmon: dropping a packet with an illegal combination of TCP flags: : SYN=%d, ACK=%d, FIN=%d, RST=%d",
+        msg(MSG_DEBUG, "tcpmon: closing the stream upon a packet with an illegal combination of TCP flags: : SYN=%d, ACK=%d, FIN=%d, RST=%d",
                 (bool)(flags&FLAG_SYN), (bool)(flags&FLAG_ACK), (bool)(flags&FLAG_FIN), (bool)(flags&FLAG_RST));
         if (ts->state != TCPStream::TCP_CLOSED) {
-              // move TCPStream to the TimoutList closedStreams
-              changeList(ts);
               // clear all cached packets. after the connection close all further
               // packets are rejected.
               ts->releaseQueuedPackets();
+              statTotalInvalidConnections++;
           }
-          ts->state = TCPStream::TCP_CLOSED;
-    } else if (isSet(flags, FLAG_SYN) && !isSet(flags, FLAG_ACK) && src->initSeq==0 && src->initSeq != seq) {
+          // update the state of the TCPStream and move it to the proper timeout list
+          changeState(ts, TCPStream::TCP_CLOSED);
+    } else if (isSet(flags, FLAG_SYN) && !isSet(flags, FLAG_ACK) && src.initSeq==0 && src.initSeq != seq) {
         // this is a connection attempt, i.e. a SYN packet
         DPRINTFL(MSG_INFO, "tcpmon: TCP handshake: connection attempt (SYN)");
-        src->initSeq = seq;
-        src->nextSeq = seq + 1;
-    } else if (isSet(flags, FLAG_SYN | FLAG_ACK) && src->initSeq==0 && src->initSeq != seq && dst->initSeq + 1 == ack) {
-        // this is a connection established, i.e. a SYN+ACK packet
+        src.initSeq = seq;
+        src.nextSeq = seq + 1;
+        if (ts->state == TCPStream::TCP_UNDEFINED)
+            statTotalHalfEstablishedConnections++;
+        ts->state = TCPStream::TCP_ATTEMPT;
+    } else if (isSet(flags, FLAG_SYN | FLAG_ACK) && src.initSeq==0 && src.initSeq != seq && dst.initSeq + 1 == ack) {
+        // connection established, i.e. a SYN+ACK packet has been seen after a SYN
         DPRINTFL(MSG_INFO, "tcpmon: TCP handshake: connection established (SYN+ACK)");
-        src->initSeq = seq;
-        src->nextSeq = seq + 1;
-        ts->state = TCPStream::TCP_ESTABLISHED;
-        statTotalConnections++;
-        statRegularEstablishedConnections++;
-    } else if (isSet(flags, FLAG_FIN) && src->seqFin == 0 && src->nextSeq == seq) {
-        if (dst->seqFin==0) {
+        src.initSeq = seq;
+        src.nextSeq = seq + 1;
+
+        if (ts->state == TCPStream::TCP_UNDEFINED) // do we need this?
+            statTotalEstablishedConnections++;
+        if (ts->state == TCPStream::TCP_ATTEMPT) {
+            statTotalEstablishedConnections++;
+            statTotalRegularEstablishedConnections++;
+        }
+
+        // update the state of the TCPStream and move it to the proper timeout list
+        changeState(ts, TCPStream::TCP_ESTABLISHED);
+    } else if (isSet(flags, FLAG_FIN) && src.seqFin == 0 && (src.nextSeq == seq || (src.initSeq == 0 && src.nextSeq == 0))) {
+
+        // if this is the first observed packet
+        if (ts->state == TCPStream::TCP_UNDEFINED || ts->state == TCPStream::TCP_ATTEMPT) {
+            statTotalEstablishedConnections++;
+            statTotalNonRegularEstablishedConnections++;
+            // update the state of the TCPStream and move it to the proper timeout list
+            changeState(ts, TCPStream::TCP_ESTABLISHED);
+        }
+        if (src.initSeq == 0 && src.nextSeq == 0) {
+            // guess the initial sequence number equals actual seq - 1
+            src.initSeq = seq - 1;
+            if (dst.initSeq == 0 && dst.nextSeq == 0 && isSet(flags, FLAG_ACK)) {
+                // guess the initial sequence number in the other direction equals to ack - 1
+                dst.initSeq = ack - 1;
+                // guess the next sequence number in the other direction equals to ack
+                dst.nextSeq = ack;
+            }
+        }
+
+        if (dst.seqFin==0) {
             // one party requests to close the connection
             DPRINTFL(MSG_INFO, "tcpmon: TCP termination: closing connection");
         }
@@ -257,71 +340,118 @@ bool TCPMonitor::analysePacket(Packet* p, TCPStream* ts) {
             // so the TCP termination can be considered as complete
             DPRINTFL(MSG_INFO, "tcpmon: TCP termination: connection closed");
             if (ts->state != TCPStream::TCP_CLOSED) {
-                // move TCPStream to the TimoutList closedStreams
-                changeList(ts);
                 // clear all cached packets. after the connection close all further
                 // packets are rejected.
                 ts->releaseQueuedPackets();
+                statTotalTerminatedConnections++;
             }
-            ts->state = TCPStream::TCP_CLOSED;
+            // update the state of the TCPStream and move it to the proper timeout list
+            changeState(ts, TCPStream::TCP_CLOSED);
         }
-        src->nextSeq = seq + 1;
-        src->seqFin = seq;
-    } else if (isSet(flags, FLAG_RST)) {
+
+        src.nextSeq = seq + 1 + slen;
+        src.seqFin = seq + slen;
+    } else if (isSet(flags, FLAG_RST) && ts->state != TCPStream::TCP_CLOSED) {
+        if(ts->state == TCPStream::TCP_ATTEMPT && isSet(flags, FLAG_ACK) && seq == 0 && ack != dst.initSeq+1) {
+            // invalid RST packet
+            msg(MSG_ERROR, "tpcmon: invalid RST packet, ACKed wrong sequence number");
+            return false;
+        }
+
+        if (seq != src.nextSeq && !(src.initSeq == 0 && src.nextSeq == 0)) {
+            // invalid RST packet
+            msg(MSG_ERROR, "tpcmon: invalid RST packet, wrong sequence number");
+            return false;
+        }
+
         // discovered a RST packet, immediately close the connection
         DPRINTFL(MSG_INFO, "tcpmon: TCP RST discovered: connection closed");
+
+        // if this is the first observed packet
+        if (ts->state == TCPStream::TCP_UNDEFINED) {
+            statTotalEstablishedConnections++;
+            statTotalNonRegularEstablishedConnections++;
+        }
+
+        if (src.initSeq == 0 && src.nextSeq == 0) {
+            // guess the initial sequence number equals actual seq - 1
+            src.initSeq = seq - 1;
+            if (dst.initSeq == 0 && dst.nextSeq == 0 && isSet(flags, FLAG_ACK)) {
+                // guess the initial sequence number in the other direction equals to ack - 1
+                dst.initSeq = ack - 1;
+                // guess the next sequence number in the other direction equals to ack
+                dst.nextSeq = ack;
+            }
+        }
+
         if (ts->state != TCPStream::TCP_CLOSED) {
-            // move TCPStream to the TimoutList closedStreams
-            changeList(ts);
             // clear all cached packets. after the connection close all further
             // packets are rejected.
             ts->releaseQueuedPackets();
+            statTotalResettedConnections++;
         }
-        ts->state = TCPStream::TCP_CLOSED;
-        src->nextSeq = seq + 1;
-        src->seqFin = seq;
-    } else if (src->nextSeq == seq) {
+        // update the state of the TCPStream and move it to the proper timeout list
+        changeState(ts, TCPStream::TCP_CLOSED);
+
+        src.nextSeq = seq + 1 + slen;
+        src.seqFin = seq + slen;
+    } else if (src.nextSeq == seq) {
         // this data packet is in order, update next sequence number
         DPRINTFL(MSG_DEBUG, "tcpmon: ordinary data packet, setting next seq nr to %u", seq + slen);
-        src->nextSeq = seq + slen;
+        src.nextSeq = seq + slen;
+        if (isSet(flags, FLAG_ACK))
+            processACK(ts, ack, dst);
     } else {
-        if (src->initSeq == 0 && src->nextSeq == 0) {
+        if (src.initSeq == 0 && src.nextSeq == 0 && (ts->state == TCPStream::TCP_UNDEFINED || ts->state == TCPStream::TCP_ATTEMPT)) {
             // for some reason we did not discover the initial sequence number.
             // guess the initial sequence number equals actual seq - 1
-            src->initSeq = seq - 1;
-            src->nextSeq = seq + slen;
-            ts->state = TCPStream::TCP_ESTABLISHED;
-            statTotalConnections++;
-            statNonRegularEstablishedConnections++;
+            src.initSeq = seq - 1;
+            src.nextSeq = seq + slen;
+
+            statTotalEstablishedConnections++;
+            statTotalNonRegularEstablishedConnections++;
+
+            // update the state of the TCPStream and move it to the proper timeout list
+            changeState(ts, TCPStream::TCP_ESTABLISHED);
             DPRINTFL(MSG_INFO, "tcpmon: TCP new connection established (handshake was not observed)");
-        } else if (src->nextSeq) {
+
+            if (isSet(flags, FLAG_ACK))
+                processACK(ts, ack, dst);
+        } else if (src.nextSeq) {
+            if (isSet(flags, FLAG_ACK))
+                processACK(ts, ack, dst);
+
             if (isFresh(seq, src)) {
                 // this is a new unseen packet which is out-of-order
-                statOutOfOrderPackets++;
-                PacketQueue::iterator it = ts->packetQueue.find(PacketQueue::key_type(seq));
-                if (it == ts->packetQueue.end()) {
+                statTotalOutOfOrderPackets++;
+                PacketQueue& packetQueue = ts->isForward() ? ts->fwdData.packetQueue : ts->revData.packetQueue;
+                PacketQueue::iterator it = packetQueue.find(PacketQueue::key_type(seq));
+                if (it == packetQueue.end()) {
                     if (ts->bufferedSize + p->pcapPacketLength > MAX_BUFFERED_BYTES) {
-                        statBufferOverflows++;
+                        statTotalBufferOverflows++;
                         msg(MSG_ERROR, "tcpmon: out of buffer space! cannot proceed with TCP reassembly for stream with hash %lu.", hash_value(*ts));
                         if (ts->state != TCPStream::TCP_CLOSED) {
-                            // move TCPStream to the TimoutList closedStreams
-                            changeList(ts);
                             // clear all cached packets. after the connection close all further
                             // packets are rejected.
                             ts->releaseQueuedPackets();
                         }
-                        ts->state = TCPStream::TCP_CLOSED;
+                        // update the state of the TCPStream and move it to the proper timeout list
+                        changeState(ts, TCPStream::TCP_CLOSED);
                         p->removeReference();
                         return false;
                     }
-                    statBufferedOutOfOrderPackets++;
-                    ts->packetQueue.insert(PacketQueue::value_type(seq, p));
+                    statBufferedPackets++;
+                    statTotalBufferedPackets++;
+                    packetQueue.insert(PacketQueue::value_type(seq, p));
                     DPRINTFL(MSG_DEBUG, "tcpmon: non contiguous sequence number. inserting packet with seq# %u into PacketQueue for later processing.", seq);
                     ts->bufferedSize += p->pcapPacketLength;
                 }
             } else {
-                // this packet has been seen previously and should not have to be processed
-                DPRINTFL(MSG_INFO, "tcpmon: packet is out of order. not considering packet because the sequence number should already have been processed.");
+                // this sequence number has been seen previously and should not have to be processed
+                if (!(flags & (FLAG_SYN | FLAG_FIN | FLAG_RST)) && ((seq == src.nextSeq && slen == 0) || ((seq == src.nextSeq - 1 && slen == 1))))
+                    DPRINTFL(MSG_DEBUG, "tcpmon: packet is out of order. this should be a TCP keep-alive packet.");
+                else
+                    DPRINTFL(MSG_DEBUG, "tcpmon: packet is out of order. not considering packet because the sequence number should already have been processed.");
                 p->removeReference();
 #ifdef DEBUG
     int32_t refCount = p->getReferenceCount();
@@ -341,6 +471,37 @@ bool TCPMonitor::analysePacket(Packet* p, TCPStream* ts) {
 }
 
 /**
+ * Analyze the ACK field. Checks for sequence gaps resulting from a packet loss and trims them if needed
+ * @param ts Reference to TCPStream
+ * @param ack Received ACK
+ * @param dst TCPData of the packet's destination
+ */
+void TCPMonitor::processACK(TCPStream* ts, uint32_t ack, TCPData& dst) {
+    if (ack > 0) {
+        if (msg_getlevel()>=MSG_VDEBUG && !ts->sequenceGaps && isFresh(ack, dst)) {
+            msg(MSG_DEBUG, "ACKed unseen segment. this TCP connection may contain sequence gaps!");
+            ts->sequenceGaps = true;
+        }
+        if (dst.initSeq == 0 && dst.nextSeq == 0) {
+            // guess the initial sequence number in the other direction equals to ack - 1
+            dst.initSeq = ack - 1;
+            // guess the next sequence number in the other direction equals to ack
+            dst.nextSeq = ack;
+        } else if (isFresh(ack, dst)){
+            // a sequence gap was observed
+            DPRINTFL(MSG_DEBUG, "skipping gap from seq %u to %u", dst.nextSeq, ack);
+            uint32_t& lostBytes = ts->isForward() ? ts->httpData->forwardLostBytes : ts->httpData->reverseLostBytes;
+            if (ack > dst.nextSeq)
+                lostBytes += dst.nextSeq - ack;
+            else
+                lostBytes += (0xFFFFFFFF - dst.nextSeq) + ack;
+            dst.nextSeq = ack;
+            ts->releaseObsoleteQueuedPackets(dst);
+        }
+    }
+}
+
+/**
  * Check if the TCPStream contains queued Packets which can be processed.
  * If a Packet is in order, i.e. the sequence number matches the next expected
  * in the current direction TCPData::nextSeq, the Packet is returned.
@@ -349,18 +510,29 @@ bool TCPMonitor::analysePacket(Packet* p, TCPStream* ts) {
  */
 Packet* TCPMonitor::nextPacketForStream(TCPStream* ts) {
     // lookup for a queued Packet which is in order
-    TCPData* src = ts->isForward() ? &ts->fwdData : &ts->revData;
-    uint32_t nseq = src->nextSeq;
-    PacketQueue::iterator it = ts->packetQueue.find(nseq);
-    if (it == ts->packetQueue.end()) {
-        return NULL;
+    TCPData& src = ts->isForward() ? ts->fwdData : ts->revData;
+    uint32_t nseq = src.nextSeq;
+    PacketQueue* packetQueue = ts->isForward() ? &ts->fwdData.packetQueue : &ts->revData.packetQueue;
+    PacketQueue::iterator it = packetQueue->find(nseq);
+    if (it == packetQueue->end()) {
+        TCPData& dst = ts->isForward() ? ts->revData : ts->fwdData;
+        if (dst.packetsAvailable) {
+            uint32_t nseq = src.nextSeq;
+            packetQueue = ts->isForward() ? &ts->revData.packetQueue : &ts->fwdData.packetQueue;
+            it = packetQueue->find(nseq);
+            dst.packetsAvailable = false;
+        }
+        if (it == packetQueue->end())
+            return NULL;
+        ts->updateDirection((*it).second);
+        msg(MSG_ERROR, "tcpmon: switching direction! proceeding with packet in opposite direction.");
     }
 
     Packet* p = (*it).second;
-    DPRINTFL(MSG_INFO, "tcpmon: processing queued packet with sequence number: %u", nseq);
+    DPRINTFL(MSG_DEBUG, "tcpmon: processing queued packet with sequence number: %u", nseq);
 
     // delete the Packet from the queue
-    ts->packetQueue.erase(it);
+    packetQueue->erase(it);
     ts->bufferedSize -= p->pcapPacketLength;
 
 #ifdef DEBUG
@@ -384,10 +556,8 @@ Packet* TCPMonitor::nextPacketForStream(TCPStream* ts) {
     }
 
 #ifdef DEBUG
-    if (ts->packetQueue.find(nseq)!=ts->packetQueue.end())
+    if (packetQueue->find(nseq)!=packetQueue->end())
         THROWEXCEPTION("packet was not removed properly...");
-    if (!result)
-        THROWEXCEPTION("packet was inserted twice");
     if (!p)
         THROWEXCEPTION("packet is null");
 #endif
@@ -404,6 +574,7 @@ Packet* TCPMonitor::nextPacketForStream(TCPStream* ts) {
 TCPStream* TCPMonitor::findOrCreateStream(Packet* p) {
     TCPStream* ts = 0;
     StreamHashTable::iterator it = htable->find(TCPStream(p));
+
     if (it == htable->end()) {
         pair<hashtable<TCPStream>::iterator, bool> result = htable->insert_unique(*new TCPStream(p, streamCounter++));
 
@@ -423,6 +594,7 @@ TCPStream* TCPMonitor::findOrCreateStream(Packet* p) {
         ts->httpData->direction = &ts->direction;
 
         DPRINTFL(MSG_INFO, "tcpmon: created new stream with hash: %lu", hash_value(*ts));
+        statTotalConnections++;
 #ifdef DEBUG
 		ts->printKey();
 #endif
@@ -438,30 +610,53 @@ TCPStream* TCPMonitor::findOrCreateStream(Packet* p) {
 }
 
 /**
- * Refreshes the timeout timestamp of a TCPStream. The new point in time at which
- * the TCPStream expires is calculated by adding a certain timeout to the current
- * time. Depending on the state of the TCP connection either ::TIMEOUT_CLOSED or
- * ::TIMEOUT_OPENED is added. Additional the TCPStream is pushed to the end of the
- * list which it belongs to. That way we keep stored TCPStreams in order of their
- * expiry.
+ * Convenience function to refresh the timeout timestamp.
+ * This function calls TCPStream::refreshTimeout(TCPStream*, TimeoutList& list, const uint32_t& timeout),
+ * whith the proper parameters defined by the state of the TCPStream.
+ * @param ts the TCPStream whose timeout timestamp should be refreshed
  */
-void TCPMonitor::refreshTimeout(TCPStream* ts)
+void TCPMonitor::refreshTimeout(TCPStream* ts, bool refreshClosed)
 {
-    if ( ts->state == TCPStream::TCP_CLOSED) {
-        if (ts->timeoutHook.is_linked()) {
-            TimeoutList::iterator it = closedStreams.iterator_to(*ts);
-            closedStreams.erase(it);
-        }
-        addToCurTime(&ts->timeout, TIMEOUT_CLOSED);
-        closedStreams.push_back(*ts);
-    } else {
-        if (ts->timeoutHook.is_linked()) {
-            TimeoutList::iterator it = openedStreams.iterator_to(*ts);
-            openedStreams.erase(it);;
-        }
-        addToCurTime(&ts->timeout, TIMEOUT_OPENED);
-        openedStreams.push_back(*ts);
+    switch (ts->state) {
+        case TCPStream::TCP_UNDEFINED:
+        case TCPStream::TCP_ATTEMPT:
+            refreshTimeout(ts, attemptedConnections, TIMEOUT_ATTEMPTED);
+            break;
+        case TCPStream::TCP_ESTABLISHED:
+            refreshTimeout(ts, establishedConnections, TIMEOUT_ESTABLISHED);
+            break;
+        case TCPStream::TCP_CLOSED:
+            // it should be better to not refresh closed connections
+            if (refreshClosed)
+                refreshTimeout(ts, closedConnections, TIMEOUT_CLOSED);
+            break;
+        default:
+            THROWEXCEPTION("undefined TCPStream state");
+            break;
     }
+}
+
+/**
+ * Refreshes the timeout timestamp of a TCPStream. The new point in time at which
+ * the TCPStream expires is calculated by adding a certain timeout to either the
+ * current time or timestamp of the latest packet seen. Additional the TCPStream
+ * is pushed to the end of the list which it belongs to. That way we keep stored
+ * TCPStreams in order of their expiry.
+ * @param ts the TCPStream whose timeout timestamp should be refreshed
+ * @param list the list which the TCPStream belongs to
+ * @param timeout the timeout value to be
+ */
+void TCPMonitor::refreshTimeout(TCPStream* ts, TimeoutList& list, const uint32_t& timeout)
+{
+    if (ts->timeoutHook.is_linked()) {
+        TimeoutList::iterator it = list.iterator_to(*ts);
+        list.erase(it);
+    }
+    if (usePCAPTimestamps)
+        addToTime(ts->timeout, currentTimestamp, timeout);
+    else
+        addToCurTime(&ts->timeout, timeout);
+    list.push_back(*ts);
 }
 
 /**
@@ -470,9 +665,14 @@ void TCPMonitor::refreshTimeout(TCPStream* ts)
  */
 void TCPMonitor::expireStreams(bool all) {
     timeval currentTime;
-    gettimeofday(&currentTime, NULL);
-    expireList(all, openedStreams, currentTime);
-    expireList(all, closedStreams, currentTime);
+    if (usePCAPTimestamps)
+        currentTime = currentTimestamp;
+    else 
+        gettimeofday(&currentTime, NULL);
+
+    expireList(all, attemptedConnections, currentTime);
+    expireList(all, establishedConnections, currentTime);
+    expireList(all, closedConnections, currentTime);
 }
 
 /**
@@ -502,7 +702,7 @@ TCPMonitor::expireList(bool all, TimeoutList& list, timeval compare) {
 #ifdef DEBUG
             timeval diff, x = ts->timeout, y = compare;
             timeval_subtract(&diff, &x, &y);
-            DPRINTFL(MSG_VDEBUG, "tcpmon: not expiring, still %lu ms remaining", diff.tv_sec*1000 + diff.tv_usec/1000);
+            msg(MSG_VDEBUG, "tcpmon: not expiring %lu, still %lu ms remaining", hash_value(*ts),  diff.tv_sec*1000 + diff.tv_usec/1000);
             it++;
 #else
             // we don't have to check all the entries in the list as they are stored in order of expiry.
@@ -513,12 +713,21 @@ TCPMonitor::expireList(bool all, TimeoutList& list, timeval compare) {
     }
 
     if (list.size() != before) {
+        string name;
         TimeoutList::size_type diff = before - list.size();
-        DPRINTFL(MSG_DEBUG, "tcpmon: expired %lu %s streams", diff,  &list == &openedStreams ? "open" : "closed");
-        if (&list == &openedStreams)
-            statExpiredOpenConnections += diff;
-        else
-            statExpiredClosedConnections += diff;
+        if (&list == &establishedConnections) {
+            statTotalExpiredEstablishedConnections += diff;
+            name = "established";
+        }
+        else if (&list == &closedConnections) {
+            statTotalExpiredClosedConnections += diff;
+            name = "closed";
+        }
+        else if (&list == &attemptedConnections) {
+            statTotalExpiredConnectionsAttempts += diff;
+            name = "attempted";
+        }
+        DPRINTFL(MSG_DEBUG, "tcpmon: expired %lu %s stream(s)", diff,  name.c_str());
     }
 
 #ifdef DEBUG
@@ -534,17 +743,55 @@ TCPMonitor::expireList(bool all, TimeoutList& list, timeval compare) {
 }
 
 /**
- * Moves a TCPStream from ::openStreams to ::closedStreams and sets the
+ * Changes the state of the TCPStream and moves the TCPStream to the proper timeout list
+ * @param ts TCPStream which should be updated
+ * @param newState the new State of the TCPStream
+ */
+void TCPMonitor::changeState(TCPStream* ts, TCPStream::tcp_state_t newState) {
+    if (ts->state == newState)
+        return;
+
+    TimeoutList& from = getList(ts->state);
+    TimeoutList& to = getList(newState);
+
+    ts->state = newState;
+    changeList(ts, from, to);
+}
+
+/**
+ * Returns the list which corresponds to the given state
+ * @param state
+ * @return
+ */
+TimeoutList& TCPMonitor::getList(TCPStream::tcp_state_t state) {
+    switch (state) {
+        case TCPStream::TCP_UNDEFINED:
+        case TCPStream::TCP_ATTEMPT:
+            return attemptedConnections;
+            break;
+        case TCPStream::TCP_ESTABLISHED:
+            return establishedConnections;
+            break;
+        case TCPStream::TCP_CLOSED:
+            return closedConnections;
+            break;
+    }
+    THROWEXCEPTION("undefined TCPStream state");
+}
+
+/**
+ * Moves a TCPStream from a list to the specified list
  * timeout accordingly.
  * @param ts TCPStream to move
+ * @param from source list from which the TCPStream should be removed
+ * @param to destination list in which the TCPStream should be inserted
  */
-void TCPMonitor::changeList(TCPStream* ts) {
+void TCPMonitor::changeList(TCPStream* ts, TimeoutList& from, TimeoutList& to) {
     if (ts->timeoutHook.is_linked()) {
-        TimeoutList::iterator it = openedStreams.iterator_to(*ts);
-        openedStreams.erase(it);
+        TimeoutList::iterator it = from.iterator_to(*ts);
+        from.erase(it);
     }
-    addToCurTime(&ts->timeout,TIMEOUT_CLOSED);
-    closedStreams.push_back(*ts);
+    refreshTimeout(ts, true);
 }
 
 /**
@@ -574,33 +821,75 @@ bool TCPMonitor::isSet(uint8_t flags, uint8_t bitmask) {
  * @param ts TCPData which supplies a reference to check against
  * @return true if the TCP sequence number is considered as fresh, false otherwise.
  */
-bool TCPMonitor::isFresh(uint32_t seq, TCPData* td) {
+bool TCPMonitor::isFresh(uint32_t seq, TCPData& td) {
     uint32_t MAX_HALF = 0x7FFFFFFF;
-    if (td->nextSeq < seq && seq - td->nextSeq < MAX_HALF)
+    if (td.nextSeq < seq && seq - td.nextSeq < MAX_HALF)
         return true;
-    if (td->nextSeq > seq && td->nextSeq - seq > MAX_HALF)
+    if (td.nextSeq > seq && td.nextSeq - seq > MAX_HALF)
         return true;
     return false;
 }
 
 void TCPMonitor::printStreamCount() {
-    msg(MSG_ERROR, "total streams: %lu, open streams: %lu, closed streams: %lu, stream counter: %u", htable->size(), openedStreams.size(), closedStreams.size(), streamCounter);
+    msg(MSG_ERROR, "total streams: %lu, stream attempts: %lu, established streams: %lu, closed streams: %lu, stream counter: %u", htable->size(), attemptedConnections.size(), establishedConnections.size(), closedConnections.size(), streamCounter);
 }
+
+int TCPMonitor::IN_ORDER     = 0;
+int TCPMonitor::OUT_OF_ORDER = 1;
+int TCPMonitor::CLOSED       = 2;
+
+// statistics
+uint64_t TCPMonitor::statTotalConnections;
+uint64_t TCPMonitor::statTotalPackets;
+uint64_t TCPMonitor::statTotalTruncatedPackets;
+uint64_t TCPMonitor::statTotalOutOfOrderPackets;
+uint64_t TCPMonitor::statTotalBufferedPackets;
+uint64_t TCPMonitor::statBufferedPackets;
+uint64_t TCPMonitor::statTotalSkippedBufferedPackets;
+uint64_t TCPMonitor::statTotalSkippedPacketsInGaps;
+uint64_t TCPMonitor::statTotalSkippedPacketsAfterClose;
+uint64_t TCPMonitor::statTotalBufferOverflows;
+uint64_t TCPMonitor::statTotalEstablishedConnections;
+uint64_t TCPMonitor::statTotalRegularEstablishedConnections;
+uint64_t TCPMonitor::statTotalNonRegularEstablishedConnections;
+uint64_t TCPMonitor::statTotalExpiredConnectionsAttempts;
+uint64_t TCPMonitor::statTotalExpiredEstablishedConnections;
+uint64_t TCPMonitor::statTotalExpiredClosedConnections;
+uint64_t TCPMonitor::statTotalTerminatedConnections;
+uint64_t TCPMonitor::statTotalResettedConnections;
+uint64_t TCPMonitor::statTotalHalfEstablishedConnections;
+uint64_t TCPMonitor::statTotalInvalidConnections;
 
 std::string TCPMonitor::getStatisticsXML(double interval)
 {
     ostringstream oss;
+    oss << "<Connections>" << htable->size() << "</Connections>";
+    oss << "<AttemptedConnections>" << attemptedConnections.size() << "</AttemptedConnections>";
+    oss << "<EstablishedConnections>" << establishedConnections.size() << "</EstablishedConnections>";
+    oss << "<ClosedConnections>" << closedConnections.size() << "</ClosedConnections>";
     oss << "<TotalConnections>" << statTotalConnections << "</TotalConnections>";
+    oss << "<TotalEstablishedConnections>" << statTotalEstablishedConnections << "</TotalEstablishedConnections>";
+    oss << "<TotalHalfEstablishedConnections>" << statTotalHalfEstablishedConnections << "</TotalHalfEstablishedConnections>";
+    oss << "<TotalRegularEstablishedConnections>" << statTotalRegularEstablishedConnections << "</TotalRegularEstablishedConnections>";
+    oss << "<TotalNonRegularEstablishedConnections>" << statTotalNonRegularEstablishedConnections << "</TotalNonRegularEstablishedConnections>";
+    oss << "<TotalTerminatedConnections>" << statTotalTerminatedConnections << "</TotalTerminatedConnections>";
+    oss << "<TotalResettedConnections>" << statTotalResettedConnections << "</TotalResettedConnections>";
+    oss << "<TotalInvalidConnections>" << statTotalInvalidConnections << "</TotalInvalidConnections>";
+    oss << "<TotalExpiredConnectionsAttempts>" << statTotalExpiredConnectionsAttempts << "</TotalExpiredConnectionsAttempts>";
+    oss << "<TotalExpiredEstablishedConnections>" << statTotalExpiredEstablishedConnections << "</TotalExpiredEstablishedConnections>";
+    oss << "<TotalExpiredClosedConnections>" << statTotalExpiredClosedConnections << "</TotalExpiredClosedConnections>";
     oss << "<TotalPackets>" << statTotalPackets << "</TotalPackets>";
-    oss << "<TruncatedPackets>" << statTruncatedPackets << "</TruncatedPackets>";
-    oss << "<OutOfOrderPackets>" << statOutOfOrderPackets << "</OutOfOrderPackets>";
-    oss << "<BufferedOutOfOrderPackets>" << statBufferedOutOfOrderPackets << "</BufferedOutOfOrderPackets>";
-    oss << "<SkippedPackets>" << statSkippedPackets << "</SkippedPackets>";
-    oss << "<BufferOverflows>" << statBufferOverflows << "</BufferOverflows>";
-    oss << "<ExpiredOpenConnections>" << statExpiredOpenConnections << "</ExpiredOpenConnections>";
-    oss << "<ExpiredClosedConnections>" << statExpiredClosedConnections << "</ExpiredClosedConnections>";
-    oss << "<RegularEstablishedConnections>" << statRegularEstablishedConnections << "</RegularEstablishedConnections>";
-    oss << "<NonRegularEstablishedConnections>" << statNonRegularEstablishedConnections << "</NonRegularEstablishedConnections>";
+    oss << "<TotalTruncatedPackets>" << statTotalTruncatedPackets << "</TotalTruncatedPackets>";
+    oss << "<TotalOutOfOrderPackets>" << statTotalOutOfOrderPackets << "</TotalOutOfOrderPackets>";
+    oss << "<BufferedOutOfOrderPackets>" << statBufferedPackets << "</BufferedOutOfOrderPackets>";
+    oss << "<TotalBufferedOutOfOrderPackets>" << statTotalBufferedPackets << "</TotalBufferedOutOfOrderPackets>";
+    oss << "<TotalSkippedBufferedPackets>" << statTotalSkippedBufferedPackets << "</TotalSkippedBufferedPackets>";
+    oss << "<TotalSkippedPacketsInGaps>" << statTotalSkippedPacketsInGaps << "</TotalSkippedPacketsInGaps>";
+    oss << "<TotalSkippedPackets>" << statTotalSkippedPacketsAfterClose << "</TotalSkippedPackets>";
+    oss << "<TotalBufferOverflows>" << statTotalBufferOverflows << "</TotalBufferOverflows>";
+
+    // reset counters
+    statBufferedPackets = 0;
 
     return oss.str();
 }

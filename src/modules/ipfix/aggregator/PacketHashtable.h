@@ -47,6 +47,8 @@ public:
 	static uint16_t getRawPacketFieldOffset(const InformationElement::IeInfo& type, const Packet* p);
 
 private:
+
+	static bool httpAggStatsInitialized;
 	/**
 	 * contains all parameters that are passed to the copy functions for new flows
 	 */

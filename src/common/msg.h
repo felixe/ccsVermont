@@ -48,6 +48,7 @@ void msg_init(void);
 void msg_shutdown(void);
 void msg2(const int, const char*, const char*, const char*, const int, const char *, ...);
 void msg_setlevel(int);
+int msg_getlevel();
 int msg_stat(const char *fmt, ...);
 int msg_stat_setup(int mode, FILE *f);
 void vermont_assert(const char* expr, const char* description, int line, const char* filename, const char* prettyfuncname, const char* funcname);

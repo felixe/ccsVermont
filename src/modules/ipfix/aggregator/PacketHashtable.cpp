@@ -33,16 +33,22 @@
 using namespace InformationElement;
 
 const uint32_t PacketHashtable::ExpHelperTable::UNUSED = 0xFFFFFFFF;
+bool PacketHashtable::httpAggStatsInitialized = false;
+
 uint64_t processedPackets = 0;
 
 PacketHashtable::PacketHashtable(Source<IpfixRecord*>* recordsource, Rule* rule,
 		uint16_t minBufferTime, uint16_t maxBufferTime, uint8_t hashbits)
 	: BaseHashtable(recordsource, rule, minBufferTime, maxBufferTime, hashbits),
-	snapshotWritten(false), startTime(time(0))
+	snapshotWritten(false), startTime(time(0)), tcpmon(0)
 {
 	buildExpHelperTable();
 	if (httpAggregation) {
-		tcpmon = new TCPMonitor(htableSize, tcpmonTimeoutOpened, tcpmonTimeoutClosed, tcpmonMaxBufferedBytes, httpaggMaxBufferedBytes);
+		tcpmon = new TCPMonitor(htableSize, tcpmonTimeoutAttempted, tcpmonTimeoutEstablished, tcpmonTimeoutClosed, tcpmonBufferSize, httpMsgBufferSize, tcpmonPCAPTimestamps);
+		if (!httpAggStatsInitialized) {
+		    SensorManager::getInstance().addSensor(new HTTPAggregation, "HTTPAggregation", 0);
+		    httpAggStatsInitialized = true;
+		}
 	}
 }
 
@@ -345,10 +351,13 @@ void PacketHashtable::aggregateHTTP(IpfixRecord::Data* bucket, HashtableBucket* 
 	detectHTTP(&data, &dataEnd, flowData, &aggregationStart, &aggregationEnd);
 
 	if (!aggregationStart || !aggregationEnd || aggregationEnd <= aggregationStart) {
-		DPRINTFL(MSG_INFO, "no payload has to be aggregated, skip packet payload");
+		DPRINTFL(MSG_INFO, "skip packet payload");
 		return;
 	}
 
+//	if (aggregationEnd == aggregationStart)
+//	    goto skip_aggregation;
+	{
 	uint32_t avail = efd->dstLength - ppd->byteCount;
 	if (avail>0) {
 		uint32_t size = aggregationEnd - aggregationStart;
@@ -366,7 +375,6 @@ void PacketHashtable::aggregateHTTP(IpfixRecord::Data* bucket, HashtableBucket* 
 	if (efd->typeSpecData.frontPayload.fpaLenOffset != ExpHelperTable::UNUSED)
 		(*reinterpret_cast<uint32_t*>(bucket+efd->typeSpecData.frontPayload.fpaLenOffset)) = htonl(ppd->byteCount);
 
-	// TODO force expiry if the connection closes
 	if (flowData->request.status == MESSAGE_END && flowData->response.status == MESSAGE_END) {
 		DPRINTFL(MSG_INFO, "forcing expiry of http flow");
 		hbucket->forceExpiry=true;
@@ -383,7 +391,8 @@ void PacketHashtable::aggregateHTTP(IpfixRecord::Data* bucket, HashtableBucket* 
 	        hbucket->forceExpiry=true;
 	    }
 	}
-
+	}
+skip_aggregation:
 	http_type_t type = *flowData->getType();
 	uint32_t* pipelinedOffsetEnd = 0;
 	if (type == HTTP_TYPE_REQUEST && flowData->request.status == MESSAGE_END)
@@ -1875,8 +1884,8 @@ void PacketHashtable::aggregatePacket(Packet* p)
 
     uint32_t slen = p->net_total_length - p->payloadOffset; // TCP segment length
 
-    DPRINTFL(MSG_DEBUG, "new packet #%lu| frame.len: %u, ip.len = %u, tcp.len = %u, captured bytes = %d",
-	        ++processedPackets, p->pcapPacketLength, p->net_total_length, slen, p->data_length_uncropped);
+    DPRINTFL(MSG_DEBUG, "new packet #%lu| frame.len: %u, ip.len = %u, tcp.len = %u, captured bytes = %d, http-requests: %d, http-responses: %d",
+	        ++processedPackets, p->pcapPacketLength, p->net_total_length, slen, p->data_length_uncropped, statTotalRequests, statTotalResponses);
 
 #ifdef DEBUG
 	int32_t refCount = p->getReferenceCount();
@@ -1885,6 +1894,8 @@ void PacketHashtable::aggregatePacket(Packet* p)
 #endif
 
     TCPStream* tcpStream =  0;
+    bool first = true;
+
     if (httpAggregation){
         if (p->ipProtocolType != Packet::TCP) {
             DPRINTFL(MSG_VDEBUG, "HTTP aggregation only supports TCP as IP protocol. skipping packet!");
@@ -1893,11 +1904,18 @@ void PacketHashtable::aggregatePacket(Packet* p)
         }
 
         p->addReference();
-        tcpStream = tcpmon->dissect(p);
-        if (!tcpStream) {
-			tcpmon->expireStreams();
-            atomic_release(&aggInProgress);
-            return;
+        int result = tcpmon->dissect(p, &tcpStream);
+        if (result != TCPMonitor::IN_ORDER) {
+            // packet is not in order, but we may have trimmed a sequence gap in the opposite direction
+            p = tcpmon->nextPacketForStream(tcpStream);
+            if (p) {
+                 // update slen
+                 slen = p->net_total_length - p->payloadOffset; // TCP segment length
+            } else {
+                tcpmon->expireStreams();
+                atomic_release(&aggInProgress);
+                return;
+            }
         }
 #ifdef DEBUG
         if (!tcpStream->httpData)
@@ -1907,7 +1925,6 @@ void PacketHashtable::aggregatePacket(Packet* p)
 #endif
     }
 
-    bool first = true;
     while (p) {
         // captured TCP segment length must be >0
         if (httpAggregation && slen <= 0) {
@@ -2020,6 +2037,8 @@ void PacketHashtable::aggregatePacket(Packet* p)
                 buckets[hash] = createBucket(htdata, p->observationDomainID, firstbucket, 0, hash);
                 buckets[hash]->data = buildBucketData(p, httpData, &buckets[hash]);
                 buckets[hash]->streamID = tcpStream->streamNum;
+                buckets[hash]->tcpForcedExpiry = tcpStream->tcpForcedExpiry;
+
                 tsrcData = buckets[hash]->data.get();
             }
             else
@@ -2171,6 +2190,16 @@ void PacketHashtable::aggregateIntoExistingFlow(IpfixRecord::Data* srcData,  HTT
          streamData->multipleResponses = false;
          aggregateHTTP(srcData, bucket, p, efd, false, false);
 
+         if (!bucket->forceExpiry) {
+              bucket->expireTime = time(0) + minBufferTime;
+              // currently we don't care about the order in the exportList, because if
+              // httpAggregation is enabled we loop through all buckets in expireFlows()
+//              if (bucket->forceExpireTime>bucket->expireTime) {
+//                  exportList.remove(bucket->listNode);
+//                  exportList.push(bucket->listNode);
+//              }
+          }
+
          // expire the bucket if needed
          if (bucket->forceExpiry) {
              DPRINTFL(MSG_VDEBUG, "forced expiry of bucket hash=%d", rhash);
@@ -2218,6 +2247,7 @@ void PacketHashtable::aggregateIntoNewFlow(IpfixRecord::Data* srcData,  HTTPStre
         // create the new bucket
         buckets[hash] = createBucket(htdata, p->observationDomainID, firstbucket, 0, hash);
         buckets[hash]->streamID = tcpStream->streamNum;
+        buckets[hash]->tcpForcedExpiry = tcpStream->tcpForcedExpiry;
 
         // reset the status and start restart the HTTP aggregation for the remaining part of the payload
         // if the payload still contains more then one HTTP message, this status will be reset to true
@@ -2225,6 +2255,16 @@ void PacketHashtable::aggregateIntoNewFlow(IpfixRecord::Data* srcData,  HTTPStre
         streamData->multipleResponses = false;
 
         aggregateHTTP(htdata.get(), buckets[hash], p, efd, true, false);
+
+        if (!buckets[hash]->forceExpiry) {
+            buckets[hash]->expireTime = time(0) + minBufferTime;
+             // currently we don't care about the order in the exportList, because if
+             // httpAggregation is enabled we loop through all buckets in expireFlows()
+//              if (buckets[hash]->forceExpireTime>buckets[hash]->expireTime) {
+//                  exportList.remove(buckets[hash]->listNode);
+//                  exportList.push(buckets[hash]->listNode);
+//              }
+         }
 
         // statistics...
         if (firstbucket) {

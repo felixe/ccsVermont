@@ -78,10 +78,12 @@ class Rule : private PrintHelpers {
 		int fieldCount;
 		uint32_t biflowAggregation;	/**< true if biflows have to be aggregated */
 		uint32_t httpAggregation;	/**< true if http-flows have to be aggregated */
-		uint32_t tcpmonTimeoutOpened; /**< expiry timeout for opened TCP connections in the TcpMonitor */
-		uint32_t tcpmonTimeoutClosed; /**< expiry timeout for closed TCP connections in the TcpMonitor */
-		uint32_t tcpmonMaxBufferedBytes; /**< The maximal number of bytes buffered per TCP connection if segments are out-of-order. */
-		uint32_t httpaggMaxBufferedBytes; /**< The maximal number of bytes buffered per HTTP message if payload needs to be combined to be parsed successfully. */
+		uint32_t httpMsgBufferSize; /**< The maximal number of bytes buffered per HTTP message if payload needs to be combined to be parsed successfully. */
+		uint32_t tcpmonTimeoutAttempt;   /**< expiry timeout for TCP connection attempts in the TcpMonitor */
+		uint32_t tcpmonTimeoutEstablished; /**< expiry timeout for inactive established TCP connections in the TcpMonitor */
+		uint32_t tcpmonTimeoutClosed;      /**< expiry timeout for closed TCP connections in the TcpMonitor */
+		uint32_t tcpmonBufferSize; /**< The maximal number of bytes buffered per TCP connection if segments are out-of-order. */
+		bool tcpmonPCAPTimestamps; /**< Whether or not PCAP timestamps should be used as time reference for stream expiry */
 
 		Rule::Field* field[MAX_RULE_FIELDS];
 		BaseHashtable* hashtable;

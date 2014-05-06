@@ -82,14 +82,26 @@ Rule* AggregatorBaseCfg::readRule(XMLElement* elem) {
 			rule->biflowAggregation = getInt("biflowAggregation", 0, e);
 		} else if (e->matches("httpAggregation")) {
 			rule->httpAggregation = getInt("httpAggregation", 0, e);
-		} else if (e->matches("tcpmonTimeoutOpened")) {
-            rule->tcpmonTimeoutOpened = getUInt32("tcpmonTimeoutOpened", 0, e);
-        } else if (e->matches("tcpmonTimeoutClosed")) {
-            rule->tcpmonTimeoutClosed = getUInt32("tcpmonTimeoutClosed", 0, e);
-        } else if (e->matches("tcpmonBufferSize")) {
-            rule->tcpmonMaxBufferedBytes = getUInt32("tcpmonBufferSize", 0, e);
-        } else if (e->matches("httpaggBufferSize")) {
-            rule->httpaggMaxBufferedBytes = getUInt32("httpaggBufferSize", 0, e);
+		} else if (e->matches("httpMsgBufferSize")) {
+            rule->httpMsgBufferSize = getUInt32("httpMsgBufferSize", 0, e);
+        } else if (e->matches("tcpMonitor")) {
+            XMLNode::XMLSet<XMLElement*> tcpMonitorSet = e->getElementChildren();
+            for (XMLNode::XMLSet<XMLElement*>::iterator tit = tcpMonitorSet.begin();
+                    tit != tcpMonitorSet.end();
+                    tit++) {
+                XMLElement* te = *tit;
+                if (te->matches("attemptedConnectionTimeout")) {
+                    rule->tcpmonTimeoutAttempt = getTimeInUnit("attemptedConnectionTimeout", mSEC, 0, e);
+                } else if (te->matches("establishedConnectionTimeout")) {
+                    rule->tcpmonTimeoutEstablished = getTimeInUnit("establishedConnectionTimeout", mSEC, 0, e);
+                } else if (te->matches("closedConnectionTimeout")) {
+                    rule->tcpmonTimeoutClosed = getTimeInUnit("closedConnectionTimeout", mSEC, 0, e);
+                } else if (te->matches("connectionBufferSize")) {
+                    rule->tcpmonBufferSize = getUInt32("connectionBufferSize", 0, te);
+                } else if (te->matches("usePCAPTimestamps")) {
+                    rule->tcpmonPCAPTimestamps = getBool("usePCAPTimestamps", true, te);
+                }
+            }
         } else if (e->matches("flowKey")) {
 			Rule::Field* ruleField = readFlowKeyRule(e);
 			if (ruleField)
@@ -115,8 +127,8 @@ Rule* AggregatorBaseCfg::readRule(XMLElement* elem) {
         msg(MSG_DIALOG, "Implicitly enabling biflowAggregation, since httpAggregation only works in conjunction with biflowAggregation.");
     }
 
-    if (!rule->httpAggregation && (rule->tcpmonTimeoutOpened || rule->tcpmonTimeoutClosed || rule->tcpmonMaxBufferedBytes || rule->httpaggMaxBufferedBytes)) {
-        msg(MSG_INFO, "The options tcpmonTimeoutOpened, tcpmonTimeoutClose, tcpmonBufferSize and httpaggBufferSize have no impact if httpAggregation is disabled.");
+    if (!rule->httpAggregation && (rule->tcpmonTimeoutAttempt || rule->tcpmonTimeoutEstablished || rule->tcpmonTimeoutClosed || rule->tcpmonBufferSize || rule->httpMsgBufferSize)) {
+        msg(MSG_INFO, "The options attemptedConnectionTimeout, establishedConnectionTimeout, closedConnectionTimeout, tcpmonBufferSize and httpaggBufferSize have no impact if httpAggregation is disabled.");
     }
 
 	// exclude coexistence of patterns and biflow aggregation

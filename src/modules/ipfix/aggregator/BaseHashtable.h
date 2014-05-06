@@ -130,10 +130,12 @@ protected:
 	uint16_t minBufferTime; /**< If for a buffered flow no new aggregatable flows arrive for this many seconds, export it */
 	uint16_t maxBufferTime; /**< If a buffered flow was kept buffered for this many seconds, export it */
 
-    uint32_t tcpmonTimeoutOpened;    /**< expiry timeout for opened TCP connections in the TcpMonitor */
-    uint32_t tcpmonTimeoutClosed;    /**< expiry timeout for closed TCP connections in the TcpMonitor */
-    uint32_t tcpmonMaxBufferedBytes; /**< The maximal number of bytes buffered per TCP connection if segments are out-of-order. */
-    uint32_t httpaggMaxBufferedBytes; /**< The maximal number of bytes buffered per HTTP message if payload needs to be combined to be parsed successfully. */
+    uint32_t httpMsgBufferSize; /**< The maximal number of bytes buffered per HTTP message if payload needs to be combined to be parsed successfully. */
+    uint32_t tcpmonBufferSize;  /**< The maximal number of bytes buffered per TCP connection if segments are out-of-order. */
+    uint32_t tcpmonTimeoutAttempted;   /**< expiry timeout for TCP connection attempts in the TcpMonitor */
+    uint32_t tcpmonTimeoutEstablished; /**< expiry timeout for inactive established TCP connections in the TcpMonitor */
+    uint32_t tcpmonTimeoutClosed;      /**< expiry timeout for closed TCP connections in the TcpMonitor */
+    bool tcpmonPCAPTimestamps;       /**< Whether or not PCAP timestamps should be used as time reference for stream expiry */
 
 	uint32_t statRecordsReceived; /**< number of records received from other modules, used for statistics */
 	uint32_t statRecordsSent; /**< number records sent to next module, used for statistics */

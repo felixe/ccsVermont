@@ -197,6 +197,13 @@ extern "C" {
 		msg_level=level;
 	}
 
+    /**
+     * returns verbosity level of vermont
+     */
+    int msg_getlevel()
+    {
+        return msg_level;
+    }
 
 	/**
 	 * used by vermont modules to generate output statistics

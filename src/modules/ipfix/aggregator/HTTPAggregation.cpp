@@ -20,6 +20,7 @@
  */
 
 #include "HTTPAggregation.h"
+#include <sstream>
 
 /**
  * Parses a given TCP payload and tries to detect HTTP traffic information. With the gathered knowledge it is
@@ -44,6 +45,31 @@ void HTTPAggregation::detectHTTP(const char** data, const char** dataEnd, FlowDa
 	        flowData->streamInfo->forwardFlows, flowData->streamInfo->reverseFlows, flowData->request.status, flowData->response.status);
 
 	*aggregationStart = *data;
+
+//	uint32_t& lostBytes = flowData->isForward() ? flowData->streamInfo->forwardLostBytes : flowData->streamInfo->reverseLostBytes;
+//
+//	if (lostBytes > 0 && flowData->streamInfo->forwardType != HTTP_TYPE_UNKNOWN) {
+//	    FlowData::MessageData* data = flowData->isRequest() ? static_cast<FlowData::MessageData*>(&flowData->request) : static_cast<FlowData::MessageData*>(&flowData->response);
+//	    if (data->contentLength) {
+//	        if (data->contentLength > lostBytes) {
+//	            // we lost less then we are waiting for
+//	            data->contentLength -= lostBytes;
+//	            lostBytes = 0;
+//	        } else {
+//	            // we lost too much of the message, we can not recover
+//	            // we should and our message here and start a new discovery with a new bucket
+//	            lostBytes = 0;
+//	            data->contentLength = 0;
+//	            http_status_t* status = flowData->getStatus();
+//	            *status = MESSAGE_END;
+//	            *aggregationEnd = *aggregationStart;
+//	            uint8_t* flowCount = flowData->getFlowcount();
+//	            (*flowCount)++;
+//	            return;
+//	        }
+//	    }
+//	} else if (lostBytes > 0)
+//	    lostBytes = 0; // we don't care about lost bytes on capture start
 
 	uint32_t* payloadOffset = 0;
     if (flowData->isRequest()) payloadOffset = &flowData->request.payloadOffset;
@@ -134,28 +160,32 @@ void HTTPAggregation::detectHTTP(const char** data, const char** dataEnd, FlowDa
     }
 
     if (*status == MESSAGE_END) { // HTTP message ended
-         if (flowData->isResponse()) {
+        if (flowData->isResponse()) {
+            statTotalResponses++;
+            if (flowData->request.status == MESSAGE_END)
+                statTotalMatchedDialogPairs++;
+
             if (flowData->response.statusCode_ == 100) {
                 DPRINTFL(MSG_VDEBUG, "httpagg: intermediate HTTP response ended");
                 /*
-                 * HTTP responses with a status code of 100 are intermediate responses. a server for example sends
-                 * such a response to confirm, that a client, who requested to POST data, might deliver the message-body
-                 * of the POST request. after the client completes the transfer of the message-body, another response
-                 * is sent. thats the response we are interested in.
-                 *
-                 * From RFC 2616 Section 10.1: "A client MUST be prepared to accept one or more 1xx status responses prior
-                 * to a regular response, even if the client does not expect a 100 (Continue) status message."
-                 *
-                 * so we clear all the aggregation fields of the response, except for the payload, and reset the message status.
-                 * because we want aggregate the information of the regular response.
-                 */
+                * HTTP responses with a status code of 100 are intermediate responses. a server for example sends
+                * such a response to confirm, that a client, who requested to POST data, might deliver the message-body
+                * of the POST request. after the client completes the transfer of the message-body, another response
+                * is sent. thats the response we are interested in.
+                *
+                * From RFC 2616 Section 10.1: "A client MUST be prepared to accept one or more 1xx status responses prior
+                * to a regular response, even if the client does not expect a 100 (Continue) status message."
+                *
+                * so we clear all the aggregation fields of the response, except for the payload, and reset the message status.
+                * because we want aggregate the information of the regular response.
+                */
                 flowData->response.status = NO_MESSAGE;
                 if (flowData->response.statusCode)
-                    bzero(flowData->response.statusCode, IPFIX_ELENGTH_httpResponseCode);
+                bzero(flowData->response.statusCode, IPFIX_ELENGTH_httpResponseCode);
                 if (flowData->response.version)
-                    bzero(flowData->response.version, IPFIX_ELENGTH_httpVersionIdentifier);
+                bzero(flowData->response.version, IPFIX_ELENGTH_httpVersionIdentifier);
                 if (flowData->response.responsePhrase)
-                    bzero(flowData->response.responsePhrase, IPFIX_ELENGTH_httpResponsePhrase);
+                bzero(flowData->response.responsePhrase, IPFIX_ELENGTH_httpResponsePhrase);
 
                 uint16_t* len = flowData->isForward() ? &flowData->streamInfo->forwardLength : &flowData->streamInfo->reverseLength;
                 char* line = flowData->isForward() ? flowData->streamInfo->forwardLine : flowData->streamInfo->reverseLine;
@@ -173,13 +203,11 @@ void HTTPAggregation::detectHTTP(const char** data, const char** dataEnd, FlowDa
                 (*flowData->getFlowcount())++;
             }
         } else if (flowData->isRequest()) {
+            statTotalRequests++;
              DPRINTFL(MSG_INFO, "httpagg: HTTP request ended");
 
              uint8_t* requestCount = flowData->getFlowcount();
              uint8_t* responseCount = flowData->getFlowcount(true);
-
-             // since we started with a request the next request should be put into a new flow
-             flowData->request.status = MESSAGE_END;
 
              if (*requestCount < *responseCount) {
                  msg(MSG_ERROR, "httpagg: request count (%d) < response count (%d). either we missed a part of the HTTP dialog or a parsing failure was encountered.", *requestCount, *responseCount);
@@ -223,6 +251,7 @@ int HTTPAggregation::processNewHTTPTraffic(const char* data, const char* dataEnd
 	if (getRequestOrResponse(data, dataEnd, &start, &end, &type)) {
 		DPRINTFL(MSG_INFO, "httpagg: start of a new HTTP %s: '%.*s'", toString(type), end-start, start);
 		if (type == HTTP_TYPE_REQUEST) {
+		    statTotalPartialRequests++;
 			flowData->request.status = MESSAGE_REQ_METHOD;
             if (flowData->request.method)
                 memcpy(flowData->request.method, start, min_(end-start, IPFIX_ELENGTH_httpRequestMethod));
@@ -237,6 +266,7 @@ int HTTPAggregation::processNewHTTPTraffic(const char* data, const char* dataEnd
 
 			processHTTPMessage(end, dataEnd, flowData, aggregationStart, aggregationEnd);
 		} else if (type == HTTP_TYPE_RESPONSE) {
+		    statTotalPartialResponses++;
 		    // the first message observed was a HTTP response, that almost never be the case.
 		    // usually that means we are at the start of the Packet observation process and
 		    // were not able to observe the first Packets of a TCP connection which did start
@@ -315,6 +345,7 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
 		case NO_MESSAGE: {
 		    if (type == HTTP_TYPE_REQUEST) {
                 if (getRequestMethod(start, dataEnd, &start, &end)) {
+                    statTotalPartialRequests++;
                     DPRINTFL(MSG_INFO, "httpagg: request method = '%.*s'", end-start, start);
                     status = MESSAGE_REQ_METHOD;
                     // aggregate the request method
@@ -328,6 +359,7 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
                 }
 		    } else {
 	            if (getResponseVersion(start, dataEnd, &start, &end)) {
+	                statTotalPartialResponses++;
 	                DPRINTFL(MSG_INFO, "httpagg: response version = '%.*s'", end-start, start);
 	                status = MESSAGE_RES_VERSION;
 	                // aggregate the response version
@@ -495,7 +527,8 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
 			} else if (result == PARSER_DNF) {
                 DPRINTFL(MSG_VDEBUG, "httpagg: %s message-body did not end yet, wait for new payload", toString(type));
                 *aggregationEnd = end;
-                status = status | MESSAGE_FLAG_WAITING;
+                if (*aggregationEnd < dataEnd)
+                    status = status | MESSAGE_FLAG_WAITING;
                 return 0;
             } else if (result == PARSER_FAILURE) {
                 msg(MSG_ERROR, "httpagg: a failure was encountered while processing the HTTP message-body");
@@ -542,9 +575,11 @@ int HTTPAggregation::processMessageHeader(const char* data, const char* dataEnd,
                 const char* tempEnd = 0;
                 if (processMessageHeaderField(data, *end, flowData) == PARSER_FAILURE) {
                     msg(MSG_ERROR, "header field parsing error. could not parse the last header field.");
-#ifdef DEBUG
-                    printf("Header Field ");
-                    printRange(data, *end-data);
+#if DEBUG
+                    if (msg_getlevel()>=MSG_VDEBUG) {
+                        printf("Header Field ");
+                        printRange(data, *end-data);
+                    }
 #endif
                 }
             }
@@ -566,9 +601,11 @@ int HTTPAggregation::processMessageHeader(const char* data, const char* dataEnd,
             case HEADER_FIELD_END: {
                 if (processMessageHeaderField(data, *end, flowData) == PARSER_FAILURE) {
                     msg(MSG_ERROR, "header field parsing error. could not parse header field.");
-#ifdef DEBUG
-                    printf("Header Field ");
-                    printRange(data, *end-data);
+#if DEBUG
+                    if (msg_getlevel()>=MSG_VDEBUG) {
+                        printf("Header Field ");
+                        printRange(data, *end-data);
+                    }
 #endif
                 }
             }
@@ -788,7 +825,7 @@ int HTTPAggregation::processMessageHeaderField(const char* data, const char* dat
                         int len = fieldValueEnd-fieldValueStart;
 
                         // From RFC 2046:
-                        // Boundary delimiters must not must be no longer than 70 characters, not counting the two
+                        // Boundary delimiters must not be no longer than 70 characters, not counting the two
                         // leading hyphens.
                         if (len <= 0 || len > 70)
                             return PARSER_FAILURE;
@@ -1023,7 +1060,7 @@ int HTTPAggregation::processChunkedMsgBody(const char* data, const char* dataEnd
                 msg(MSG_ERROR, "httpagg: error parsing chunked message, chunk-size header field value was malformed");
                 return PARSER_FAILURE;
             } else if (result == PARSER_DNF) {
-                msg(MSG_ERROR, "httpagg: not enough payload to parse cunk-size");
+                msg(MSG_ERROR, "httpagg: not enough payload to parse chunk-size");
                 // not enough payload remaining, wait for new payload
                 *end = start;
                 return PARSER_DNF;
@@ -1141,7 +1178,7 @@ int HTTPAggregation::processFixedSizeMsgBody(const char* data, const char* dataE
     } else {
         *contentLength = *contentLength - (dataEnd-data);
         *end = dataEnd;
-        DPRINTFL(MSG_INFO, "httpagg: processed %u bytes of the HTTP message-body, %u bytes left. message body did not end yet.", dataEnd-data, *contentLength);
+        DPRINTFL(MSG_INFO, "httpagg: processed %u bytes of the HTTP message-body, %u bytes left.", dataEnd-data, *contentLength);
         if (*contentLength<=0)
             return PARSER_SUCCESS; // we are finished
         else
@@ -1957,6 +1994,10 @@ void HTTPAggregation::storeDataLeftOver(const char* data, const char* dataEnd, F
             *status |= MESSAGE_FLAG_FAILURE;
             return;
         }
+
+        statBufferedBytes += size;
+        statTotalBufferedBytes += size;
+
         char **dst = flowData->isReverse() ? &flowData->streamInfo->reverseLine : &flowData->streamInfo->forwardLine;
 
         copyToCharPointer(dst, data, size);
@@ -2189,4 +2230,29 @@ void HTTPAggregation::testFinishedMessage(FlowData* flowData) {
 		ASSERT(!(flowData->response.status & MESSAGE_FLAG_FAILURE), "message end cannot be reached if a parsing error occurs");
 		ASSERT(flowData->response.transfer != TRANSFER_UNKNOWN, "transfer type unknown");
 	}
+}
+
+// statistics
+uint64_t HTTPAggregation::statTotalRequests;
+uint64_t HTTPAggregation::statTotalResponses;
+uint64_t HTTPAggregation::statTotalPartialRequests;
+uint64_t HTTPAggregation::statTotalPartialResponses;
+uint64_t HTTPAggregation::statTotalMatchedDialogPairs;
+uint64_t HTTPAggregation::statTotalBufferedBytes;
+uint64_t HTTPAggregation::statBufferedBytes;
+
+std::string HTTPAggregation::getStatisticsXML(double interval)
+{
+    ostringstream oss;
+    oss << "<TotalRequests>" << statTotalRequests << "</TotalRequests>";
+    oss << "<TotalResponses>" << statTotalResponses << "</TotalResponses>";
+    oss << "<TotalPartialRequests>" << statTotalPartialRequests << "</TotalPartialRequests>";
+    oss << "<TotalPartialResponses>" << statTotalPartialResponses << "</TotalPartialResponses>";
+    oss << "<TotalMatchedDialogPairs>" << statTotalMatchedDialogPairs << "</TotalMatchedDialogPairs>";
+    oss << "<TotalBufferedBytes>" << statTotalBufferedBytes << "</TotalBufferedBytes>";
+    oss << "<BufferedBytes>" << statBufferedBytes << "</BufferedBytes>";
+
+    statBufferedBytes = 0;
+
+    return oss.str();
 }

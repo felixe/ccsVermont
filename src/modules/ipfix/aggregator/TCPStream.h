@@ -25,6 +25,7 @@
 #include "HTTPAggregation.h"
 #include "common/Time.h"
 #include "common/Sensor.h"
+#include <boost/shared_ptr.hpp>
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/hashtable.hpp>
 #include <boost/intrusive/unordered_set_hook.hpp>
@@ -48,26 +49,17 @@ static const int FLAG_SYN = 0x02;   /**< TCP SYN flag */
 static const int FLAG_RST = 0x04;   /**< TCP RST flag */
 static const int FLAG_ACK = 0x10;   /**< TCP ACK flag */
 
-static const uint32_t DEF_TIMEOUT_OPENED = 30000; /**< Default expiry timeout in ms a TCP stream may remain idle before expiring. */
-static const uint32_t DEF_TIMEOUT_CLOSED =  2000; /**< Default expiry timeout in ms that is kept after connection close before expiring. */
+static const uint32_t DEF_TIMEOUT_ATTEMPTED = 5000;    /**< Default expiry timeout in ms after which an unfinished connection attempt expires. */
+static const uint32_t DEF_TIMEOUT_ESTABLISHED = 30000; /**< Default expiry timeout in ms a TCP stream may remain idle before expiring. */
+static const uint32_t DEF_TIMEOUT_CLOSED = 5000;       /**< Default expiry timeout in ms that we wait after a connection closes before expiring it.  */
 
 static const uint32_t DEF_TCP_BUFFER_SIZE = 1024 * 1024; /**< Default TCP buffer size for buffering out-of-order segments is defined as 1 MiB */
 
-// statistics
-static uint32_t statTotalConnections;                 /**< Total number of observed TCP connections */
-static uint32_t statTotalPackets;                     /**< Total number of processed packets */
-static uint32_t statTruncatedPackets;                 /**< Number of truncated packets */
-static uint32_t statOutOfOrderPackets;                /**< Number of packets out-of-order */
-static uint32_t statBufferedOutOfOrderPackets;        /**< Number of packets out-of-order which were buffered*/
-static uint32_t statSkippedPackets;                   /**< Number of packets which were skipped */
-static uint32_t statBufferOverflows;                  /**< Number of Buffer overflows */
-static uint32_t statRegularEstablishedConnections;    /**< Connections which were established with a TCP handshake */
-static uint32_t statNonRegularEstablishedConnections; /**< Connections which were not established with a TCP handshake */
-static uint32_t statExpiredOpenConnections;           /**< Number of expiries of open connections */
-static uint32_t statExpiredClosedConnections;         /**< Number of expiries of open connections */
-
 using namespace boost;
 using namespace boost::intrusive;
+
+//! map sequence numbers to packets
+typedef std::map<uint32_t, Packet*> PacketQueue;
 
 /**
  * This structure helps to keep track of the packet order and status of a TCP connection
@@ -76,11 +68,10 @@ struct TCPData {
     uint32_t initSeq;   /**< Initial sequence number (ISN) of a connection */
     uint32_t seqFin;    /**< Last (relevant) sequence number of a connection */
     uint32_t nextSeq;   /**< Next sequence number in order */
-    TCPData() : initSeq(0), seqFin(0), nextSeq(0) {}
+    bool packetsAvailable; /**< set to true if packets can be processed after trimming the sequence gap (can happen upon an ACK to an unseen segment) */
+    PacketQueue packetQueue;    /**< Packets which are not in order are stored in this map for later processing */
+    TCPData() : initSeq(0), seqFin(0), nextSeq(0), packetsAvailable(0) {}
 };
-
-//! map sequence numbers to packets
-typedef std::map<uint32_t, Packet*> PacketQueue;
 
 /**
  * Representation of a TCP connection.
@@ -97,9 +88,13 @@ public:
 
     //! information about state of a TCP connection
     typedef enum tcp_state {
-        TCP_UNDEFINED,      /**< TCP connection did not start yet */
-        TCP_ESTABLISHED,    /**< TCP connection has been established*/
-        TCP_CLOSED          /**< TCP connection was closed */
+        TCP_UNDEFINED,      /**< TCP connection state is not classified yet */
+        TCP_ATTEMPT,        /**< a SYN was observed, thus  TCP connection attempt  */
+        TCP_ESTABLISHED,    /**< a TCP connection has been established. either we have seen a regular
+                                 handshake or, if we did not capture the first packet(s), a packet
+                                 between connection start and end was observed. */
+        TCP_CLOSED          /**< TCP connection is closed. the reason can be a regular FIN sequence, a RST,
+                                 a timeout or a packet with an invalid combination of TCP flags set */
     } tcp_state_t;
 
     //! hash key type
@@ -125,18 +120,21 @@ public:
     TCPData fwdData;    /**< TCP data in forward direction */
     TCPData revData;    /**< TCP data in reverse direction */
 
-    PacketQueue packetQueue;    /**< Packets which are not in order are stored in this map for later processing */
-    uint32_t bufferedSize;      /**< The number of buffered bytes of all packets in the queue */
+    uint32_t bufferedSize;      /**< The number of buffered bytes of all packets from the queues */
 
     timeval timeout;    /**< Timestamp at which this TCPStream expires */
     list_member_hook<> timeoutHook; /**< Public member hook which allows to put this class into a boost::intrusive::list */
 
     bool truncatedPackets;  /**< set to true if a truncated packet was observed to be part of this stream */
+    bool sequenceGaps;      /**< set to true if a gap was observed */
+    shared_ptr<bool> tcpForcedExpiry; /**< Force expiry in the PacketHashtable if a TCPStream object gets deleted. */
 
     bool isForward();
     bool isReverse();
     void updateDirection(Packet* p);
     void releaseQueuedPackets();
+    void releaseQueuedPackets(PacketQueue& packetQueue);
+    void releaseObsoleteQueuedPackets(TCPData& tcpData);
     void printKey();
     void printQueueStats();
 };
@@ -179,35 +177,72 @@ typedef boost::intrusive::hashtable<TCPStream> StreamHashTable;
  */
 class TCPMonitor : public Sensor {
 public:
-    TCPMonitor(uint32_t htableSize, uint32_t timeoutOpened, uint32_t timeoutClosed, uint32_t maxBufferedBytes, uint32_t maxBufferedBytesHTTP);
+    TCPMonitor(uint32_t htableSize, uint32_t timeoutAttempted, uint32_t timeoutEstablished, uint32_t timeoutClosed, uint32_t maxBufferedBytes, uint32_t maxBufferedBytesHTTP, bool usePCAPTimestamps_ = true);
     ~TCPMonitor();
-    TCPStream* dissect(Packet* p);
+    int dissect(Packet* p, TCPStream** ts);
     Packet* nextPacketForStream(TCPStream* ts);
     void expireStreams(bool all = false);
     void printStreamCount();
+    static bool isFresh(uint32_t seq, TCPData& ts);
+
+    static int IN_ORDER;     /**< Packet is in-order */
+    static int OUT_OF_ORDER; /**< Packet is out-of-order */
+    static int CLOSED;       /**< Stream has been closed before */
+
+    // statistics
+    static uint64_t statTotalConnections;                      /**< Total number of observed TCP connections, also non established connection */
+    static uint64_t statTotalEstablishedConnections;           /**< Total number of established TCP connections */
+    static uint64_t statTotalPackets;                          /**< Total number of processed packets */
+    static uint64_t statTotalTruncatedPackets;                 /**< Total number of truncated packets */
+    static uint64_t statTotalOutOfOrderPackets;                /**< Total number of packets out-of-order */
+    static uint64_t statTotalBufferedPackets;                  /**< Total number of packets out-of-order which were buffered*/
+    static uint64_t statBufferedPackets;                       /**< Number of packets out-of-order which were buffered*/
+    static uint64_t statTotalSkippedBufferedPackets;           /**< Total number of packets out-of-order which were buffered, but skipped upon connection termination/close */
+    static uint64_t statTotalSkippedPacketsInGaps;             /**< Total number of packets out-of-order which were buffered, but skipped afterwards because a sequence gap was encountered */
+    static uint64_t statTotalSkippedPacketsAfterClose;         /**< Total number of packets which arrived after the TCP connection was marked as closed */
+    static uint64_t statTotalBufferOverflows;                  /**< Total number of Buffer overflows */
+    static uint64_t statTotalHalfEstablishedConnections;       /**< Total number of connections where a single SYN was seen */
+    static uint64_t statTotalRegularEstablishedConnections;    /**< Total number of connections which were established with a TCP handshake */
+    static uint64_t statTotalNonRegularEstablishedConnections; /**< Total number of connections which were not established with a TCP handshake */
+    static uint64_t statTotalTerminatedConnections;            /**< Total number of connections which were terminated with a full TCP FIN sequence */
+    static uint64_t statTotalResettedConnections;              /**< Total number of connections which were terminated with a TCP RST packet */
+    static uint64_t statTotalInvalidConnections;               /**< Total number of connections which where closed due to an invalid flag combination */
+    static uint64_t statTotalExpiredConnectionsAttempts;       /**< Total number of connection attempts which were expired */
+    static uint64_t statTotalExpiredEstablishedConnections;    /**< Total number of established connections which were expired */
+    static uint64_t statTotalExpiredClosedConnections;         /**< Total number of closed connections which were expired */
+
     virtual std::string getStatisticsXML(double interval);
 
 private:
     bool analysePacket(Packet* p, TCPStream* ts);
+    void processACK(TCPStream* ts, uint32_t ack, TCPData& tcpData);
     TCPStream* findOrCreateStream(Packet* p);
     bool isSet(uint8_t flags, uint8_t bitmask);
-    bool isFresh(uint32_t seq, TCPData* ts);
-    void refreshTimeout(TCPStream* ts);
+    void refreshTimeout(TCPStream* ts, bool refreshClosed = false);
+    void refreshTimeout(TCPStream* ts, TimeoutList& list, const uint32_t& timeout);
     void expireList(bool all, TimeoutList& list, timeval currentTime);
-    void changeList(TCPStream* ts);
+    void changeState(TCPStream* ts, TCPStream::tcp_state_t newState);
+    void changeList(TCPStream* ts, TimeoutList& from, TimeoutList& to);
+    TimeoutList& getList(TCPStream::tcp_state_t state);
 
     StreamHashTable::bucket_type* base_buckets;    /**< Base buckets for the hashtable */
     StreamHashTable* htable;                       /**< Hashtable of TCPStreams */
 
-    TimeoutList openedStreams;  /**< List that stores opened TCP streams in order of their expiry */
-    TimeoutList closedStreams;  /**< List that stores closed TCP streams in order of their expiry */
+    TimeoutList attemptedConnections;   /**< List that stores opened TCP streams in order of their expiry */
+    TimeoutList establishedConnections; /**< List that stores  TCP streams in order of their expiry */
+    TimeoutList closedConnections;      /**< List that stores terminated/closed TCP streams in order of their expiry */
 
     uint32_t streamCounter;     /**< Internal stream counter, used to distinguish between old and re-opened TCP streams in
                                      the PacketAggregator. Otherwise it is possible that the hashtable buckets in the
                                      PacketAggregator are reused before they are exported. That would obviously cause errors. */
 
-    uint32_t TIMEOUT_OPENED; /**< Specifies the time in ms a TCP stream may remain idle before expiring. */
-    uint32_t TIMEOUT_CLOSED; /**< Specifies the time in ms that is kept after connection close before expiring. useful to filter out packets which arrive delayed. */
+    bool usePCAPTimestamps; /**< Whether or not PCAP timestamps should be used as time reference for stream expiry */
+    struct timeval currentTimestamp; /**< if usePCAPTimestamps is set to true we use this variable to store the timestamp of the last
+                                           arrived packet and use it to compute TCPStream expiry conditions */
+
+    uint32_t TIMEOUT_ATTEMPTED;   /**< Specifies the time in ms after which an unfinished connection attempt expires. */
+    uint32_t TIMEOUT_ESTABLISHED; /**< Specifies the time in ms a TCP stream may remain idle before expiring. */
+    uint32_t TIMEOUT_CLOSED;      /**< Specifies the time in ms that we wait after a connection closes before expiring it. useful to filter out packets which arrive delayed. */
 
     uint32_t MAX_BUFFERED_BYTES; /**< The maximal number of bytes buffered per TCP connection if segments are out-of-order. */
     uint32_t MAX_BUFFERED_BYTES_HTTP; /**< The maximal number of bytes buffered per HTTP message if payload needs to be combined to be parsed successfully. */

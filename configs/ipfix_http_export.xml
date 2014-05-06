@@ -21,11 +21,15 @@
 	<packetAggregator id="3">
 		<rule>
 			<templateId>999</templateId>
-			<httpAggregation>1</httpAggregation>
-			<tcpmonTimeoutOpened>30000</tcpmonTimeoutOpened>
-			<tcpmonTimeoutClosed>2000</tcpmonTimeoutClosed>
-			<tcpmonBufferSize>1048576</tcpmonBufferSize>
-            <httpaggBufferSize>10240</httpaggBufferSize>
+            <httpAggregation>1</httpAggregation>
+            <httpMsgBufferSize>102400</httpMsgBufferSize>
+            <tcpMonitor>
+                <attemptedConnectionTimeout unit="sec">20</attemptedConnectionTimeout>
+                <establishedConnectionTimeout unit="sec">600</establishedConnectionTimeout>
+                <closedConnectionTimeout unit="sec">20</closedConnectionTimeout>
+                <connectionBufferSize>104857600</connectionBufferSize>
+                <usePCAPTimestamps>true</usePCAPTimestamps>
+            </tcpMonitor>
 			<flowKey>
 				<ieName>sourceIPv4Address</ieName>
 			</flowKey>
