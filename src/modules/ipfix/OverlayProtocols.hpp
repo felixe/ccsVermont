@@ -28,7 +28,7 @@
  * id -> the id that the ipfix key overlayProtocol will have if flow matches given oP
  * FPregex -> regular expression (see http://www.boost.org/doc/libs/1_48_0/libs/regex/doc/html/boost_regex/syntax/perl_syntax.html for syntax)
  * 			that will be searched in payload.
- * rFPreged -> same as FPregex, will be searched for in reverseFrontPayload (aka "the answer")
+ * rFPreged -> same as FPregex, will be searched for in reverseFrontPayload (in most cases the server response)
  * connective -> logical connection between both regexes, at the moment only "OR" and "AND" are supported
  */
 struct overlayProtocol {

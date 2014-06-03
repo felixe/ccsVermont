@@ -28,7 +28,7 @@
  *
  */
 struct overlayProtocol oProtocols[]={
-//for a definition of how to form regexes here see boost.regex manual
+//for a definition of the regex syntax used here see boost.regex manual
 		{"googleMaps",1,"GET /maps/|GET /vt/|GET /mapfiles/|GET /kh|GET /cat_js/|GET /intl/.*\.js |GET /intl/.*\.png |GET /intl/.*\.gif ",
 						"GET /maps/|GET /vt/|GET /mapfiles/|GET /kh|GET /cat_js/|GET /intl/.*\.js |GET /intl/.*\.png |GET /intl/.*\.gif ","OR"},
 

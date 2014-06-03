@@ -70,14 +70,10 @@ void OverlayProtocolFinder::onDataRecord(IpfixDataRecord* record)
 		revFound=false;
 	}
 
-	//egal ob optionsTemplate oder DataTemplate
-	//alle felder durchgehn
+	//doesnt matter if optionsTemplate or DataTemplate, go through all fields
 	for (uint32_t i = 0; i < record->templateInfo->fieldCount; i++) {
-		//schaun ob eins frontpayload (oder rev) ist
-		if (FPregex!=""&&(record->templateInfo->fieldInfo[i].type	== InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload,IPFIX_PEN_vermont))) {
-			//ist shared pointer hier nötig?? eher nicht, wir removen reference eh am ende
-			//boost::shared_ptr<TemplateInfo> templateInfo;
-			//templateInfo = record->templateInfo;
+	//frontpayload?? (or revFrontPayload)
+		if (FPregex!=""&&(record->templateInfo->fieldInfo[i].type== InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload,IPFIX_PEN_vermont))) {
 			InformationElement::IeInfo type =	record->templateInfo->fieldInfo[i].type;
 			char* data = (char*)(record->data + record->templateInfo->fieldInfo[i].offset);
 			boost::regex boostFPregex(FPregex);
@@ -85,7 +81,7 @@ void OverlayProtocolFinder::onDataRecord(IpfixDataRecord* record)
 					found=true;
 			}
 		}
-		//zur Erinnerung: reverse types werden mit bitweiser or verknüpfung mit PEN realisiert
+		//reminder: reverse types are realized using bitwise or with PEN
 		if (rFPregex!=""&&(record->templateInfo->fieldInfo[i].type== InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload, IPFIX_PEN_vermont
 										| IPFIX_PEN_reverse))) {;
 			InformationElement::IeInfo type =	record->templateInfo->fieldInfo[i].type;
@@ -126,12 +122,11 @@ void OverlayProtocolFinder::onDataRecord(IpfixDataRecord* record)
  * add protocol id to record
  */
 void OverlayProtocolFinder::addOverlayProtocol(IpfixDataRecord* record){
-	//ist es wirklich nötig hier nochmal den ganzen record durchzuschleifen? oder könnte man das oben gleich einfügen
-	//-->muss man weil wir oben nicht das feld overlayProtocol raussuchen...
-	//TODO-->DONE:sollte man hier Fehler werfen falls feld oP nicht gefunden wird, so tipo "sollte vorher gesetzt werden"?
+	//is it really necessary to go through whole record again?? or is it possible to insert it above?
+	//--> no, above we dont grab the field overlayProtocol
 	bool oPfound=false;
 	for (uint32_t i = 0; i < record->templateInfo->fieldCount; i++) {
-		InformationElement::IeInfo type =	record->templateInfo->fieldInfo[i].type;
+		InformationElement::IeInfo type =record->templateInfo->fieldInfo[i].type;
 		IpfixRecord::Data* data = (record->data + record->templateInfo->fieldInfo[i].offset);
 		if (type==InformationElement::IeInfo(IPFIX_ETYPEID_overlayProtocol,IPFIX_PEN_vermont)){
 			int id=overlayProtocol_id_lookup(FPregex,rFPregex);

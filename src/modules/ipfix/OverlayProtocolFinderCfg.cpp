@@ -25,14 +25,12 @@ OverlayProtocolFinderCfg::OverlayProtocolFinderCfg(XMLElement* elem)
 	: CfgHelper<OverlayProtocolFinder, OverlayProtocolFinderCfg>(elem, "overlayProtocolFinder")
 {
 	if (!elem){
-			//msg(MSG_DIALOG, "no confing element found in oPF config");
 			return;
 		}
 		XMLNode::XMLSet<XMLElement*> set = elem->getElementChildren();
 		for (XMLNode::XMLSet<XMLElement*>::iterator it = set.begin();
 		     it != set.end();
 		     it++) {
-			//Cfg* c;
 			XMLElement* e = *it;
 
 			if (e->matches("protocol")) {
@@ -44,8 +42,6 @@ OverlayProtocolFinderCfg::OverlayProtocolFinderCfg(XMLElement* elem)
 				THROWEXCEPTION("Unkown parameter %s, only <protocol> supported\n", e->getName().c_str());
 				continue;
 			}
-
-			//subCfgs.push_back(c);
 		}
 }
 
@@ -73,7 +69,7 @@ bool OverlayProtocolFinderCfg::deriveFrom(OverlayProtocolFinderCfg* old)
 
 
 /**
- * returns the regex the overlayProtocolFinder has to look for
+ * returns the regex the overlayProtocolFinder has to look for in payload
  */
 std::string OverlayProtocolFinderCfg::getFPregex(std::string prot)
 {
@@ -89,7 +85,7 @@ std::string OverlayProtocolFinderCfg::getFPregex(std::string prot)
 }
 
 /**
- * returns the regex the overlayProtocolFinder has to look for
+ * returns the regex the overlayProtocolFinder has to look for in revPayload
  */
 std::string OverlayProtocolFinderCfg::getrFPregex(std::string prot)
 {
@@ -105,7 +101,7 @@ std::string OverlayProtocolFinderCfg::getrFPregex(std::string prot)
 }
 
 /**
- * returns the regex the overlayProtocolFinder has to look for
+ * returns the logical connector for the two regexes
  */
 std::string OverlayProtocolFinderCfg::getConnective(std::string prot)
 {
