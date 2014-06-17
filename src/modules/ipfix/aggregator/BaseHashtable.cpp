@@ -337,6 +337,10 @@ void BaseHashtable::expireFlows(bool all)
                         DPRINTF("expireFlows: forced expiry");
                     else if (now > bucket->expireTime)
                         DPRINTF("expireFlows: normal expiry");
+                    if (flowAnnotationOffset != 0xFFFFFFFF) { // if unequal ExpHelperTable::UNUSED
+                        uint32_t* flowAnnotations = reinterpret_cast<uint32_t*>(bucket->data.get()+flowAnnotationOffset);
+                        *flowAnnotations = htonl(ntohl(*flowAnnotations) | (*(bucket->tcpFlowAnnotations.get())));
+                    }
                     if (bucket->inTable) removeBucket(bucket);
                     statExportedBuckets++;
                     exportBucket(bucket);
@@ -442,6 +446,7 @@ int BaseHashtable::isToBeAggregated(InformationElement::IeInfo& type)
                 case IPFIX_ETYPEID_httpResponseCode:
                 case IPFIX_ETYPEID_httpResponsePhrase:
                 case IPFIX_ETYPEID_httpRequestHost:
+                case IPFIX_ETYPEID_flowAnnotation:
 					return 1;
 			}
 			break;
@@ -463,6 +468,7 @@ int BaseHashtable::isToBeAggregated(InformationElement::IeInfo& type)
                 case IPFIX_ETYPEID_httpResponseCode:
                 case IPFIX_ETYPEID_httpResponsePhrase:
                 case IPFIX_ETYPEID_httpRequestHost:
+                case IPFIX_ETYPEID_flowAnnotation:
 					return 1;
 			}
 			break;
@@ -625,6 +631,7 @@ void BaseHashtable::genBiflowStructs()
 	                case IPFIX_ETYPEID_httpResponseCode:
 	                case IPFIX_ETYPEID_httpResponsePhrase:
 	                case IPFIX_ETYPEID_httpRequestHost:
+	                case IPFIX_ETYPEID_flowAnnotation:
 						mapReverseElement(fi->type);
 						break;
 

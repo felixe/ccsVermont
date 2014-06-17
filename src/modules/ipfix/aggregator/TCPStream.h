@@ -127,7 +127,9 @@ public:
 
     bool truncatedPackets;  /**< set to true if a truncated packet was observed to be part of this stream */
     bool sequenceGaps;      /**< set to true if a gap was observed */
+
     shared_ptr<bool> tcpForcedExpiry; /**< Force expiry in the PacketHashtable if a TCPStream object gets deleted. */
+    shared_ptr<uint32_t> tcpFlowAnnotations; /**< TCP related annotations to the IPFIX flow */
 
     bool isForward();
     bool isReverse();
@@ -135,6 +137,7 @@ public:
     void releaseQueuedPackets();
     void releaseQueuedPackets(PacketQueue& packetQueue);
     void releaseObsoleteQueuedPackets(TCPData& tcpData);
+    void addAnnotationFlag(uint32_t annotation);
     void printKey();
     void printQueueStats();
 };

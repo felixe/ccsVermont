@@ -125,6 +125,7 @@ namespace InformationElement {
 				case IPFIX_ETYPEID_dpaFlowCount:
 				case IPFIX_ETYPEID_dpaReverseStart:
 				case IPFIX_ETYPEID_transportOctetDeltaCount:
+                case IPFIX_ETYPEID_flowAnnotation:
 					return Packet::IPProtocolType(Packet::UDP|Packet::TCP);
 
                 case IPFIX_ETYPEID_httpRequestMethod:

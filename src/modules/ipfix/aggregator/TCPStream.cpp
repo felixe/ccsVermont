@@ -20,10 +20,11 @@
  */
 
 #include "TCPStream.h"
+#include "modules/ipfix/FlowAnnotation.h"
 #include <sstream>
 
 TCPStream::TCPStream(Packet* p, uint32_t num) :
-        streamNum(num), direction(FORWARD), state(TCPStream::TCP_UNDEFINED), httpData(0), truncatedPackets(false), bufferedSize(0), sequenceGaps(false) {
+        streamNum(num), direction(FORWARD), state(TCPStream::TCP_UNDEFINED), httpData(0), bufferedSize(0), truncatedPackets(false), sequenceGaps(false) {
     // values are stored in network byte order since the values are only used for calculating the hash
     hkey.srcIp = *reinterpret_cast<uint32_t*>(p->data.netHeader + OFFSET_SRC_IP);       // source IP
     hkey.dstIp = *reinterpret_cast<uint32_t*>(p->data.netHeader + OFFSET_DST_IP);       // destination IP
@@ -31,6 +32,8 @@ TCPStream::TCPStream(Packet* p, uint32_t num) :
     hkey.dstPort = *reinterpret_cast<uint16_t*>(p->transportHeader + OFFSET_DST_PORT);  // destination port
     tcpForcedExpiry.reset(new bool);
     (*tcpForcedExpiry.get()) = false;
+    tcpFlowAnnotations.reset(new uint32_t);
+    (*tcpFlowAnnotations.get()) = 0;
 }
 
 
@@ -103,7 +106,7 @@ void TCPStream::releaseObsoleteQueuedPackets(TCPData& tcpData) {
             // remove reference to Packet instance
             p->removeReference();
 #ifdef DEBUG
-            int32_t refCount = p.second->getReferenceCount();
+            int32_t refCount = p->getReferenceCount();
             if (refCount != 0)
                 THROWEXCEPTION("wrong reference count: %d. expected: 0", refCount);
 #endif
@@ -115,6 +118,14 @@ void TCPStream::releaseObsoleteQueuedPackets(TCPData& tcpData) {
             ++pit;
         }
     }
+}
+
+/**
+ * Convenience function to set flow annotation flag
+ * @param annotation Annotation flag to be set
+ */
+void TCPStream::addAnnotationFlag(uint32_t annotation) {
+    *tcpFlowAnnotations.get() = *tcpFlowAnnotations.get() | annotation;
 }
 
 /**
@@ -317,6 +328,7 @@ bool TCPMonitor::analysePacket(Packet* p, TCPStream* ts) {
         if (ts->state == TCPStream::TCP_UNDEFINED || ts->state == TCPStream::TCP_ATTEMPT) {
             statTotalEstablishedConnections++;
             statTotalNonRegularEstablishedConnections++;
+            ts->addAnnotationFlag(FlowAnnotation::TCP_NO_HANDSHAKE);
             // update the state of the TCPStream and move it to the proper timeout list
             changeState(ts, TCPStream::TCP_ESTABLISHED);
         }
@@ -371,6 +383,7 @@ bool TCPMonitor::analysePacket(Packet* p, TCPStream* ts) {
         if (ts->state == TCPStream::TCP_UNDEFINED) {
             statTotalEstablishedConnections++;
             statTotalNonRegularEstablishedConnections++;
+            ts->addAnnotationFlag(FlowAnnotation::TCP_NO_HANDSHAKE);
         }
 
         if (src.initSeq == 0 && src.nextSeq == 0) {
@@ -410,6 +423,7 @@ bool TCPMonitor::analysePacket(Packet* p, TCPStream* ts) {
 
             statTotalEstablishedConnections++;
             statTotalNonRegularEstablishedConnections++;
+            ts->addAnnotationFlag(FlowAnnotation::TCP_NO_HANDSHAKE);
 
             // update the state of the TCPStream and move it to the proper timeout list
             changeState(ts, TCPStream::TCP_ESTABLISHED);
@@ -429,6 +443,7 @@ bool TCPMonitor::analysePacket(Packet* p, TCPStream* ts) {
                 if (it == packetQueue.end()) {
                     if (ts->bufferedSize + p->pcapPacketLength > MAX_BUFFERED_BYTES) {
                         statTotalBufferOverflows++;
+                        ts->addAnnotationFlag(FlowAnnotation::TCP_OUT_OF_BUFFER);
                         msg(MSG_ERROR, "tcpmon: out of buffer space! cannot proceed with TCP reassembly for stream with hash %lu.", hash_value(*ts));
                         if (ts->state != TCPStream::TCP_CLOSED) {
                             // clear all cached packets. after the connection close all further
@@ -497,6 +512,7 @@ void TCPMonitor::processACK(TCPStream* ts, uint32_t ack, TCPData& dst) {
                 lostBytes += (0xFFFFFFFF - dst.nextSeq) + ack;
             dst.nextSeq = ack;
             ts->releaseObsoleteQueuedPackets(dst);
+            ts->addAnnotationFlag(FlowAnnotation::TCP_SEQ_GAPS);
         }
     }
 }
@@ -688,6 +704,8 @@ TCPMonitor::expireList(bool all, TimeoutList& list, timeval compare) {
     while (it != list.end()) {
         TCPStream* ts = &(*it);
         if (all || compareTime(ts->timeout, compare) <= 0) {
+            if (ts->state != TCPStream::TCP_CLOSED)
+                ts->addAnnotationFlag(FlowAnnotation::TCP_CON_EXPIRED);
             DPRINTFL(MSG_DEBUG, "tcpmon: expiring stream with hash: %lu", hash_value(*ts));
             // release all Packets queued for this TCPStream
             ts->releaseQueuedPackets();
@@ -831,7 +849,7 @@ bool TCPMonitor::isFresh(uint32_t seq, TCPData& td) {
 }
 
 void TCPMonitor::printStreamCount() {
-    msg(MSG_ERROR, "total streams: %lu, stream attempts: %lu, established streams: %lu, closed streams: %lu, stream counter: %u", htable->size(), attemptedConnections.size(), establishedConnections.size(), closedConnections.size(), streamCounter);
+    msg(MSG_VDEBUG, "total streams: %lu, stream attempts: %lu, established streams: %lu, closed streams: %lu, stream counter: %u", htable->size(), attemptedConnections.size(), establishedConnections.size(), closedConnections.size(), streamCounter);
 }
 
 int TCPMonitor::IN_ORDER     = 0;

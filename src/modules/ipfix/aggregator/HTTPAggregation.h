@@ -115,6 +115,7 @@ public:
 
 	    uint32_t forwardLostBytes; /**< Number of lost bytes in forward direction. We update this value in the TCPMonitor if we realize, that some packets were not captured. */
 	    uint32_t reverseLostBytes; /**< Number of lost bytes in reverse direction. We update this value in the TCPMonitor if we realize, that some packets were not captured. */
+
 	};
 
 	/**
@@ -126,6 +127,8 @@ public:
 
 		char* tempBuffer; /** used when we payload of two different TCP segments has to be combined.
 		                    we cannot free it here as its content is used by PacketHashtable::aggregateHttp() */
+
+        uint32_t* flowAnnotationFlags; /**< pointer to the annotations of the IPFIX flow */
 
 		/**
 		 * used to store flow related information about HTTP messages
@@ -263,6 +266,7 @@ private:
 	static void storeDataLeftOver(const char* data, const char* dataEnd, FlowData* flowData);
 	static void copyToCharPointer(char** dst, const char* data, size_t size);
 	static void appendToCharPointer(char **dst, const char* data, size_t currentSize, size_t sizeToAdd);
+	static void addAnnotationFlag(FlowData* flowData, uint32_t annotation);
 	static void testFinishedMessage(FlowData* flowData);
 	static uint32_t min_(uint32_t, uint32_t);
 };

@@ -146,7 +146,8 @@ struct ipfix_identifier ipfixids[] = {
  { IPFIX_ETYPEID_httpRequestHost, 0, IPFIX_PEN_vermont, "httpRequestHost" },
  { IPFIX_ETYPEID_httpResponseVersion, IPFIX_ELENGTH_httpVersionIdentifier, IPFIX_PEN_vermont, "httpResponseVersion" },
  { IPFIX_ETYPEID_httpResponseCode, IPFIX_ELENGTH_httpResponseCode, IPFIX_PEN_vermont, "httpResponseCode" },
- { IPFIX_ETYPEID_httpResponsePhrase, IPFIX_ELENGTH_httpResponsePhrase, IPFIX_PEN_vermont, "httpResponsePhrase" }
+ { IPFIX_ETYPEID_httpResponsePhrase, IPFIX_ELENGTH_httpResponsePhrase, IPFIX_PEN_vermont, "httpResponsePhrase" },
+ { IPFIX_ETYPEID_flowAnnotation, IPFIX_LENGTH_unsigned32, IPFIX_PEN_vermont, "flowAnnotation" },
 };
 
 

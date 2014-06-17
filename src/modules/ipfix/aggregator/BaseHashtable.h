@@ -147,6 +147,7 @@ protected:
 
 	uint16_t fieldLength; /**< length in bytes of all variable-length fields */
 	uint16_t privDataLength; /**< length in bytes of all private data fields that are not exported with IPFIX but needed with flow record for aggregation */
+    uint32_t flowAnnotationOffset; /**< offset from start of record data to IPFIX_ETYPEID_flowAnnotation, ::UNUSED if not used */
 	Rule::Field::Modifier* fieldModifier; /**< specifies what modifier to apply to a given field */
 	Source<IpfixRecord*>* recordSource; /**< pointer to vermont module which is able to send IpfixRecords */
 	boost::shared_ptr<IpfixRecord::SourceID> sourceID; /**< used for hack: we *must* supply an observationDomainID, so take a static one */

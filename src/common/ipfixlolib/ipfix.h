@@ -201,6 +201,7 @@ extern "C" {
 #define IPFIX_ETYPEID_httpResponseVersion           14
 #define IPFIX_ETYPEID_httpResponseCode              15
 #define IPFIX_ETYPEID_httpResponsePhrase            16
+#define IPFIX_ETYPEID_flowAnnotation                17
 
 #define IPFIX_LENGTH_ipVersion                      IPFIX_LENGTH_octet
 #define IPFIX_LENGTH_sourceIPv4Address              IPFIX_LENGTH_ipv4Address

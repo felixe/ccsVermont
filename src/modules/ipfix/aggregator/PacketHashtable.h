@@ -117,9 +117,10 @@ private:
 			    uint32_t requestHostOffset;     /**< offset from start of record data to IPFIX_ETYPEID_httpRequestHost */
 			    uint16_t requestUriLength;      /**< max length of the HTTP request uri field */
 			    uint16_t requestHostLength;     /**< max length of the HTTP request host header field */
-			    uint32_t responseVersionOffset;    /**< offset from start of record data to IPFIX_ETYPEID_httpResponseVersion */
+			    uint32_t responseVersionOffset; /**< offset from start of record data to IPFIX_ETYPEID_httpResponseVersion */
 			    uint32_t responseCodeOffset;    /**< offset from start of record data to IPFIX_ETYPEID_httpResponseCode */
-			    uint32_t responsePhraseOffset;    /**< offset from start of record data to IPFIX_ETYPEID_httpResponsePhrase */
+			    uint32_t responsePhraseOffset;  /**< offset from start of record data to IPFIX_ETYPEID_httpResponsePhrase */
+			    uint32_t flowAnnotationOffset;   /**< offset from start of record data to IPFIX_ETYPEID_flowAnnotation */
 			    bool aggregate;                 /**< set to true, if HTTP aggregation was activated */
 			} http;
 		} typeSpecData;

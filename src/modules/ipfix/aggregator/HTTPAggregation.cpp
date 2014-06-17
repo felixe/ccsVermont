@@ -20,6 +20,7 @@
  */
 
 #include "HTTPAggregation.h"
+#include "modules/ipfix/FlowAnnotation.h"
 #include <sstream>
 
 /**
@@ -157,6 +158,7 @@ void HTTPAggregation::detectHTTP(const char** data, const char** dataEnd, FlowDa
         // encountered a critical error
         msg(MSG_ERROR, "an unrecoverable failure has encountered, skipping the rest of the message.");
         *status = MESSAGE_END;
+        addAnnotationFlag(flowData, FlowAnnotation::HTTP_PARSING_ERROR);
     }
 
     if (*status == MESSAGE_END) { // HTTP message ended
@@ -181,11 +183,11 @@ void HTTPAggregation::detectHTTP(const char** data, const char** dataEnd, FlowDa
                 */
                 flowData->response.status = NO_MESSAGE;
                 if (flowData->response.statusCode)
-                bzero(flowData->response.statusCode, IPFIX_ELENGTH_httpResponseCode);
+                    bzero(flowData->response.statusCode, IPFIX_ELENGTH_httpResponseCode);
                 if (flowData->response.version)
-                bzero(flowData->response.version, IPFIX_ELENGTH_httpVersionIdentifier);
+                    bzero(flowData->response.version, IPFIX_ELENGTH_httpVersionIdentifier);
                 if (flowData->response.responsePhrase)
-                bzero(flowData->response.responsePhrase, IPFIX_ELENGTH_httpResponsePhrase);
+                    bzero(flowData->response.responsePhrase, IPFIX_ELENGTH_httpResponsePhrase);
 
                 uint16_t* len = flowData->isForward() ? &flowData->streamInfo->forwardLength : &flowData->streamInfo->reverseLength;
                 char* line = flowData->isForward() ? flowData->streamInfo->forwardLine : flowData->streamInfo->reverseLine;
@@ -212,7 +214,7 @@ void HTTPAggregation::detectHTTP(const char** data, const char** dataEnd, FlowDa
              if (*requestCount < *responseCount) {
                  msg(MSG_ERROR, "httpagg: request count (%d) < response count (%d). either we missed a part of the HTTP dialog or a parsing failure was encountered.", *requestCount, *responseCount);
                  *requestCount = *responseCount + 1;
-                 flowData->response.status == MESSAGE_END;
+                 flowData->response.status = MESSAGE_END;
              } else {
                  (*requestCount)++;
              }
@@ -360,6 +362,7 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
 		    } else {
 	            if (getResponseVersion(start, dataEnd, &start, &end)) {
 	                statTotalPartialResponses++;
+	                printf("resp: '%.*s'\n", end-start, start)
 	                DPRINTFL(MSG_INFO, "httpagg: response version = '%.*s'", end-start, start);
 	                status = MESSAGE_RES_VERSION;
 	                // aggregate the response version
@@ -478,7 +481,7 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
                 DPRINTFL(MSG_INFO, "httpagg: response phrase = '%.*s'", end-start, start);
                 // aggregate the response phrase
                 if (flowData->response.responsePhrase)
-                        memcpy(flowData->response.responsePhrase, start, min_(end-start, IPFIX_ELENGTH_httpResponsePhrase));
+                    memcpy(flowData->response.responsePhrase, start, min_(end-start, IPFIX_ELENGTH_httpResponsePhrase));
                 eatCRLF(end, dataEnd, &end);
 
                 if (flowData->response.statusCode_ == 101) {
@@ -567,12 +570,10 @@ int HTTPAggregation::processMessageHeader(const char* data, const char* dataEnd,
     *end = data;
 
     while(data<dataEnd) {
-        const char *headFieldEnd = 0;
         const int status = getHeaderField(data, dataEnd, end);
 
         switch (status) {
             case (HEADER_END | HEADER_FIELD_END): {
-                const char* tempEnd = 0;
                 if (processMessageHeaderField(data, *end, flowData) == PARSER_FAILURE) {
                     msg(MSG_ERROR, "header field parsing error. could not parse the last header field.");
 #if DEBUG
@@ -799,7 +800,6 @@ int HTTPAggregation::processMessageHeaderField(const char* data, const char* dat
              */
             if (!strncmp("multipart/byterange", fieldValueStart, 19)) {
                 data = fieldValueStart + 19;
-                bool found = false;
                 // minimal required length is 11 -> because we compare against the string 'boundary=<1*TOKEN>' would requires
                 // for the line break after the header field.
                 while (data < dataEnd-11) {
@@ -877,7 +877,6 @@ int HTTPAggregation::matchFieldName(const char* data, const char* dataEnd, const
 
     // From RFC 2616, Section 4.2: Field names are case-insensitive.
 
-    const char* fstart = data;
     data++;
     size_t i = 1;
     while (data < dataEnd && i < field.size) {
@@ -931,7 +930,7 @@ void HTTPAggregation::setTransferEncoding(const char* data, const char* dataEnd,
 		return;
 	}
 
-	// if transfer encoding is not equal to "identity" the transfer-length is defined by use of the "chunked" transfer-coding
+	// if transfer encoding is not equal to "identity" the transfer-length is defined by the use of the "chunked" transfer-coding
 
 	if (flowData->isRequest()) {
 		flowData->request.transfer = TRANSFER_CHUNKED;
@@ -1992,6 +1991,7 @@ void HTTPAggregation::storeDataLeftOver(const char* data, const char* dataEnd, F
             msg(MSG_ERROR, "httpagg: reached the max number of bytes allowed to be buffered for a HTTP message.");
             http_status_t* status = flowData->getStatus();
             *status |= MESSAGE_FLAG_FAILURE;
+            addAnnotationFlag(flowData, FlowAnnotation::HTTP_OUT_OF_BUFFER);
             return;
         }
 
@@ -2016,6 +2016,7 @@ void HTTPAggregation::storeDataLeftOver(const char* data, const char* dataEnd, F
 void HTTPAggregation::initializeFlowData(FlowData* flowData, HTTPStreamData* streamData) {
 	flowData->streamInfo = streamData;
 	flowData->tempBuffer = 0;
+	flowData->flowAnnotationFlags = 0;
 
 	flowData->request.method = 0;
 	flowData->request.uri = 0;
@@ -2195,6 +2196,15 @@ void HTTPAggregation::printRange(const char* data, int range) {
 			printf(".");
 	}
 	printf("'\n");
+}
+
+/**
+ * Convenience function to set flow annotation flag
+ * @param annotation Annotation flag to be set
+ */
+void HTTPAggregation::addAnnotationFlag(FlowData* flowData, uint32_t annotation) {
+    if (flowData->flowAnnotationFlags)
+        *flowData->flowAnnotationFlags = *flowData->flowAnnotationFlags | annotation;
 }
 
 /**

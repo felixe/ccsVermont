@@ -284,10 +284,7 @@ void PacketHashtable::aggregateFrontPayload(IpfixRecord::Data* bucket, Hashtable
 }
 
 /**
- * aggregates payload of packets to a certain maximum amount
- * only sequence number is regarded, succeeding packets with same sequence number
- * will overwrite data
- * ATTENTION: no stream reassembly is performed!
+ * aggregates HTTP payload of packets to a certain maximum amount and other HTTP related information
  */
 void PacketHashtable::aggregateHTTP(IpfixRecord::Data* bucket, HashtableBucket* hbucket, const Packet* p,
 		const ExpFieldData* efd, bool firstpacket, bool initialize)
@@ -330,6 +327,9 @@ void PacketHashtable::aggregateHTTP(IpfixRecord::Data* bucket, HashtableBucket* 
         // prepare pointer for http response phrase aggregation
         if (efd->typeSpecData.http.responsePhraseOffset != ExpHelperTable::UNUSED)
             flowData->response.responsePhrase = reinterpret_cast<char*>(bucket+efd->typeSpecData.http.responsePhraseOffset);
+
+        if (efd->typeSpecData.http.flowAnnotationOffset != ExpHelperTable::UNUSED)
+            flowData->flowAnnotationFlags = reinterpret_cast<uint32_t*>(bucket+efd->typeSpecData.http.flowAnnotationOffset);
 	}
 
 	if (initialize) {
@@ -522,6 +522,7 @@ void (*PacketHashtable::getCopyDataFunction(const ExpFieldData* efd))(PacketHash
 				case IPFIX_ETYPEID_frontPayloadPktCount:
 				case IPFIX_ETYPEID_maxPacketGap:
 				case IPFIX_ETYPEID_dpaFlowCount:
+                case IPFIX_ETYPEID_flowAnnotation:
 					if (efd->dstLength != 4) {
 						THROWEXCEPTION("unsupported length %d for type %s", efd->dstLength, efd->typeId.toString().c_str());
 					}
@@ -592,7 +593,8 @@ void (*PacketHashtable::getCopyDataFunction(const ExpFieldData* efd))(PacketHash
             efd->typeId == IeInfo(IPFIX_ETYPEID_httpResponseVersion, IPFIX_PEN_vermont) ||
             efd->typeId == IeInfo(IPFIX_ETYPEID_httpResponseCode, IPFIX_PEN_vermont) ||
             efd->typeId == IeInfo(IPFIX_ETYPEID_httpResponsePhrase, IPFIX_PEN_vermont) ||
-            efd->typeId == IeInfo(IPFIX_ETYPEID_httpRequestHost, IPFIX_PEN_vermont)) {
+            efd->typeId == IeInfo(IPFIX_ETYPEID_httpRequestHost, IPFIX_PEN_vermont) ||
+            efd->typeId == IeInfo(IPFIX_ETYPEID_flowAnnotation, IPFIX_PEN_vermont)) {
 		return copyDataDummy;
 	}else if (efd->typeId == IeInfo(IPFIX_TYPEID_flowStartNanoSeconds, 0) ||
 			efd->typeId == IeInfo(IPFIX_TYPEID_flowEndNanoSeconds, 0)) {
@@ -694,6 +696,7 @@ uint16_t PacketHashtable::getRawPacketFieldLength(const IeInfo& type)
             case IPFIX_ETYPEID_httpRequestVersion:
             case IPFIX_ETYPEID_httpResponseVersion:
             case IPFIX_ETYPEID_httpResponsePhrase:
+            case IPFIX_ETYPEID_flowAnnotation:
                 return 0;                       // length is variable, but this value should not matter
 
 			default:
@@ -816,6 +819,7 @@ uint16_t PacketHashtable::getRawPacketFieldOffset(const IeInfo& type, const Pack
 			case IPFIX_ETYPEID_httpResponseCode:
             case IPFIX_ETYPEID_httpResponsePhrase:
             case IPFIX_ETYPEID_httpRequestHost:
+            case IPFIX_ETYPEID_flowAnnotation:
 				// these fields do not have fixed positions in the raw packet
 				break;
 			default:
@@ -879,6 +883,7 @@ bool PacketHashtable::isRawPacketPtrVariable(const IeInfo& type)
 	            case IPFIX_ETYPEID_httpResponseCode:
 	            case IPFIX_ETYPEID_httpResponsePhrase:
 	            case IPFIX_ETYPEID_httpRequestHost:
+	            case IPFIX_ETYPEID_flowAnnotation:
 					return false;
 
 				case IPFIX_ETYPEID_frontPayload:
@@ -1015,6 +1020,7 @@ bool PacketHashtable::typeAvailable(const IeInfo& type)
 	            case IPFIX_ETYPEID_httpResponseCode:
 	            case IPFIX_ETYPEID_httpResponsePhrase:
 	            case IPFIX_ETYPEID_httpRequestHost:
+	            case IPFIX_ETYPEID_flowAnnotation:
 					return true;
 			}
 			break;
@@ -1164,6 +1170,7 @@ void PacketHashtable::buildExpHelperTable()
 		expHelperTable.allFields.push_back(&expHelperTable.keyFields[i]);
 	}
 	expHelperTable.dpaFlowCountOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_dpaFlowCount, IPFIX_PEN_vermont));
+	flowAnnotationOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_flowAnnotation, IPFIX_PEN_vermont));
 
 	uint32_t flowDataOffset = 0;
 	if (httpAggregation) {
@@ -1193,6 +1200,7 @@ void PacketHashtable::buildExpHelperTable()
 			efd->typeSpecData.http.responseVersionOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpResponseVersion, IPFIX_PEN_vermont));
 			efd->typeSpecData.http.responseCodeOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpResponseCode, IPFIX_PEN_vermont));
 			efd->typeSpecData.http.responsePhraseOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpResponsePhrase, IPFIX_PEN_vermont));
+			efd->typeSpecData.http.flowAnnotationOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_flowAnnotation, IPFIX_PEN_vermont));
 
 			efd->typeSpecData.frontPayload.dpaPrivDataOffset = ExpHelperTable::UNUSED;
 			if (expHelperTable.useDPA) {
@@ -1244,6 +1252,7 @@ void PacketHashtable::buildExpHelperTable()
             efd->typeSpecData.http.responseVersionOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpResponseVersion, IPFIX_PEN_vermont));
             efd->typeSpecData.http.responseCodeOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpResponseCode, IPFIX_PEN_vermont));
             efd->typeSpecData.http.responsePhraseOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpResponsePhrase, IPFIX_PEN_vermont));
+            efd->typeSpecData.http.flowAnnotationOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_flowAnnotation, IPFIX_PEN_vermont));
 
 			efd->typeSpecData.frontPayload.dpaPrivDataOffset = ExpHelperTable::UNUSED;
 			if (expHelperTable.useDPA) {
@@ -1641,6 +1650,8 @@ void PacketHashtable::aggregateField(const ExpFieldData* efd, HashtableBucket* h
 	                case IPFIX_ETYPEID_httpRequestHost:
 					case IPFIX_ETYPEID_frontPayloadLen:
 						// ignore these fields, as FPA aggregation does everything needed
+					case IPFIX_ETYPEID_flowAnnotation:
+					    // also ignored, because we aggregate elsewhere
 						break;
 
 					default:
@@ -1676,6 +1687,8 @@ void PacketHashtable::aggregateField(const ExpFieldData* efd, HashtableBucket* h
 	                case IPFIX_ETYPEID_httpRequestHost:
 					case IPFIX_ETYPEID_frontPayloadLen:
 						// ignore these fields, as FPA aggregation does everything needed
+					case IPFIX_ETYPEID_flowAnnotation:
+					    // ignore this field, because we aggregate elsewhere
 						break;
 
 					default:
@@ -2038,6 +2051,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
                 buckets[hash]->data = buildBucketData(p, httpData, &buckets[hash]);
                 buckets[hash]->streamID = tcpStream->streamNum;
                 buckets[hash]->tcpForcedExpiry = tcpStream->tcpForcedExpiry;
+                buckets[hash]->tcpFlowAnnotations = tcpStream->tcpFlowAnnotations;
 
                 tsrcData = buckets[hash]->data.get();
             }
@@ -2179,7 +2193,7 @@ void PacketHashtable::aggregateIntoExistingFlow(IpfixRecord::Data* srcData,  HTT
 
          if (!found) {
              // no flow was found, we have to create one
-             msg(MSG_ERROR, "could not find a reverse flow for a HTTP response.");
+             DPRINTF(MSG_DEBUG, "could not find a reverse flow for a HTTP response.");
              return;
          }
 
@@ -2248,6 +2262,7 @@ void PacketHashtable::aggregateIntoNewFlow(IpfixRecord::Data* srcData,  HTTPStre
         buckets[hash] = createBucket(htdata, p->observationDomainID, firstbucket, 0, hash);
         buckets[hash]->streamID = tcpStream->streamNum;
         buckets[hash]->tcpForcedExpiry = tcpStream->tcpForcedExpiry;
+        buckets[hash]->tcpFlowAnnotations = tcpStream->tcpFlowAnnotations;
 
         // reset the status and start restart the HTTP aggregation for the remaining part of the payload
         // if the payload still contains more then one HTTP message, this status will be reset to true

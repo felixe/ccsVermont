@@ -47,6 +47,7 @@ public:
 	uint32_t streamID; /**< TCP stream ID, helps to match the bucket to the proper TcpStream */
 	boost::shared_ptr<bool> tcpForcedExpiry; /**< Force expiry if a TCPStream object gets deleted, what happens at some
 	                                              time after a TCP connection terminates, times out or becomes invalid. */
+	boost::shared_ptr<uint32_t> tcpFlowAnnotations; /**< Flow annotations related to the corresponding TCP connection */
 };
 
 
