@@ -209,7 +209,7 @@ public:
     static uint64_t statTotalNonRegularEstablishedConnections; /**< Total number of connections which were not established with a TCP handshake */
     static uint64_t statTotalTerminatedConnections;            /**< Total number of connections which were terminated with a full TCP FIN sequence */
     static uint64_t statTotalResettedConnections;              /**< Total number of connections which were terminated with a TCP RST packet */
-    static uint64_t statTotalInvalidConnections;               /**< Total number of connections which where closed due to an invalid flag combination */
+    static uint64_t statTotalInvalidPackets;                   /**< Total number of packets with an invalid flag combination */
     static uint64_t statTotalExpiredConnectionsAttempts;       /**< Total number of connection attempts which were expired */
     static uint64_t statTotalExpiredEstablishedConnections;    /**< Total number of established connections which were expired */
     static uint64_t statTotalExpiredClosedConnections;         /**< Total number of closed connections which were expired */

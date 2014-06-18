@@ -362,7 +362,6 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
 		    } else {
 	            if (getResponseVersion(start, dataEnd, &start, &end)) {
 	                statTotalPartialResponses++;
-	                printf("resp: '%.*s'\n", end-start, start)
 	                DPRINTFL(MSG_INFO, "httpagg: response version = '%.*s'", end-start, start);
 	                status = MESSAGE_RES_VERSION;
 	                // aggregate the response version
@@ -1992,6 +1991,7 @@ void HTTPAggregation::storeDataLeftOver(const char* data, const char* dataEnd, F
             http_status_t* status = flowData->getStatus();
             *status |= MESSAGE_FLAG_FAILURE;
             addAnnotationFlag(flowData, FlowAnnotation::HTTP_OUT_OF_BUFFER);
+            statTotalBufferOverflows++;
             return;
         }
 
@@ -2250,6 +2250,7 @@ uint64_t HTTPAggregation::statTotalPartialResponses;
 uint64_t HTTPAggregation::statTotalMatchedDialogPairs;
 uint64_t HTTPAggregation::statTotalBufferedBytes;
 uint64_t HTTPAggregation::statBufferedBytes;
+uint64_t HTTPAggregation::statTotalBufferOverflows;
 
 std::string HTTPAggregation::getStatisticsXML(double interval)
 {
@@ -2261,6 +2262,7 @@ std::string HTTPAggregation::getStatisticsXML(double interval)
     oss << "<TotalMatchedDialogPairs>" << statTotalMatchedDialogPairs << "</TotalMatchedDialogPairs>";
     oss << "<TotalBufferedBytes>" << statTotalBufferedBytes << "</TotalBufferedBytes>";
     oss << "<BufferedBytes>" << statBufferedBytes << "</BufferedBytes>";
+    oss << "<TotalHTTPBufferOverflows>" << statTotalBufferOverflows << "</TotalHTTPBufferOverflows>";
 
     statBufferedBytes = 0;
 

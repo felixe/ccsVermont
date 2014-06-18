@@ -285,20 +285,14 @@ bool TCPMonitor::analysePacket(Packet* p, TCPStream* ts) {
 
     uint32_t slen = p->net_total_length - p->payloadOffset; // TCP segment length
 
-    DPRINTFL(MSG_DEBUG, "tcpmon: seq#: %u, is next:%s, ack#: %u, flags: SYN=%d, ACK=%d, FIN=%d, RST=%d, plen: %u, slen:%u",
+    DPRINTFL(MSG_VDEBUG, "tcpmon: seq#: %u, is next:%s, ack#: %u, flags: SYN=%d, ACK=%d, FIN=%d, RST=%d, plen: %u, slen:%u",
             seq, seq == src.nextSeq ? "yes":"no", ack, (bool)(flags&FLAG_SYN), (bool)(flags&FLAG_ACK), (bool)(flags&FLAG_FIN), (bool)(flags&FLAG_RST), p->pcapPacketLength, slen);
 
     if (isSet(flags, FLAG_SYN | FLAG_FIN) || isSet(flags, FLAG_SYN | FLAG_RST)) {
-        msg(MSG_DEBUG, "tcpmon: closing the stream upon a packet with an illegal combination of TCP flags: : SYN=%d, ACK=%d, FIN=%d, RST=%d",
+        DPRINTFL(MSG_DEBUG, "tcpmon: skipping packet with an illegal combination of TCP flags: : SYN=%d, ACK=%d, FIN=%d, RST=%d",
                 (bool)(flags&FLAG_SYN), (bool)(flags&FLAG_ACK), (bool)(flags&FLAG_FIN), (bool)(flags&FLAG_RST));
-        if (ts->state != TCPStream::TCP_CLOSED) {
-              // clear all cached packets. after the connection close all further
-              // packets are rejected.
-              ts->releaseQueuedPackets();
-              statTotalInvalidConnections++;
-          }
-          // update the state of the TCPStream and move it to the proper timeout list
-          changeState(ts, TCPStream::TCP_CLOSED);
+        statTotalInvalidPackets++;
+        return false;
     } else if (isSet(flags, FLAG_SYN) && !isSet(flags, FLAG_ACK) && src.initSeq==0 && src.initSeq != seq) {
         // this is a connection attempt, i.e. a SYN packet
         DPRINTFL(MSG_INFO, "tcpmon: TCP handshake: connection attempt (SYN)");
@@ -560,7 +554,7 @@ Packet* TCPMonitor::nextPacketForStream(TCPStream* ts) {
     // perform TCP analysis
     bool result = analysePacket(p, ts);
 
-    if (ts->state == TCPStream::TCP_CLOSED) {
+    if (!result) {
         // remove the reference to the Packet instance
         p->removeReference();
 #ifdef DEBUG
@@ -876,7 +870,7 @@ uint64_t TCPMonitor::statTotalExpiredClosedConnections;
 uint64_t TCPMonitor::statTotalTerminatedConnections;
 uint64_t TCPMonitor::statTotalResettedConnections;
 uint64_t TCPMonitor::statTotalHalfEstablishedConnections;
-uint64_t TCPMonitor::statTotalInvalidConnections;
+uint64_t TCPMonitor::statTotalInvalidPackets;
 
 std::string TCPMonitor::getStatisticsXML(double interval)
 {
@@ -892,7 +886,7 @@ std::string TCPMonitor::getStatisticsXML(double interval)
     oss << "<TotalNonRegularEstablishedConnections>" << statTotalNonRegularEstablishedConnections << "</TotalNonRegularEstablishedConnections>";
     oss << "<TotalTerminatedConnections>" << statTotalTerminatedConnections << "</TotalTerminatedConnections>";
     oss << "<TotalResettedConnections>" << statTotalResettedConnections << "</TotalResettedConnections>";
-    oss << "<TotalInvalidConnections>" << statTotalInvalidConnections << "</TotalInvalidConnections>";
+    oss << "<TotalInvalidPackets>" << statTotalInvalidPackets << "</TotalInvalidPackets>";
     oss << "<TotalExpiredConnectionsAttempts>" << statTotalExpiredConnectionsAttempts << "</TotalExpiredConnectionsAttempts>";
     oss << "<TotalExpiredEstablishedConnections>" << statTotalExpiredEstablishedConnections << "</TotalExpiredEstablishedConnections>";
     oss << "<TotalExpiredClosedConnections>" << statTotalExpiredClosedConnections << "</TotalExpiredClosedConnections>";
