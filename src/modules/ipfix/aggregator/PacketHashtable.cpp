@@ -392,7 +392,7 @@ void PacketHashtable::aggregateHTTP(IpfixRecord::Data* bucket, HashtableBucket* 
 	    }
 	}
 	}
-skip_aggregation:
+// skip_aggregation:
 	http_type_t type = *flowData->getType();
 	uint32_t* pipelinedOffsetEnd = 0;
 	if (type == HTTP_TYPE_REQUEST && flowData->request.status == MESSAGE_END)
@@ -1897,7 +1897,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
 
     uint32_t slen = p->net_total_length - p->payloadOffset; // TCP segment length
 
-    DPRINTFL(MSG_DEBUG, "new packet #%lu| frame.len: %u, ip.len = %u, tcp.len = %u, captured bytes = %d, http-requests: %d, http-responses: %d",
+    DPRINTF(MSG_VDEBUG, "new packet #%lu| frame.len: %u, ip.len = %u, tcp.len = %u, captured bytes = %d, http-requests: %d, http-responses: %d",
 	        ++processedPackets, p->pcapPacketLength, p->net_total_length, slen, p->data_length_uncropped, statTotalRequests, statTotalResponses);
 
 #ifdef DEBUG
@@ -1918,8 +1918,11 @@ void PacketHashtable::aggregatePacket(Packet* p)
 
         p->addReference();
         int result = tcpmon->dissect(p, &tcpStream);
-        if (result != TCPMonitor::IN_ORDER) {
-            // packet is not in order, but we may have trimmed a sequence gap in the opposite direction
+        if (result != TCPMonitor::IN_ORDER || slen <= 0) {
+            if (result == TCPMonitor::IN_ORDER)
+                p->removeReference();
+            // packet is not in order or TCP segment size <=0, hence this packet has not to be processed.
+            // but we may have trimmed a sequence gap in the opposite direction
             p = tcpmon->nextPacketForStream(tcpStream);
             if (p) {
                  // update slen
@@ -2193,7 +2196,7 @@ void PacketHashtable::aggregateIntoExistingFlow(IpfixRecord::Data* srcData,  HTT
 
          if (!found) {
              // no flow was found, we have to create one
-             DPRINTF(MSG_DEBUG, "could not find a reverse flow for a HTTP response.");
+             DPRINTFL(MSG_DEBUG, "could not find a reverse flow for a HTTP response.");
              return;
          }
 

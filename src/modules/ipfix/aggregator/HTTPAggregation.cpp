@@ -156,9 +156,10 @@ void HTTPAggregation::detectHTTP(const char** data, const char** dataEnd, FlowDa
 
     if (*status & MESSAGE_FLAG_FAILURE) {
         // encountered a critical error
-        msg(MSG_ERROR, "an unrecoverable failure has encountered, skipping the rest of the message.");
+        DPRINTFL(MSG_ERROR, "an unrecoverable parsing failure has encountered, skipping the rest of the message.");
         *status = MESSAGE_END;
         addAnnotationFlag(flowData, FlowAnnotation::HTTP_PARSING_ERROR);
+        statTotalParsingErrors++;
     }
 
     if (*status == MESSAGE_END) { // HTTP message ended
@@ -212,7 +213,7 @@ void HTTPAggregation::detectHTTP(const char** data, const char** dataEnd, FlowDa
              uint8_t* responseCount = flowData->getFlowcount(true);
 
              if (*requestCount < *responseCount) {
-                 msg(MSG_ERROR, "httpagg: request count (%d) < response count (%d). either we missed a part of the HTTP dialog or a parsing failure was encountered.", *requestCount, *responseCount);
+                 DPRINTFL(MSG_ERROR, "httpagg: request count (%d) < response count (%d). either we missed a part of the HTTP dialog or a parsing failure was encountered.", *requestCount, *responseCount);
                  *requestCount = *responseCount + 1;
                  flowData->response.status = MESSAGE_END;
              } else {
@@ -273,7 +274,7 @@ int HTTPAggregation::processNewHTTPTraffic(const char* data, const char* dataEnd
 		    // usually that means we are at the start of the Packet observation process and
 		    // were not able to observe the first Packets of a TCP connection which did start
 		    // before the Packet observation.
-		    msg(MSG_ERROR, "httpagg: the first observed HTTP message of this TCP connection is a response...");
+		    DPRINTFL(MSG_DEBUG, "httpagg: the first observed HTTP message of this TCP connection is a response...");
 			flowData->response.status = MESSAGE_RES_VERSION;
             // aggregate the response version
 			if (flowData->response.version)
@@ -533,7 +534,8 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
                     status = status | MESSAGE_FLAG_WAITING;
                 return 0;
             } else if (result == PARSER_FAILURE) {
-                msg(MSG_ERROR, "httpagg: a failure was encountered while processing the HTTP message-body");
+                DPRINTFL(MSG_ERROR, "httpagg: a failure was encountered while processing the HTTP message-body");
+                status = status | MESSAGE_FLAG_FAILURE;
             }
 			*aggregationEnd = dataEnd;
 			return 0;
@@ -574,7 +576,7 @@ int HTTPAggregation::processMessageHeader(const char* data, const char* dataEnd,
         switch (status) {
             case (HEADER_END | HEADER_FIELD_END): {
                 if (processMessageHeaderField(data, *end, flowData) == PARSER_FAILURE) {
-                    msg(MSG_ERROR, "header field parsing error. could not parse the last header field.");
+                    DPRINTFL(MSG_ERROR, "header field parsing error. could not parse the last header field.");
 #if DEBUG
                     if (msg_getlevel()>=MSG_VDEBUG) {
                         printf("Header Field ");
@@ -600,7 +602,7 @@ int HTTPAggregation::processMessageHeader(const char* data, const char* dataEnd,
                 return 1;
             case HEADER_FIELD_END: {
                 if (processMessageHeaderField(data, *end, flowData) == PARSER_FAILURE) {
-                    msg(MSG_ERROR, "header field parsing error. could not parse header field.");
+                    DPRINTFL(MSG_ERROR, "header field parsing error. could not parse header field.");
 #if DEBUG
                     if (msg_getlevel()>=MSG_VDEBUG) {
                         printf("Header Field ");
@@ -614,17 +616,16 @@ int HTTPAggregation::processMessageHeader(const char* data, const char* dataEnd,
                 // the header field spans over multiple TCP segments
                 return 0;
             case HEADER_ERROR:
-                msg(MSG_ERROR, "could not parse HTTP message-header. the header seems to be malformed.");
+                DPRINTFL(MSG_ERROR, "could not parse HTTP message-header. the header seems to be malformed.");
+                break;
             default:
                 THROWEXCEPTION("invalid message-header parsing status");
                 break;
         }
         data = *end;
-        if (data == dataEnd)
-            msg(MSG_ERROR, "invalid message-header parsing status");
     }
-    msg(MSG_ERROR, "invalid message-header parsing status");
 
+    DPRINTFL(MSG_ERROR, "invalid message-header parsing status");
 	return 0;
 }
 
@@ -1055,10 +1056,10 @@ int HTTPAggregation::processChunkedMsgBody(const char* data, const char* dataEnd
         if (*chunkStatus == CHUNK_START && *contentLength<=0) {
             int result = getChunkLength(start, dataEnd, end, contentLength);
             if (result == PARSER_FAILURE) {
-                msg(MSG_ERROR, "httpagg: error parsing chunked message, chunk-size header field value was malformed");
+                DPRINTFL(MSG_ERROR, "httpagg: error parsing chunked message, chunk-size header field value was malformed");
                 return PARSER_FAILURE;
             } else if (result == PARSER_DNF) {
-                msg(MSG_ERROR, "httpagg: not enough payload to parse chunk-size");
+                DPRINTFL(MSG_ERROR, "httpagg: not enough payload to parse chunk-size");
                 // not enough payload remaining, wait for new payload
                 *end = start;
                 return PARSER_DNF;
@@ -1081,14 +1082,14 @@ int HTTPAggregation::processChunkedMsgBody(const char* data, const char* dataEnd
                 *chunkStatus = CHUNK_TRAILER;
             } else {
                 if (!eatCRLF(start, dataEnd, &start)) {
-                    msg(MSG_ERROR, "httpagg: chunk did not end with a CRLF");
+                    DPRINTFL(MSG_ERROR, "httpagg: chunk did not end with a CRLF");
                     return PARSER_FAILURE;
                 }
 
                 if (*chunkStatus == CHUNK_ZERO) {
                     // we are finished because the HTTP message seems to carry no trailer
                     if (start != dataEnd)
-                        msg(MSG_ERROR, "httpagg: the chuncked HTTP message ended, but there is still payload remaining");
+                        DPRINTFL(MSG_ERROR, "httpagg: the chuncked HTTP message ended, but there is still payload remaining");
                     *end = start;
                     return PARSER_SUCCESS;
                 }
@@ -1131,7 +1132,7 @@ int HTTPAggregation::processChunkedMsgBody(const char* data, const char* dataEnd
                 DPRINTFL(MSG_INFO, "httpagg: end of chunked message");
                 return PARSER_SUCCESS;
             case HEADER_ERROR:
-                msg(MSG_ERROR, "httpagg: error parsing trailer of chunked message");
+                DPRINTFL(MSG_ERROR, "httpagg: error parsing trailer of chunked message");
                 return PARSER_FAILURE;
             case HEADER_FIELD_END:
                 start = *end;
@@ -1218,7 +1219,7 @@ int HTTPAggregation::processMultipartBody(const char* data, const char* dataEnd,
          */
         if (eatCRLF(data, dataEnd, end)) {
             if (!strncmp(*end, flowData->response.boundary, flowData->response.boundaryLength)) {
-                msg(MSG_ERROR, "httpagg: end of a multipart/byterange message-body");
+                DPRINTFL(MSG_DEBUG, "httpagg: end of a multipart/byterange message-body");
                 /*-
                  * we cut off everything what follows, because according to RFC 2046:
                  * "...implementations must ignore anything that appears before the first
@@ -1528,14 +1529,13 @@ int HTTPAggregation::getChunkLength(const char* data, const char* dataEnd, const
 		if (*data == '\r') {
 			if (data+1<dataEnd) {
 			    if (*(data+1) != '\n') {
-			        printRange(start, data+1-start);
 			        *end = data+1;
 			        return PARSER_FAILURE;
 			    }
 			    *end = data+2;
                 long int length = strtol(start, NULL, 16); // works also if chunk extensions are present
                 if (length < 0 || length > 0xFFFFFFFF) {
-                    msg(MSG_ERROR, "httpagg: failure parsing chunk size, size = %u (parsed string = \"%.*s\")", length, data-start, start);
+                    DPRINTFL(MSG_ERROR, "httpagg: failure parsing chunk size, size = %u (parsed string = \"%.*s\")", length, data-start, start);
                     *chunkLength = 0;
                     return PARSER_FAILURE;
                 } else {
@@ -1987,7 +1987,7 @@ void HTTPAggregation::storeDataLeftOver(const char* data, const char* dataEnd, F
     if (size > 0) {
         uint16_t &length = flowData->isForward() ? flowData->streamInfo->forwardLength : flowData->streamInfo->reverseLength;
         if (length + size > flowData->streamInfo->MAX_BUFFERED_BYTES) {
-            msg(MSG_ERROR, "httpagg: reached the max number of bytes allowed to be buffered for a HTTP message.");
+            DPRINTFL(MSG_ERROR, "httpagg: reached the max number of bytes allowed to be buffered for a HTTP message.");
             http_status_t* status = flowData->getStatus();
             *status |= MESSAGE_FLAG_FAILURE;
             addAnnotationFlag(flowData, FlowAnnotation::HTTP_OUT_OF_BUFFER);
@@ -2251,6 +2251,7 @@ uint64_t HTTPAggregation::statTotalMatchedDialogPairs;
 uint64_t HTTPAggregation::statTotalBufferedBytes;
 uint64_t HTTPAggregation::statBufferedBytes;
 uint64_t HTTPAggregation::statTotalBufferOverflows;
+uint64_t HTTPAggregation::statTotalParsingErrors;
 
 std::string HTTPAggregation::getStatisticsXML(double interval)
 {
@@ -2263,6 +2264,7 @@ std::string HTTPAggregation::getStatisticsXML(double interval)
     oss << "<TotalBufferedBytes>" << statTotalBufferedBytes << "</TotalBufferedBytes>";
     oss << "<BufferedBytes>" << statBufferedBytes << "</BufferedBytes>";
     oss << "<TotalHTTPBufferOverflows>" << statTotalBufferOverflows << "</TotalHTTPBufferOverflows>";
+    oss << "<TotalParsingErrors>" << statTotalParsingErrors << "</TotalParsingErrors>";
 
     statBufferedBytes = 0;
 

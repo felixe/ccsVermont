@@ -220,6 +220,7 @@ public:
     static uint64_t statTotalBufferedBytes;
     static uint64_t statBufferedBytes;
     static uint64_t statTotalBufferOverflows;                  /**< Total number of Buffer overflows */
+    static uint64_t statTotalParsingErrors;
 
 	virtual std::string getStatisticsXML(double interval);
 

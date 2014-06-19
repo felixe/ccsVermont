@@ -93,8 +93,8 @@ public:
         TCP_ESTABLISHED,    /**< a TCP connection has been established. either we have seen a regular
                                  handshake or, if we did not capture the first packet(s), a packet
                                  between connection start and end was observed. */
-        TCP_CLOSED          /**< TCP connection is closed. the reason can be a regular FIN sequence, a RST,
-                                 a timeout or a packet with an invalid combination of TCP flags set */
+        TCP_CLOSED          /**< TCP connection is closed. the reason can be a regular FIN sequence, a RST or
+                                 a timeout*/
     } tcp_state_t;
 
     //! hash key type
@@ -127,6 +127,7 @@ public:
 
     bool truncatedPackets;  /**< set to true if a truncated packet was observed to be part of this stream */
     bool sequenceGaps;      /**< set to true if a gap was observed */
+    bool outOfBufferSpace;  /**< set to true if a stream runs out of buffer space */
 
     shared_ptr<bool> tcpForcedExpiry; /**< Force expiry in the PacketHashtable if a TCPStream object gets deleted. */
     shared_ptr<uint32_t> tcpFlowAnnotations; /**< TCP related annotations to the IPFIX flow */
@@ -200,6 +201,7 @@ public:
     static uint64_t statTotalOutOfOrderPackets;                /**< Total number of packets out-of-order */
     static uint64_t statTotalBufferedPackets;                  /**< Total number of packets out-of-order which were buffered*/
     static uint64_t statBufferedPackets;                       /**< Number of packets out-of-order which were buffered*/
+    static uint64_t statTotalSkippedGaps;                      /**< Total number of sequence number gaps which where skipped */
     static uint64_t statTotalSkippedBufferedPackets;           /**< Total number of packets out-of-order which were buffered, but skipped upon connection termination/close */
     static uint64_t statTotalSkippedPacketsInGaps;             /**< Total number of packets out-of-order which were buffered, but skipped afterwards because a sequence gap was encountered */
     static uint64_t statTotalSkippedPacketsAfterClose;         /**< Total number of packets which arrived after the TCP connection was marked as closed */

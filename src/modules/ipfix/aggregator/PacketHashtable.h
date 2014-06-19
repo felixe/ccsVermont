@@ -152,11 +152,10 @@ private:
 
 	ExpHelperTable expHelperTable;
 
-	TCPMonitor* tcpmon; /**< Manages and monitors TCP connections and performs packet analysis and TCP stream reassembly */
-
 	bool snapshotWritten; /**< set to true, if snapshot of hashtable was already written */
 	time_t startTime; /**< if a snapshot of the hashtable should be performed, this variable is used and stores initialization time of this hashtable */
 
+    TCPMonitor* tcpmon; /**< Manages and monitors TCP connections and performs packet analysis and TCP stream reassembly */
 
 	void snapshotHashtable();
 	void buildExpHelperTable();
