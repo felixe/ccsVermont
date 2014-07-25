@@ -259,6 +259,10 @@ int HTTPAggregation::processNewHTTPTraffic(const char* data, const char* dataEnd
             if (flowData->request.method)
                 memcpy(flowData->request.method, start, min_(end-start, IPFIX_ELENGTH_httpRequestMethod));
 
+            // no message body may be transfered upon a HEAD request
+            if (end-start == 4 && strncmp("HEAD", start, 4)==0)
+                flowData->response.transfer = TRANSFER_NO_MSG_BODY;
+
 			if (flowData->isReverse()) {
 				flowData->streamInfo->reverseType = HTTP_TYPE_REQUEST;
 				flowData->streamInfo->forwardType = HTTP_TYPE_RESPONSE;
@@ -339,7 +343,7 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
         }
 		case MESSAGE_END: {
 			// this state should never be reached. because new TCP payload should always be put in a new flow
-			msg(MSG_ERROR, "httpagg: reached invalid status, the message ended but we are still aggregating...");
+			DPRINTFL(MSG_ERROR, "httpagg: reached invalid status, the message ended but we are still aggregating...");
 #ifdef DEBUG
 			THROWEXCEPTION("this point should be unreachable");
 #endif
@@ -354,6 +358,9 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
                     // aggregate the request method
                     if (flowData->request.method)
                         memcpy(flowData->request.method, start, min_(end-start, IPFIX_ELENGTH_httpRequestMethod));
+                    // no message body may be transfered upon a HEAD request
+                    if (end-start == 4 && strncmp("HEAD", start, 4)==0)
+                        flowData->response.transfer = TRANSFER_NO_MSG_BODY;
                 } else {
                     DPRINTFL(MSG_DEBUG, "httpagg: request method did not end yet, wait for new payload");
                     *aggregationEnd = start;
@@ -924,20 +931,44 @@ int HTTPAggregation::matchFieldName(const char* data, const char* dataEnd, const
  * @param flowData Pointer to the FlowData structure which contains information about the current flow
  */
 void HTTPAggregation::setTransferEncoding(const char* data, const char* dataEnd, FlowData* flowData) {
-	if (!strncmp(data, "identity", dataEnd-data)) {
-		// if transfer encoding is set to "identity" the message length is not affected by this field.
-		// so we can ignore it
-		return;
+    // NOTE: The "identity" transfer coding token has been removed in RFC 7230
+
+	// the Transfer-Encoding header field value can be a list, but we are only interested in the last token, as the
+	// transfer codings have to be applied in order
+	const char* lastToken = dataEnd-1;
+	while(lastToken >= data) {
+	    if (*lastToken == ',') {
+	        lastToken = lastToken+1;
+	        break;
+	    }
+	    lastToken--;
 	}
 
-	// if transfer encoding is not equal to "identity" the transfer-length is defined by the use of the "chunked" transfer-coding
+	// skip initial whitespaces
+	while (lastToken<dataEnd && *lastToken==' ')
+	    lastToken++;
 
-	if (flowData->isRequest()) {
-		flowData->request.transfer = TRANSFER_CHUNKED;
-		DPRINTFL(MSG_INFO, "httpagg: the request transfer-length is defined by use of the \"chunked\" transfer-coding");
+	// RFC 7230: If a Transfer-Encoding header field is present and the
+	// chunked transfer coding is the final encoding, the message
+    // body length is determined by reading and decoding the chunked
+    // data until the transfer coding indicates the data is complete.
+
+	// if transfer coding is not the final encoding, the
+    // message body length is determined by reading the connection until
+    // it is closed by the server, but only if the message is a response, otherwise
+	// it's a bad request
+	if (dataEnd-lastToken <= 7 && strncmp(lastToken, "chunked", 7)==0) {
+	    if (flowData->isRequest())
+	        flowData->request.transfer = TRANSFER_CHUNKED;
+	    else
+	        flowData->response.transfer = TRANSFER_CHUNKED;
+	    DPRINTFL(MSG_INFO, "httpagg: the %s transfer-length is defined by use of the \"chunked\" transfer-coding", flowData->isRequest() ? "request" : "response");
+	} else if (flowData->isResponse()) {
+        flowData->response.transfer = TRANSFER_CONNECTION_BASED;
+        DPRINTFL(MSG_INFO, "httpagg: the response transfer-length is defined by connection termination (last Transfer-Encoding value was %.*s", dataEnd-lastToken, lastToken);
 	} else {
-		flowData->response.transfer = TRANSFER_CHUNKED;
-		DPRINTFL(MSG_INFO, "httpagg: the response transfer-length is defined by use of the \"chunked\" transfer-coding");
+	    flowData->request.transfer = TRANSFER_NO_MSG_BODY;
+	    DPRINTFL(MSG_INFO, "httpagg: invalid Transfer-Encoding header field values: %.*s", dataEnd-data, data);
 	}
 }
 
