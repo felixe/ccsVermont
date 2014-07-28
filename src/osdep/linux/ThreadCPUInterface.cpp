@@ -139,18 +139,18 @@ ThreadCPUInterface::SystemInfo ThreadCPUInterface::getSystemInfo()
 		THROWEXCEPTION("failed to open file '%s' (fopen)", procfile.c_str());
 	}
 	SystemInfo si;
-	uint32_t mem;
-	if (fscanf(f, "MemTotal: %u kB\n", &mem) != 1)
+	uint64_t mem=0;
+	if (fscanf(f, "MemTotal: %lu kB\n", &mem) != 1)
 		THROWEXCEPTION("failed to parse file '%s' 1", procfile.c_str());
 	si.totalMemory = mem*1024;
-	if (fscanf(f, "MemFree: %u kB\n", &mem) != 1)
+	if (fscanf(f, "MemFree: %lu kB\n", &mem) != 1)
 		THROWEXCEPTION("failed to parse file '%s' 2", procfile.c_str());
 	si.freeMemory = mem;
-	fscanf(f, "MemAvailable: %u kB\n", &mem); // skip MemAvailable line, which was added with Kernel version 3.14
-	if (fscanf(f, "Buffers: %u kB\n", &mem) != 1)
+	fscanf(f, "MemAvailable: %lu kB\n", &mem); // skip MemAvailable line, which was added with Kernel version 3.14
+	if (fscanf(f, "Buffers: %lu kB\n", &mem) != 1)
 		THROWEXCEPTION("failed to parse file '%s' 3", procfile.c_str());
 	si.freeMemory += mem;
-	if (fscanf(f, "Cached: %u kB\n", &mem) != 1)
+	if (fscanf(f, "Cached: %lu kB\n", &mem) != 1)
 		THROWEXCEPTION("failed to parse file '%s' 4", procfile.c_str());
 	si.freeMemory += mem;
 	si.freeMemory *= 1024;
