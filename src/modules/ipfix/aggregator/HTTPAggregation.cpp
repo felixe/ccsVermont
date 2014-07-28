@@ -2287,15 +2287,17 @@ uint64_t HTTPAggregation::statTotalParsingErrors;
 std::string HTTPAggregation::getStatisticsXML(double interval)
 {
     ostringstream oss;
-    oss << "<TotalRequests>" << statTotalRequests << "</TotalRequests>";
-    oss << "<TotalResponses>" << statTotalResponses << "</TotalResponses>";
-    oss << "<TotalPartialRequests>" << statTotalPartialRequests << "</TotalPartialRequests>";
-    oss << "<TotalPartialResponses>" << statTotalPartialResponses << "</TotalPartialResponses>";
-    oss << "<TotalMatchedDialogPairs>" << statTotalMatchedDialogPairs << "</TotalMatchedDialogPairs>";
-    oss << "<TotalBufferedBytes>" << statTotalBufferedBytes << "</TotalBufferedBytes>";
-    oss << "<BufferedBytes>" << statBufferedBytes << "</BufferedBytes>";
-    oss << "<TotalHTTPBufferOverflows>" << statTotalBufferOverflows << "</TotalHTTPBufferOverflows>";
-    oss << "<TotalParsingErrors>" << statTotalParsingErrors << "</TotalParsingErrors>";
+    oss << "\n";
+    oss << "\t\t\t\t" << "<TotalRequests>" << statTotalRequests << "</TotalRequests>" << "\n";
+    oss << "\t\t\t\t" << "<TotalResponses>" << statTotalResponses << "</TotalResponses>" << "\n";
+    oss << "\t\t\t\t" << "<TotalPartialRequests>" << statTotalPartialRequests << "</TotalPartialRequests>" << "\n";
+    oss << "\t\t\t\t" << "<TotalPartialResponses>" << statTotalPartialResponses << "</TotalPartialResponses>" << "\n";
+    oss << "\t\t\t\t" << "<TotalMatchedDialogPairs>" << statTotalMatchedDialogPairs << "</TotalMatchedDialogPairs>" << "\n";
+    oss << "\t\t\t\t" << "<TotalBufferedBytes>" << statTotalBufferedBytes << "</TotalBufferedBytes>" << "\n";
+    oss << "\t\t\t\t" << "<BufferedBytes>" << statBufferedBytes << "</BufferedBytes>" << "\n";
+    oss << "\t\t\t\t" << "<TotalHTTPBufferOverflows>" << statTotalBufferOverflows << "</TotalHTTPBufferOverflows>" << "\n";
+    oss << "\t\t\t\t" << "<TotalParsingErrors>" << statTotalParsingErrors << "</TotalParsingErrors>" << "\n";
+    oss << "\t\t\t";
 
     statBufferedBytes = 0;
 
