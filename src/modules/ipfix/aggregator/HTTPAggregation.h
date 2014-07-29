@@ -34,7 +34,7 @@
  */
 class HTTPAggregation : public Sensor {
 public:
-	static const uint8_t  MAX_STREAM_DEPTH	 = 0xFF;	//TODO unused
+	static const uint16_t  MAX_STREAM_DEPTH	 = 0xFFFF;	//TODO unused
 	static const uint32_t DEF_MAX_BUFFERED_BYTES = 10240; /**< Default limit of bytes which may be buffered per HTTP message is specified as 10 KiB. */
 
 	 //! this type represents the current state of the message parsing process
@@ -96,8 +96,8 @@ public:
 		http_type_t forwardType; /**< HTTP message typ in forward direction */
 		http_type_t reverseType; /**< HTTP message typ in reverse direction */
 
-		uint8_t forwardFlows;   /**< counter for the HTTP flows in forward direction */
-		uint8_t reverseFlows;   /**< counter for the HTTP flows in reverse direction */
+		uint16_t forwardFlows;   /**< counter for the HTTP flows in forward direction */
+		uint16_t reverseFlows;   /**< counter for the HTTP flows in reverse direction */
 		uint8_t *direction;     /**< the direction of the current packet */
 
 		bool multipleRequests;  /**< indicates if the current processed packet contains multiple requests */
@@ -193,7 +193,7 @@ public:
 		bool isReverse();
 		bool isRequest();
 		bool isResponse();
-        uint8_t* getFlowcount(bool oppositeDirection = false);
+        uint16_t* getFlowcount(bool oppositeDirection = false);
         http_type_t* getType(bool oppositeDirection = false);
         http_msg_body_transfer_t* getTransferType();
         http_status_t* getStatus();

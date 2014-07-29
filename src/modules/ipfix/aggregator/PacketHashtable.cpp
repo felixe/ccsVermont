@@ -351,48 +351,50 @@ void PacketHashtable::aggregateHTTP(IpfixRecord::Data* bucket, HashtableBucket* 
 	detectHTTP(&data, &dataEnd, flowData, &aggregationStart, &aggregationEnd);
 
 	if (!aggregationStart || !aggregationEnd || aggregationEnd <= aggregationStart) {
+	    if (flowData->response.status == MESSAGE_END) {
+	        goto skip_aggregation;
+	    }
 		DPRINTFL(MSG_INFO, "skip packet payload");
 		return;
 	}
 
-//	if (aggregationEnd == aggregationStart)
-//	    goto skip_aggregation;
 	{
-	uint32_t avail = efd->dstLength - ppd->byteCount;
-	if (avail>0) {
-		uint32_t size = aggregationEnd - aggregationStart;
-		size = min(avail, size);
-		memcpy(dst+ppd->byteCount, aggregationStart, size);
-		ppd->byteCount+=size;
-		DPRINTFL(MSG_INFO, "aggregated %u bytes of payload. %u bytes free.", size, efd->dstLength - ppd->byteCount);
-		DPRINTFL(MSG_DEBUG, "payload aggregated = '%.*s'", size, aggregationStart);
-	} else DPRINTFL(MSG_INFO, "not aggregating payload, no space left.");
+        uint32_t avail = efd->dstLength - ppd->byteCount;
+        if (avail>0) {
+            uint32_t size = aggregationEnd - aggregationStart;
+            size = min(avail, size);
+            memcpy(dst+ppd->byteCount, aggregationStart, size);
+            ppd->byteCount+=size;
+            DPRINTFL(MSG_INFO, "aggregated %u bytes of payload. %u bytes free.", size, efd->dstLength - ppd->byteCount);
+            DPRINTFL(MSG_DEBUG, "payload aggregated = '%.*s'", size, aggregationStart);
+        } else DPRINTFL(MSG_INFO, "not aggregating payload, no space left.");
 
-	// increase packet counter (if available)
-	if (efd->typeSpecData.frontPayload.pktCountOffset != ExpHelperTable::UNUSED)
-		(*reinterpret_cast<uint32_t*>(bucket+efd->typeSpecData.frontPayload.pktCountOffset))++;
-	// copy current length to corresponding information element
-	if (efd->typeSpecData.frontPayload.fpaLenOffset != ExpHelperTable::UNUSED)
-		(*reinterpret_cast<uint32_t*>(bucket+efd->typeSpecData.frontPayload.fpaLenOffset)) = htonl(ppd->byteCount);
+        // increase packet counter (if available)
+        if (efd->typeSpecData.frontPayload.pktCountOffset != ExpHelperTable::UNUSED)
+            (*reinterpret_cast<uint32_t*>(bucket+efd->typeSpecData.frontPayload.pktCountOffset))++;
+        // copy current length to corresponding information element
+        if (efd->typeSpecData.frontPayload.fpaLenOffset != ExpHelperTable::UNUSED)
+            (*reinterpret_cast<uint32_t*>(bucket+efd->typeSpecData.frontPayload.fpaLenOffset)) = htonl(ppd->byteCount);
+	}
 
+skip_aggregation:
 	if (flowData->request.status == MESSAGE_END && flowData->response.status == MESSAGE_END) {
-		DPRINTFL(MSG_INFO, "forcing expiry of http flow");
+		DPRINTFL(MSG_INFO, "request and response ended. forcing expiry of http flow.");
 		hbucket->forceExpiry=true;
 	} else if (flowData->response.status == MESSAGE_END && flowData->isResponse()){
-	    uint8_t responseCount = *flowData->getFlowcount();
-	    uint8_t requestCount = *flowData->getFlowcount(true);
+	    uint16_t responseCount = *flowData->getFlowcount();
+	    uint16_t requestCount = *flowData->getFlowcount(true);
 
 	    if (responseCount>requestCount+1) {
 	        // special case: requests and responses out of order.
 	        // we can be sure that this bucket is not and will never be used
 	        // by a request, since the request counter will be set to skip this
 	        // number
-	        DPRINTFL(MSG_INFO, "forcing expiry of http flow");
+	        DPRINTFL(MSG_INFO, "response ended. forcing expiry of http flow");
 	        hbucket->forceExpiry=true;
 	    }
 	}
-	}
-// skip_aggregation:
+
 	http_type_t type = *flowData->getType();
 	uint32_t* pipelinedOffsetEnd = 0;
 	if (type == HTTP_TYPE_REQUEST && flowData->request.status == MESSAGE_END)
@@ -1304,9 +1306,9 @@ uint32_t PacketHashtable::calculateHash(const IpfixRecord::Data* data, TCPStream
 	}
     if (ts) {
         hash = crc32(hash, sizeof(uint32_t), &ts->streamNum);
-        uint8_t flows = ts->isForward() ? ts->httpData->forwardFlows : ts->httpData->reverseFlows;
+        uint16_t flows = ts->isForward() ? ts->httpData->forwardFlows : ts->httpData->reverseFlows;
         if (flows > 0)
-            hash = crc32(hash, sizeof(uint8_t), &flows);
+            hash = crc32(hash, sizeof(uint16_t), &flows);
     }
 	DPRINTFL(MSG_INFO, "buckets hash =    %8u", hash & (htableSize-1));
 	return hash & (htableSize-1);
@@ -1326,9 +1328,9 @@ uint32_t PacketHashtable::calculateHashRev(const IpfixRecord::Data* data, TCPStr
 	}
     if (ts) {
         hash = crc32(hash, sizeof(uint32_t), &ts->streamNum);
-        uint8_t flows = ts->isForward() ? ts->httpData->forwardFlows : ts->httpData->reverseFlows;
+        uint16_t flows = ts->isForward() ? ts->httpData->forwardFlows : ts->httpData->reverseFlows;
         if (flows > 0)
-            hash = crc32(hash, sizeof(uint8_t), &flows);
+            hash = crc32(hash, sizeof(uint16_t), &flows);
     }
 	DPRINTFL(MSG_INFO, "buckets revhash = %8u", hash & (htableSize-1));
 	return hash & (htableSize-1);
@@ -1986,7 +1988,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
             while (1) {
                 bool equalStream = httpAggregation ? bucket->streamID == tcpStream->streamNum : true;
                 if (equalStream && equalFlow(bucket->data.get(), p)) {
-                    DPRINTFL(MSG_DEBUG, "aggregate flow in normal direction");
+                    DPRINTFL(MSG_DEBUG, "aggregate flow in normal direction, with hash=%d", hash);
                     tsrcData = bucket->data.get();
                     aggregateFlow(bucket, p, 0);
                     if (!bucket->forceExpiry) {
@@ -2021,7 +2023,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
             while (bucket!=0) {
                 bool equalStream = httpAggregation ? bucket->streamID == tcpStream->streamNum : true;
                 if (equalStream && equalFlowRev(bucket->data.get(), p) ) {
-                	DPRINTFL(MSG_DEBUG, "aggregate flow in reverse direction");
+                	DPRINTFL(MSG_DEBUG, "aggregate flow in reverse direction, with hash=%d", rhash);
                     tsrcData = bucket->data.get();
                     aggregateFlow(bucket, p, 1);
                     if (!bucket->forceExpiry) {
@@ -2129,8 +2131,8 @@ void PacketHashtable::processMultipleHTTPMessages(IpfixRecord::Data* srcData,  H
         THROWEXCEPTION("HTTP type was set faulty");
 
     if (type == HTTP_TYPE_RESPONSE) {
-        uint8_t* requestCount = 0;
-        uint8_t* responseCount = 0;
+        uint16_t* requestCount = 0;
+        uint16_t* responseCount = 0;
 
         if ((tcpStream->isForward() && tcpStream->httpData->forwardType == HTTP_TYPE_REQUEST) ||
                 (tcpStream->isReverse() && tcpStream->httpData->reverseType == HTTP_TYPE_RESPONSE)) {

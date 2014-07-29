@@ -64,7 +64,7 @@ void HTTPAggregation::detectHTTP(const char** data, const char** dataEnd, FlowDa
 //	            http_status_t* status = flowData->getStatus();
 //	            *status = MESSAGE_END;
 //	            *aggregationEnd = *aggregationStart;
-//	            uint8_t* flowCount = flowData->getFlowcount();
+//	            uint16_t* flowCount = flowData->getFlowcount();
 //	            (*flowCount)++;
 //	            return;
 //	        }
@@ -209,8 +209,8 @@ void HTTPAggregation::detectHTTP(const char** data, const char** dataEnd, FlowDa
             statTotalRequests++;
              DPRINTFL(MSG_INFO, "httpagg: HTTP request ended");
 
-             uint8_t* requestCount = flowData->getFlowcount();
-             uint8_t* responseCount = flowData->getFlowcount(true);
+             uint16_t* requestCount = flowData->getFlowcount();
+             uint16_t* responseCount = flowData->getFlowcount(true);
 
              if (*requestCount < *responseCount) {
                  DPRINTFL(MSG_ERROR, "httpagg: request count (%d) < response count (%d). either we missed a part of the HTTP dialog or a parsing failure was encountered.", *requestCount, *responseCount);
@@ -457,8 +457,8 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
                     // but we still need to parse the response phrase...
                     // so for now the new state is only applied for the request.
                     flowData->request.status = MESSAGE_PROTO_UPGR;
-                    uint8_t* requestCount = flowData->getFlowcount(true);
-                    uint8_t* responseCount = flowData->getFlowcount();
+                    uint16_t* requestCount = flowData->getFlowcount(true);
+                    uint16_t* responseCount = flowData->getFlowcount();
                     // new flows MUST NOT be created from now on, therefore the request
                     // flow counter has to be decremented.
                     // on the contrary all payload MUST be aggregated into the current flow.
@@ -629,7 +629,10 @@ int HTTPAggregation::processMessageHeader(const char* data, const char* dataEnd,
                 THROWEXCEPTION("invalid message-header parsing status");
                 break;
         }
-        data = *end;
+        if (*end > data)
+            data = *end;
+        else
+            data++;
     }
 
     DPRINTFL(MSG_ERROR, "invalid message-header parsing status");
@@ -2156,7 +2159,7 @@ HTTPAggregation::http_type_t* HTTPAggregation::FlowData::getType(bool oppositeDi
  * @param oppositeDirection Specifies the direction. False for the current direction, true for the opposite direction. Default is false.
  * @return a pointer to the flow counter in the specified direction
  */
-uint8_t* HTTPAggregation::FlowData::getFlowcount(bool oppositeDirection) {
+uint16_t* HTTPAggregation::FlowData::getFlowcount(bool oppositeDirection) {
     http_type_t type =*getType(oppositeDirection);
     if (type == streamInfo->forwardType) {
         return &(streamInfo->forwardFlows);
