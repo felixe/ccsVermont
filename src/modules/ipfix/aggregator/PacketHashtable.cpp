@@ -1897,6 +1897,8 @@ void PacketHashtable::aggregatePacket(Packet* p)
 		nanosleep(&req, &req);
 	}
 
+    DPRINTFL(MSG_VDEBUG, "PacketHashtable::aggregatePacket()");
+
     uint32_t slen = p->net_total_length - p->payloadOffset; // TCP segment length
 
     DPRINTF(MSG_VDEBUG, "new packet #%lu| frame.len: %u, ip.len = %u, tcp.len = %u, captured bytes = %d, http-requests: %d, http-responses: %d",
@@ -1958,7 +1960,6 @@ void PacketHashtable::aggregatePacket(Packet* p)
             return;
         }
 
-        DPRINTF("PacketHashtable::aggregatePacket()");
         updatePointers(p);
         createMaskedFields(p);
 
@@ -1986,8 +1987,12 @@ void PacketHashtable::aggregatePacket(Packet* p)
             DPRINTFL(MSG_INFO, "bucket found for hash!");
             // This slot is already used, search spill chain for equal flow
             while (1) {
-                bool equalStream = httpAggregation ? bucket->streamID == tcpStream->streamNum : true;
-                if (equalStream && equalFlow(bucket->data.get(), p)) {
+                bool rightBucket = false;
+                if (httpAggregation) {
+                    uint16_t flowID = tcpStream->isForward() ? tcpStream->httpData->forwardFlows : tcpStream->httpData->reverseFlows;
+                    rightBucket = (bucket->streamID == tcpStream->streamNum) && (bucket->flowID == flowID);
+                }
+                if (rightBucket && equalFlow(bucket->data.get(), p)) {
                     DPRINTFL(MSG_DEBUG, "aggregate flow in normal direction, with hash=%d", hash);
                     tsrcData = bucket->data.get();
                     aggregateFlow(bucket, p, 0);
@@ -2021,9 +2026,13 @@ void PacketHashtable::aggregatePacket(Packet* p)
             if (bucket != 0) DPRINTFL(MSG_INFO, "revbucket found for hash!");
             else DPRINTFL(MSG_INFO, "no revbucket found for hash!");
             while (bucket!=0) {
-                bool equalStream = httpAggregation ? bucket->streamID == tcpStream->streamNum : true;
-                if (equalStream && equalFlowRev(bucket->data.get(), p) ) {
-                	DPRINTFL(MSG_DEBUG, "aggregate flow in reverse direction, with hash=%d", rhash);
+                bool rightBucket = false;
+                if (httpAggregation) {
+                    uint16_t flowID = tcpStream->isForward() ? tcpStream->httpData->forwardFlows : tcpStream->httpData->reverseFlows;
+                    rightBucket = (bucket->streamID == tcpStream->streamNum) && (bucket->flowID == flowID);
+                }
+                if (rightBucket && equalFlowRev(bucket->data.get(), p) ) {
+                    DPRINTFL(MSG_DEBUG, "aggregate flow in reverse direction, with hash=%d", rhash);
                     tsrcData = bucket->data.get();
                     aggregateFlow(bucket, p, 1);
                     if (!bucket->forceExpiry) {
@@ -2048,6 +2057,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
         if (createAfterExpiry && (!flowfound || expiryforced)) {
             // create new flow
             DPRINTFL(MSG_INFO, "creating new bucket for hash=%u", hash);
+            int flowID = tcpStream->isForward() ? tcpStream->httpData->forwardFlows : tcpStream->httpData->reverseFlows;
 
             HashtableBucket* firstbucket = buckets[hash];
             if (httpAggregation) {
@@ -2055,6 +2065,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
                 buckets[hash] = createBucket(htdata, p->observationDomainID, firstbucket, 0, hash);
                 buckets[hash]->data = buildBucketData(p, httpData, &buckets[hash]);
                 buckets[hash]->streamID = tcpStream->streamNum;
+                buckets[hash]->flowID = flowID;
                 buckets[hash]->tcpForcedExpiry = tcpStream->tcpForcedExpiry;
                 buckets[hash]->tcpFlowAnnotations = tcpStream->tcpFlowAnnotations;
 
@@ -2187,9 +2198,14 @@ void PacketHashtable::aggregateIntoExistingFlow(IpfixRecord::Data* srcData,  HTT
          if (bucket != 0) DPRINTFL(MSG_INFO, "revbucket found for hash!");
          else DPRINTFL(MSG_INFO, "no revbucket found for hash!");
          while (bucket!=0) {
-             if (equalFlowRev(bucket->data.get(), p)) {
+             bool rightBucket = false;
+             if (httpAggregation) {
+                 uint16_t flowID = tcpStream->isForward() ? tcpStream->httpData->forwardFlows : tcpStream->httpData->reverseFlows;
+                 rightBucket = (bucket->streamID == tcpStream->streamNum) && (bucket->flowID == flowID);
+             }
+             if (rightBucket && equalFlowRev(bucket->data.get(), p)) {
                  found = true;
-                 DPRINTF("aggregate flow in reverse direction");
+                 DPRINTFL(MSG_DEBUG, "aggregate flow in reverse direction, with hash=%d", rhash);
                  srcData = bucket->data.get();
                  break;
              }
@@ -2259,13 +2275,16 @@ void PacketHashtable::aggregateIntoNewFlow(IpfixRecord::Data* srcData,  HTTPStre
         uint32_t hash = calculateHash(p->data.netHeader, tcpStream);
         HashtableBucket* firstbucket = buckets[hash];
 
-        DPRINTF("creating bucket for hash=%d\n", hash);
+        DPRINTFL(MSG_VDEBUG,"creating bucket for hash=%d\n", hash);
+
+        int flowID = tcpStream->isForward() ? tcpStream->httpData->forwardFlows : tcpStream->httpData->reverseFlows;
 
         // create a copy of the bucket from previous flow
         boost::shared_array<IpfixRecord::Data> htdata = createBucketDataCopy(srcData, streamData, srcFlowData);
         // create the new bucket
         buckets[hash] = createBucket(htdata, p->observationDomainID, firstbucket, 0, hash);
         buckets[hash]->streamID = tcpStream->streamNum;
+        buckets[hash]->flowID = flowID;
         buckets[hash]->tcpForcedExpiry = tcpStream->tcpForcedExpiry;
         buckets[hash]->tcpFlowAnnotations = tcpStream->tcpFlowAnnotations;
 

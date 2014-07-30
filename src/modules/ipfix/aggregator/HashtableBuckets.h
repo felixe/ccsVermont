@@ -45,6 +45,7 @@ public:
 
 	// HTTP aggregation related
 	uint32_t streamID; /**< TCP stream ID, helps to match the bucket to the proper TcpStream */
+	uint16_t flowID; /**< flow number, helps to prevent collisions */
 	boost::shared_ptr<bool> tcpForcedExpiry; /**< Force expiry if a TCPStream object gets deleted, what happens at some
 	                                              time after a TCP connection terminates, times out or becomes invalid. */
 	boost::shared_ptr<uint32_t> tcpFlowAnnotations; /**< Flow annotations related to the corresponding TCP connection */
