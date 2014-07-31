@@ -127,7 +127,7 @@ void PacketHashtable::copyDataNanoseconds(CopyFuncParameters* cfp)
 void PacketHashtable::copyDataTransportOctets(CopyFuncParameters* cfp)
 {
 	const Packet* p = cfp->packet;
-	uint16_t plen = p->data_length-p->payloadOffset;
+	uint16_t plen = p->pcapPacketLength-p->payloadOffset-p->layer2HeaderLen; 
 	if (p->payloadOffset==0 || p->payloadOffset==p->transportHeaderOffset) plen = 0;
 
 	*reinterpret_cast<uint64_t*>(cfp->dst+cfp->efd->dstIndex) = htonll(plen);
@@ -165,7 +165,7 @@ void PacketHashtable::aggregateFrontPayload(IpfixRecord::Data* bucket, Hashtable
 		return;
 	}
 
-	uint16_t plen = src->data_length-src->payloadOffset;
+	uint16_t plen = src->data_length-src->payloadOffset-src->layer2HeaderLen; 
 	if (src->payloadOffset==0 || src->payloadOffset==src->transportHeaderOffset) plen = 0;
 
 	// DPA logic
@@ -593,6 +593,18 @@ uint16_t PacketHashtable::getRawPacketFieldOffset(const IeInfo& type, const Pack
 			case IPFIX_ETYPEID_maxPacketGap:
 				return reinterpret_cast<const unsigned char*>(&p->time_msec_nbo) - p->data.netHeader;
 				break;
+			case IPFIX_ETYPEID_frontPayloadLen:
+			case IPFIX_ETYPEID_frontPayloadPktCount:
+			case IPFIX_ETYPEID_dpaForcedExport:
+			case IPFIX_ETYPEID_dpaReverseStart:
+				// all those fields aren't part of the raw packet header and are stored in the
+				// typeSpecData.frontPayload field of IPFIX_ETYPEID_frontPayload.
+				// so the offset to the zeroBytes pointer should be returned here
+				break;
+			case IPFIX_ETYPEID_dpaFlowCount:
+				// this  field isn't part of the raw packet and is stored in the expHelperTable.
+				// so the offset to the zeroBytes pointer should be returned here
+				break;
 			default:
 				THROWEXCEPTION("PacketHashtable: raw id offset into packet header for typeid %s is unkown, failed to determine raw packet offset", type.toString().c_str());
 				break;
@@ -870,6 +882,7 @@ void PacketHashtable::buildExpHelperTable()
 
 	// reversed aggregatable fields
 
+	expHelperTable.noRevAggFields = 0;
 	// special treatment of IPFIX_ETYPEID_frontPayload: for DPA, it must be the first element in the field
 	// reason: it may cause forced export of data records
 	for (int i=0; i<dataTemplate->fieldCount; i++) {
@@ -880,10 +893,11 @@ void PacketHashtable::buildExpHelperTable()
 		}
 	}
 	// now the other fields
-	expHelperTable.noRevAggFields = 0;
 	for (int i=0; i<dataTemplate->fieldCount; i++) {
 		TemplateInfo::FieldInfo hfi = dataTemplate->fieldInfo[i];
-		if ((hfi.type.enterprise & IPFIX_PEN_reverse) == 0) continue;
+		if ((hfi.type.enterprise & IPFIX_PEN_reverse) == 0
+				|| hfi.type==IeInfo(IPFIX_ETYPEID_frontPayload, IPFIX_PEN_vermont|IPFIX_PEN_reverse))
+			continue;
 		hfi.type.enterprise &= ~IPFIX_PEN_reverse;
 		if (!typeAvailable(hfi.type)) {
 			THROWEXCEPTION("Type %s is not contained in raw packet. Please remove it from PacketAggregator rule.", hfi.type.toString().c_str());
@@ -929,6 +943,7 @@ void PacketHashtable::buildExpHelperTable()
 			efd->typeSpecData.frontPayload.pktCountOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_frontPayloadPktCount, IPFIX_PEN_vermont));
 			efd->typeSpecData.frontPayload.dpaForcedExportOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_dpaForcedExport, IPFIX_PEN_vermont));
 			efd->typeSpecData.frontPayload.dpaRevStartOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_dpaReverseStart, IPFIX_PEN_vermont));
+			efd->typeSpecData.frontPayload.dpa = expHelperTable.useDPA;
 			efd->typeSpecData.frontPayload.dpaPrivDataOffset = ExpHelperTable::UNUSED;
 			if (expHelperTable.useDPA) {
 				for (uint32_t i=0; i<expHelperTable.noAggFields; i++) {
@@ -1038,7 +1053,7 @@ void PacketHashtable::aggregateField(const ExpFieldData* efd, HashtableBucket* h
 
 	if (efd->typeId.id==IPFIX_ETYPEID_transportOctetDeltaCount && (efd->typeId.enterprise&IPFIX_PEN_vermont)) {
 		p = reinterpret_cast<const Packet*>(deltaData);
-		plen = p->data_length-p->payloadOffset;
+		plen = p->pcapPacketLength-p->payloadOffset-p->layer2HeaderLen; 
 		if ((p->ipProtocolType==Packet::TCP || p->ipProtocolType==Packet::UDP) &&
 			p->payloadOffset>0 && p->payloadOffset!=p->transportHeaderOffset && plen>0) {
 			uint64_t seq;

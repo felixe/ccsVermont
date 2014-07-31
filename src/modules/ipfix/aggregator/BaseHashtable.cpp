@@ -218,6 +218,8 @@ BaseHashtable::~BaseHashtable()
 		}
 
 	delete[] buckets;
+	delete[] switchArray;
+	delete[] revKeyMapper;
 	free(fieldModifier);
 }
 
