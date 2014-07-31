@@ -146,6 +146,7 @@ ThreadCPUInterface::SystemInfo ThreadCPUInterface::getSystemInfo()
 	if (fscanf(f, "MemFree: %u kB\n", &mem) != 1)
 		THROWEXCEPTION("failed to parse file '%s' 2", procfile.c_str());
 	si.freeMemory = mem;
+	fscanf(f, "MemAvailable: %u kB\n", &mem); // skip MemAvailable line, which was added with Kernel version 3.14
 	if (fscanf(f, "Buffers: %u kB\n", &mem) != 1)
 		THROWEXCEPTION("failed to parse file '%s' 3", procfile.c_str());
 	si.freeMemory += mem;
