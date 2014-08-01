@@ -63,6 +63,8 @@ BaseHashtable::BaseHashtable(Source<IpfixRecord*>* recordsource, Rule* rule,
 	for (uint32_t i = 0; i < htableSize; i++)
 		buckets[i] = NULL;
 
+	statEmptyBuckets = htableSize;
+
 	createDataTemplate(rule);
 
 	if (biflowAggregation) {
