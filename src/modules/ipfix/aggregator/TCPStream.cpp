@@ -218,6 +218,8 @@ TCPMonitor::~TCPMonitor() {
  */
 int TCPMonitor::dissect(Packet* p, TCPStream** ts) {
     statTotalPackets++;
+    statTotalSegmentBytes += (p->net_total_length - p->payloadOffset);
+
     *ts = findOrCreateStream(p);
 
     if (usePCAPTimestamps)
@@ -259,6 +261,8 @@ int TCPMonitor::dissect(Packet* p, TCPStream** ts) {
         return TCPMonitor::OUT_OF_ORDER;
     }
 
+    statTotalPacketsProcessed++;
+    statTotalSegmentBytesProcessed += (p->net_total_length - p->payloadOffset);
     return TCPMonitor::IN_ORDER;
 }
 
@@ -493,11 +497,14 @@ void TCPMonitor::processACK(TCPStream* ts, uint32_t ack, TCPData& dst) {
         } else if (isFresh(ack, dst)){
             // a sequence gap was observed
             DPRINTFL(MSG_DEBUG, "skipping gap from seq %u to %u", dst.nextSeq, ack);
-            uint32_t& lostBytes = ts->isForward() ? ts->httpData->forwardLostBytes : ts->httpData->reverseLostBytes;
+            uint32_t lostBytes;
+            uint32_t& lostBytesInDirection = ts->isForward() ? ts->httpData->forwardLostBytes : ts->httpData->reverseLostBytes;
             if (ack > dst.nextSeq)
-                lostBytes += dst.nextSeq - ack;
+                lostBytes = dst.nextSeq - ack;
             else
-                lostBytes += (0xFFFFFFFF - dst.nextSeq) + ack;
+                lostBytes = (0xFFFFFFFF - dst.nextSeq) + ack;
+            lostBytesInDirection += lostBytes;
+            statTotalSkippedBytes += lostBytes;
             dst.nextSeq = ack;
             ts->releaseObsoleteQueuedPackets(dst);
             ts->addAnnotationFlag(FlowAnnotation::TCP_SEQ_GAPS);
@@ -566,6 +573,9 @@ Packet* TCPMonitor::nextPacketForStream(TCPStream* ts) {
     if (!p)
         THROWEXCEPTION("packet is null");
 #endif
+
+    statTotalPacketsProcessed++;
+    statTotalSegmentBytesProcessed += (p->net_total_length - p->payloadOffset);
 
     return p;
 }
@@ -855,14 +865,17 @@ int TCPMonitor::CLOSED       = 2;
 // statistics
 uint64_t TCPMonitor::statTotalConnections;
 uint64_t TCPMonitor::statTotalPackets;
+uint64_t TCPMonitor::statTotalPacketsProcessed;
+uint64_t TCPMonitor::statTotalSegmentBytes;
+uint64_t TCPMonitor::statTotalSegmentBytesProcessed;
 uint64_t TCPMonitor::statTotalTruncatedPackets;
 uint64_t TCPMonitor::statTotalOutOfOrderPackets;
 uint64_t TCPMonitor::statTotalBufferedPackets;
 uint64_t TCPMonitor::statBufferedPackets;
 uint64_t TCPMonitor::statTotalSkippedGaps;
+uint64_t TCPMonitor::statTotalSkippedBytes;
 uint64_t TCPMonitor::statTotalSkippedBufferedPackets;
 uint64_t TCPMonitor::statTotalSkippedPacketsInGaps;
-uint64_t TCPMonitor::statTotalSkippedPacketsAfterClose;
 uint64_t TCPMonitor::statTotalBufferOverflows;
 uint64_t TCPMonitor::statTotalEstablishedConnections;
 uint64_t TCPMonitor::statTotalRegularEstablishedConnections;
@@ -895,14 +908,17 @@ std::string TCPMonitor::getStatisticsXML(double interval)
     oss << "\t\t\t\t" << "<TotalExpiredEstablishedConnections>" << statTotalExpiredEstablishedConnections << "</TotalExpiredEstablishedConnections>" << "\n";
     oss << "\t\t\t\t" << "<TotalExpiredClosedConnections>" << statTotalExpiredClosedConnections << "</TotalExpiredClosedConnections>" << "\n";
     oss << "\t\t\t\t" << "<TotalPackets>" << statTotalPackets << "</TotalPackets>" << "\n";
+    oss << "\t\t\t\t" << "<TotalPacketsProcessed>" << statTotalPacketsProcessed << "</TotalPacketsProcessed>" << "\n";
+    oss << "\t\t\t\t" << "<TotalSegmentBytes>" << statTotalSegmentBytes << "</TotalSegmentBytes>" << "\n";
+    oss << "\t\t\t\t" << "<TotalSegmentBytesProcessed>" << statTotalSegmentBytesProcessed << "</TotalSegmentBytesProcessed>" << "\n";
     oss << "\t\t\t\t" << "<TotalTruncatedPackets>" << statTotalTruncatedPackets << "</TotalTruncatedPackets>" << "\n";
     oss << "\t\t\t\t" << "<TotalOutOfOrderPackets>" << statTotalOutOfOrderPackets << "</TotalOutOfOrderPackets>" << "\n";
     oss << "\t\t\t\t" << "<BufferedOutOfOrderPackets>" << statBufferedPackets << "</BufferedOutOfOrderPackets>" << "\n";
     oss << "\t\t\t\t" << "<TotalBufferedOutOfOrderPackets>" << statTotalBufferedPackets << "</TotalBufferedOutOfOrderPackets>" << "\n";
     oss << "\t\t\t\t" << "<TotalSkippedGaps>" << statTotalSkippedGaps << "</TotalSkippedGaps>" << "\n";
+    oss << "\t\t\t\t" << "<TotalSkippedBytes>" << statTotalSkippedBytes << "</TotalSkippedBytes>" << "\n";
     oss << "\t\t\t\t" << "<TotalSkippedBufferedPackets>" << statTotalSkippedBufferedPackets << "</TotalSkippedBufferedPackets>" << "\n";
     oss << "\t\t\t\t" << "<TotalSkippedPacketsInGaps>" << statTotalSkippedPacketsInGaps << "</TotalSkippedPacketsInGaps>" << "\n";
-    oss << "\t\t\t\t" << "<TotalSkippedPackets>" << statTotalSkippedPacketsAfterClose << "</TotalSkippedPackets>" << "\n";
     oss << "\t\t\t\t" << "<TotalBufferOverflows>" << statTotalBufferOverflows << "</TotalBufferOverflows>" << "\n";
     oss << "\t\t\t";
 

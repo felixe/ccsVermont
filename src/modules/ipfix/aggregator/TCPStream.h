@@ -196,15 +196,18 @@ public:
     // statistics
     static uint64_t statTotalConnections;                      /**< Total number of observed TCP connections, also non established connection */
     static uint64_t statTotalEstablishedConnections;           /**< Total number of established TCP connections */
-    static uint64_t statTotalPackets;                          /**< Total number of processed packets */
+    static uint64_t statTotalPackets;                          /**< Total number of received packets */
+    static uint64_t statTotalPacketsProcessed;                 /**< Total number of packets which could be processed w/ or w/o reassembly */
+    static uint64_t statTotalSegmentBytes;                     /**< Total number of bytes of received segments */
+    static uint64_t statTotalSegmentBytesProcessed;            /**< Total number of bytes of received segments which could be processed w/ or w/o reassembly */
     static uint64_t statTotalTruncatedPackets;                 /**< Total number of truncated packets */
     static uint64_t statTotalOutOfOrderPackets;                /**< Total number of packets out-of-order */
     static uint64_t statTotalBufferedPackets;                  /**< Total number of packets out-of-order which were buffered*/
     static uint64_t statBufferedPackets;                       /**< Number of packets out-of-order which were buffered*/
-    static uint64_t statTotalSkippedGaps;                      /**< Total number of sequence number gaps which where skipped */
-    static uint64_t statTotalSkippedBufferedPackets;           /**< Total number of packets out-of-order which were buffered, but skipped upon connection termination/close */
+    static uint64_t statTotalSkippedGaps;                      /**< Total number of 'sequence number'-gaps which where skipped */
+    static uint64_t statTotalSkippedBytes;                     /**< Total number of bytes which where lost due to sequence gaps */
+    static uint64_t statTotalSkippedBufferedPackets;           /**< Total number of packets out-of-order which were buffered, but never processed */
     static uint64_t statTotalSkippedPacketsInGaps;             /**< Total number of packets out-of-order which were buffered, but skipped afterwards because a sequence gap was encountered */
-    static uint64_t statTotalSkippedPacketsAfterClose;         /**< Total number of packets which arrived after the TCP connection was marked as closed */
     static uint64_t statTotalBufferOverflows;                  /**< Total number of Buffer overflows */
     static uint64_t statTotalHalfEstablishedConnections;       /**< Total number of connections where a single SYN was seen */
     static uint64_t statTotalRegularEstablishedConnections;    /**< Total number of connections which were established with a TCP handshake */
