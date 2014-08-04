@@ -485,7 +485,8 @@ bool TCPMonitor::analysePacket(Packet* p, TCPStream* ts) {
  */
 void TCPMonitor::processACK(TCPStream* ts, uint32_t ack, TCPData& dst) {
     if (ack > 0) {
-        if (!ts->sequenceGaps && isFresh(ack, dst)) {
+        int seqDiff = isFresh(ack, dst);
+        if (!ts->sequenceGaps && seqDiff) {
             DPRINTFL(MSG_DEBUG, "ACKed unseen segment. this TCP connection may contain sequence gaps!");
             ts->sequenceGaps = true;
         }
@@ -494,17 +495,14 @@ void TCPMonitor::processACK(TCPStream* ts, uint32_t ack, TCPData& dst) {
             dst.initSeq = ack - 1;
             // guess the next sequence number in the other direction equals to ack
             dst.nextSeq = ack;
-        } else if (isFresh(ack, dst)){
+        } else if (seqDiff){
             // a sequence gap was observed
-            DPRINTFL(MSG_DEBUG, "skipping gap from seq %u to %u", dst.nextSeq, ack);
-            uint32_t lostBytes;
+            DPRINTFL(MSG_VDEBUG, "skipping gap from seq %u to %u (%u bytes)", dst.nextSeq, ack, seqDiff);
             uint32_t& lostBytesInDirection = ts->isForward() ? ts->httpData->forwardLostBytes : ts->httpData->reverseLostBytes;
-            if (ack > dst.nextSeq)
-                lostBytes = dst.nextSeq - ack;
-            else
-                lostBytes = (0xFFFFFFFF - dst.nextSeq) + ack;
-            lostBytesInDirection += lostBytes;
-            statTotalSkippedBytes += lostBytes;
+
+            lostBytesInDirection += seqDiff;
+            statTotalSkippedBytes += seqDiff;
+
             dst.nextSeq = ack;
             ts->releaseObsoleteQueuedPackets(dst);
             ts->addAnnotationFlag(FlowAnnotation::TCP_SEQ_GAPS);
@@ -843,15 +841,12 @@ bool TCPMonitor::isSet(uint8_t flags, uint8_t bitmask) {
  *
  * @param seq TCP sequence number to check
  * @param ts TCPData which supplies a reference to check against
- * @return true if the TCP sequence number is considered as fresh, false otherwise.
+ * @return the difference between the two sequence numbers in bytes if the TCP sequence number is considered as fresh, 0 otherwise.
  */
-bool TCPMonitor::isFresh(uint32_t seq, TCPData& td) {
-    uint32_t MAX_HALF = 0x7FFFFFFF;
-    if (td.nextSeq < seq && seq - td.nextSeq < MAX_HALF)
-        return true;
-    if (td.nextSeq > seq && td.nextSeq - seq > MAX_HALF)
-        return true;
-    return false;
+uint32_t TCPMonitor::isFresh(uint32_t seq, TCPData& td) {
+    int seqDiff = (int) (seq - td.nextSeq);
+
+    return seqDiff > 0 ? seqDiff : 0;
 }
 
 void TCPMonitor::printStreamCount() {

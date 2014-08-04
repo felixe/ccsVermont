@@ -187,7 +187,7 @@ public:
     Packet* nextPacketForStream(TCPStream* ts);
     void expireStreams(bool all = false);
     void printStreamCount();
-    static bool isFresh(uint32_t seq, TCPData& ts);
+    static uint32_t isFresh(uint32_t seq, TCPData& ts);
 
     static int IN_ORDER;     /**< Packet is in-order */
     static int OUT_OF_ORDER; /**< Packet is out-of-order */
