@@ -47,11 +47,13 @@ BaseHashtable::BaseHashtable(Source<IpfixRecord*>* recordsource, Rule* rule,
 	  tcpmonPCAPTimestamps(rule->tcpmonPCAPTimestamps),
 	  statRecordsReceived(0),
 	  statRecordsSent(0),
+	  statEntries(0),
 	  statTotalEntries(0),
 	  statEmptyBuckets(0),
 	  statExportedBuckets(0),
 	  statLastExpBuckets(0),
 	  statMultiEntries(0),
+	  statTotalMultiEntries(0),
 	  fieldModifier(0),
 	  recordSource(recordsource),
 	  sourceID(new IpfixRecord::SourceID),
@@ -349,7 +351,7 @@ void BaseHashtable::expireFlows(bool all)
                     exportList.remove(node);
                     destroyBucket(bucket);
                     node->removeReference();
-                    statTotalEntries--;
+                    statEntries--;
                 }
 
                 node = next;
@@ -372,7 +374,7 @@ void BaseHashtable::expireFlows(bool all)
                     exportList.remove(node);
                     destroyBucket(bucket);
                     node->removeReference();
-                    statTotalEntries--;
+                    statEntries--;
                 }//end if
                 else
                     break;
@@ -545,12 +547,16 @@ void BaseHashtable::postReconfiguration()
 std::string BaseHashtable::getStatisticsXML(double interval)
 {
 	ostringstream oss;
-	oss << "<entries>" << statTotalEntries << "</entries>";
+	oss << "<entries>" << statEntries << "</entries>";
+	oss << "<totalEntries>" << statTotalEntries << "</totalEntries>";
 	oss << "<emptyBuckets>" << statEmptyBuckets << "</emptyBuckets>";
 	oss << "<multientryBuckets>" << statMultiEntries << "</multientryBuckets>";
+	oss << "<totalMultientryBuckets>" << statTotalMultiEntries << "</totalMultientryBuckets>";
 	uint32_t diff = statExportedBuckets - statLastExpBuckets;
 	statLastExpBuckets += diff;
 	oss << "<exportedEntries>" << (uint32_t) ((double) diff / interval) << "</exportedEntries>";
+	oss << "<totalExportedEntries>" << statExportedBuckets << "</totalExportedEntries>";
+
 	return oss.str();
 }
 
