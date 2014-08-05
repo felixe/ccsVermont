@@ -1437,6 +1437,7 @@ void PacketHashtable::updatePointers(const Packet* p)
 
 void PacketHashtable::updateBucketData(HashtableBucket* bucket)
 {
+	statEntries++;
 	statTotalEntries++;
 	BucketListElement* node = hbucketIM.getNewInstance();
 	node->reset();
@@ -1536,6 +1537,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
 		if (firstbucket) {
 			firstbucket->prev = buckets[hash];
 			statMultiEntries++;
+			statTotalMultiEntries++;
 		} else {
 			statEmptyBuckets--;
 		}

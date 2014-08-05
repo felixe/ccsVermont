@@ -131,11 +131,13 @@ protected:
 
 	uint32_t statRecordsReceived; /**< number of records received from other modules, used for statistics */
 	uint32_t statRecordsSent; /**< number records sent to next module, used for statistics */
-	uint32_t statTotalEntries; /**< number of entries in hashtable, used for statistics */
+	uint32_t statEntries; /**< number of entries in hashtable, used for statistics */
+	uint32_t statTotalEntries; /**< total number of entries in hashtable, used for statistics */
 	uint32_t statEmptyBuckets; /**< number of empty buckets in hashtable, used for statistics */
 	uint32_t statExportedBuckets; /**< number of exported entries/flows, used for statistics */
 	uint32_t statLastExpBuckets; /**< last number of exported entries/flows, used for statistics */
 	uint32_t statMultiEntries; /**< number of entries in hashtable which are not in a single bucket, used for statistics */
+	uint32_t statTotalMultiEntries; /**< total number of entries in hashtable which are not in a single bucket, used for statistics */
 
 	uint16_t fieldLength; /**< length in bytes of all variable-length fields */
 	uint16_t privDataLength; /**< length in bytes of all private data fields that are not exported with IPFIX but needed with flow record for aggregation */
@@ -169,3 +171,4 @@ protected:
 };
 
 #endif /*BASEHASHTABLE_H_*/
+
