@@ -48,10 +48,11 @@ class InstanceManager : public Sensor
 		Mutex mutex;			// we wanna be thread-safe
 		static const int DEFAULT_NO_INSTANCES = 1000;
 		uint32_t statCreatedInstances; /**< number of created instances, used for statistical purposes */
+		uint32_t statUsedInstances; /**< number of instances in use, used for statistical purposes */
 
 	public:
 		InstanceManager(string type, int preAllocInstances = DEFAULT_NO_INSTANCES)
-			: statCreatedInstances(0)
+			: statCreatedInstances(0), statUsedInstances(0)
 		{
 			for (int i=0; i<preAllocInstances; i++) {
 				freeInstances.push(new T(this));
@@ -98,6 +99,8 @@ class InstanceManager : public Sensor
 				instance = freeInstances.front();
 				freeInstances.pop();
 			}
+
+			statUsedInstances++;
 
 #if defined(DEBUG)
 			DPRINTF("adding used instance 0x%08X", (void*)instance);
@@ -152,6 +155,7 @@ class InstanceManager : public Sensor
 				usedInstances.erase(iter);
 #endif
 				mutex.unlock();
+				statUsedInstances--;
 #else // IM_DISABLE
 				DPRINTF("removing used instance 0x%08X", (void*)instance);
 				instance->deletedByManager = true;
@@ -173,7 +177,7 @@ class InstanceManager : public Sensor
 		string getStatisticsXML(double interval)
 		{
 			char text[200];
-			snprintf(text, ARRAY_SIZE(text), "<createdInstances>%u</createdInstances>", statCreatedInstances);
+			snprintf(text, ARRAY_SIZE(text), "<createdInstances>%u</createdInstances><usedInstances>%u</usedInstances>", statCreatedInstances, statUsedInstances);
 			return string(text);
 		}
 };
