@@ -355,6 +355,10 @@ void PacketHashtable::aggregateHTTP(IpfixRecord::Data* bucket, HashtableBucket* 
 	        goto skip_aggregation;
 	    }
 		DPRINTFL(MSG_INFO, "skip packet payload");
+	    if (flowData->tempBuffer) {
+	        free(flowData->tempBuffer);
+	        flowData->tempBuffer = 0;
+	    }
 		return;
 	}
 
