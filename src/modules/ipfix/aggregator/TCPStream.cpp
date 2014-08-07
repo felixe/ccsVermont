@@ -46,6 +46,9 @@ TCPStream::~TCPStream() {
     if (httpData->reverseLine)
         free(httpData->reverseLine);
     delete httpData;
+    releaseQueuedPackets();
+    if (fwdData.packetQueue.size() > 0 || revData.packetQueue.size() > 0)
+        THROWEXCEPTION("TCPstream was not deleted properly. there are still packet instances in use.");
 }
 
 /**
@@ -242,8 +245,6 @@ int TCPMonitor::dissect(Packet* p, TCPStream** ts) {
 //    // if the TCP stream was closed before we do not have to consider this Packet
 //    if ((*ts)->state == TCPStream::TCP_CLOSED) {
 //        DPRINTFL(MSG_DEBUG, "tcpmon: skipping packet, TCP connection was closed before");
-//        // remove the reference to the Packet instance
-//        p->removeReference();
 //        statTotalSkippedPacketsAfterClose++;
 //#ifdef DEBUG
 //    int32_t refCount = p->getReferenceCount();
@@ -444,12 +445,12 @@ bool TCPMonitor::analysePacket(Packet* p, TCPStream* ts) {
                         // refresh the timeout. since we marked the stream as removable
                         // it will be put in front of the proper queue and deleted as soon as possible.
                         refreshTimeout(ts, true);
-                        p->removeReference();
                         return false;
                     }
                     statBufferedPackets++;
                     statTotalBufferedPackets++;
                     packetQueue.insert(PacketQueue::value_type(seq, p));
+                    p->addReference();
                     DPRINTFL(MSG_DEBUG, "tcpmon: non contiguous sequence number. inserting packet with seq# %u into PacketQueue for later processing.", seq);
                     ts->bufferedSize += p->pcapPacketLength;
                 }
@@ -459,12 +460,6 @@ bool TCPMonitor::analysePacket(Packet* p, TCPStream* ts) {
                     DPRINTFL(MSG_DEBUG, "tcpmon: packet is out of order. this should be a TCP keep-alive packet.");
                 else
                     DPRINTFL(MSG_DEBUG, "tcpmon: packet is out of order. not considering packet because the sequence number should already have been processed.");
-                p->removeReference();
-#ifdef DEBUG
-    int32_t refCount = p->getReferenceCount();
-    if (refCount != 1)
-        THROWEXCEPTION("wrong reference count: %d. expected: 1", refCount);
-#endif
             }
             return false;
         }
@@ -527,7 +522,7 @@ Packet* TCPMonitor::nextPacketForStream(TCPStream* ts) {
     if (it == packetQueue->end()) {
         TCPData& dst = ts->isForward() ? ts->revData : ts->fwdData;
         if (dst.packetsAvailable) {
-            uint32_t nseq = dst.nextSeq;
+            nseq = dst.nextSeq;
             packetQueue = ts->isForward() ? &ts->revData.packetQueue : &ts->fwdData.packetQueue;
             it = packetQueue->find(nseq);
             dst.packetsAvailable = false;
@@ -555,13 +550,6 @@ Packet* TCPMonitor::nextPacketForStream(TCPStream* ts) {
     bool result = analysePacket(p, ts);
 
     if (!result) {
-        // remove the reference to the Packet instance
-        p->removeReference();
-#ifdef DEBUG
-    int32_t refCount = p->getReferenceCount();
-    if (refCount != 0)
-        THROWEXCEPTION("wrong reference count: %d. expected: 0", refCount);
-#endif
         return NULL;
     }
 

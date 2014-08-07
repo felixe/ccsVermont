@@ -119,9 +119,7 @@ class InstanceManager : public Sensor
 
 		inline void addReference(T* instance, int count)
 		{
-#if defined(DEBUG)
 			mutex.lock();
-#endif
 			instance->referenceCount += count;
 #if defined(DEBUG)
 #if !defined(IM_DISABLE)
@@ -134,17 +132,17 @@ class InstanceManager : public Sensor
 				THROWEXCEPTION("instance (0x%08X) is not managed by InstanceManager", (void*)instance);
 			}
 #endif // IM_DISABLE
-			mutex.unlock();
 #endif // DEBUG
+			mutex.unlock();
 		}
 
 		inline void removeReference(T* instance)
 		{
+            mutex.lock();
 			instance->referenceCount--;
 
 			if (instance->referenceCount == 0) {
 #if !defined(IM_DISABLE)
-				mutex.lock();
 				freeInstances.push(instance);
 #if defined(DEBUG)
 				typename list<T*>::iterator iter = find(usedInstances.begin(), usedInstances.end(), instance);
@@ -154,7 +152,6 @@ class InstanceManager : public Sensor
 				DPRINTF("removing used instance 0x%08X", (void*)instance);
 				usedInstances.erase(iter);
 #endif
-				mutex.unlock();
 				statUsedInstances--;
 #else // IM_DISABLE
 				DPRINTF("removing used instance 0x%08X", (void*)instance);
@@ -167,11 +164,15 @@ class InstanceManager : public Sensor
 				THROWEXCEPTION("referenceCount of instance is < 0");
 			}
 #endif
+            mutex.unlock();
 		}
 
         inline int32_t getReferenceCount(T* instance)
         {
-            return instance->referenceCount;
+            mutex.lock();
+            uint32_t refCount = instance->referenceCount;
+            mutex.unlock();
+            return refCount;
         }
 
 		string getStatisticsXML(double interval)

@@ -1906,7 +1906,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
 
     uint32_t slen = p->net_total_length - p->payloadOffset; // TCP segment length
 
-    DPRINTF(MSG_VDEBUG, "new packet #%lu| frame.len: %u, ip.len = %u, tcp.len = %u, captured bytes = %d, http-requests: %d, http-responses: %d",
+    DPRINTFL(MSG_VDEBUG, "new packet #%lu| frame.len: %u, ip.len = %u, tcp.len = %u, captured bytes = %d, http-requests: %d, http-responses: %d",
 	        ++processedPackets, p->pcapPacketLength, p->net_total_length, slen, p->data_length_uncropped, statTotalRequests, statTotalResponses);
 
 #ifdef DEBUG
@@ -1925,14 +1925,12 @@ void PacketHashtable::aggregatePacket(Packet* p)
             return;
         }
 
-        p->addReference();
         int result = tcpmon->dissect(p, &tcpStream);
         if (result != TCPMonitor::IN_ORDER || slen <= 0) {
-            if (result == TCPMonitor::IN_ORDER)
-                p->removeReference();
             // packet is not in order or TCP segment size <=0, hence this packet has not to be processed.
             // but we may have trimmed a sequence gap in the opposite direction
             p = tcpmon->nextPacketForStream(tcpStream);
+            first = false;
             if (p) {
                  // update slen
                  slen = p->net_total_length - p->payloadOffset; // TCP segment length
@@ -1953,14 +1951,10 @@ void PacketHashtable::aggregatePacket(Packet* p)
     while (p) {
         // captured TCP segment length must be >0
         if (httpAggregation && slen <= 0) {
+            if (!first)
+                p->removeReference();
             DPRINTFL(MSG_INFO, "captured payload for packet is 0 bytes. skipping packet!");
             tcpmon->expireStreams();
-            p->removeReference();
-#ifdef DEBUG
-    int32_t refCount = p->getReferenceCount();
-    if ((refCount != 1 && first) || (refCount != 0 && !first))
-        THROWEXCEPTION("wrong reference count: %d. expected: %d", refCount, first ? 1 : 0);
-#endif
             atomic_release(&aggInProgress);
             return;
         }
@@ -2096,13 +2090,12 @@ void PacketHashtable::aggregatePacket(Packet* p)
         if (httpAggregation) {
             if ((httpData->multipleRequests || httpData->multipleResponses))
                 processMultipleHTTPMessages(tsrcData, httpData, p, tcpStream);
-            p->removeReference();
-#ifdef DEBUG
-    int32_t refCount = p->getReferenceCount();
-    if ((refCount != 1 && first) || (refCount != 0 && !first))
-        THROWEXCEPTION("wrong reference count: %d. expected: %d", refCount, first ? 1 : 0);
-#endif
+
+            if (!first)
+                p->removeReference();
+
             p = tcpmon->nextPacketForStream(tcpStream);
+            first = false;
             if (p) {
                 // update slen
                 slen = p->net_total_length - p->payloadOffset; // TCP segment length
@@ -2110,7 +2103,6 @@ void PacketHashtable::aggregatePacket(Packet* p)
         } else {
             break;
         }
-        first = false;
     }
 
     if (tcpmon) {
