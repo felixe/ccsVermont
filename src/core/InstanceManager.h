@@ -48,11 +48,11 @@ class InstanceManager : public Sensor
 		Mutex mutex;			// we wanna be thread-safe
 		static const int DEFAULT_NO_INSTANCES = 1000;
 		uint32_t statCreatedInstances; /**< number of created instances, used for statistical purposes */
-		uint32_t statUsedInstances; /**< number of instances in use, used for statistical purposes */
+		uint32_t usedInstances; /**< number of instances in use, used for memory management and statistical purposes */
 
 	public:
 		InstanceManager(string type, int preAllocInstances = DEFAULT_NO_INSTANCES)
-			: statCreatedInstances(0), statUsedInstances(0)
+			: statCreatedInstances(0), usedInstances(0)
 		{
 			for (int i=0; i<preAllocInstances; i++) {
 				freeInstances.push(new T(this));
@@ -100,7 +100,7 @@ class InstanceManager : public Sensor
 				freeInstances.pop();
 			}
 
-			statUsedInstances++;
+			usedInstances++;
 
 #if defined(DEBUG)
 			DPRINTF("adding used instance 0x%08X", (void*)instance);
@@ -143,7 +143,18 @@ class InstanceManager : public Sensor
 
 			if (instance->referenceCount == 0) {
 #if !defined(IM_DISABLE)
-				freeInstances.push(instance);
+	            if (instance->referenceCount < 0) {
+	                THROWEXCEPTION("referenceCount of instance is < 0");
+	            }
+
+			    if (usedInstances <= DEFAULT_NO_INSTANCES+1) {
+			        freeInstances.push(instance);
+			    } else {
+#if defined(DEBUG)
+			        instance->deletedByManager = true;
+#endif
+			        delete instance;
+			    }
 #if defined(DEBUG)
 				typename list<T*>::iterator iter = find(usedInstances.begin(), usedInstances.end(), instance);
 				if (iter == usedInstances.end()) {
@@ -152,18 +163,13 @@ class InstanceManager : public Sensor
 				DPRINTF("removing used instance 0x%08X", (void*)instance);
 				usedInstances.erase(iter);
 #endif
-				statUsedInstances--;
+				usedInstances--;
 #else // IM_DISABLE
 				DPRINTF("removing used instance 0x%08X", (void*)instance);
 				instance->deletedByManager = true;
 				delete instance;
 #endif // IM_DISABLE
 			}
-#if defined(DEBUG) && !defined(IM_DISABLE)
-			if (instance->referenceCount < 0) {
-				THROWEXCEPTION("referenceCount of instance is < 0");
-			}
-#endif
             mutex.unlock();
 		}
 
@@ -178,7 +184,7 @@ class InstanceManager : public Sensor
 		string getStatisticsXML(double interval)
 		{
 			char text[200];
-			snprintf(text, ARRAY_SIZE(text), "<createdInstances>%u</createdInstances><usedInstances>%u</usedInstances>", statCreatedInstances, statUsedInstances);
+			snprintf(text, ARRAY_SIZE(text), "<createdInstances>%u</createdInstances><usedInstances>%u</usedInstances>", statCreatedInstances, usedInstances);
 			return string(text);
 		}
 };
