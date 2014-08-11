@@ -153,6 +153,7 @@ class InstanceManager : public Sensor
 #if defined(DEBUG)
 			        instance->deletedByManager = true;
 #endif
+			        usedBytes -= (sizeof(T)+4);
 			        delete instance;
 			    }
 #if defined(DEBUG)
