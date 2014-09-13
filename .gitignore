@@ -18,3 +18,13 @@ src/tests/ipfixlolib/example_code_2
 src/tests/ipfixlolib/example_code
 # ignore vermont generated files
 sensor_output.xml
+# ignore swapfiles
+*~
+# ignore build folders
+build/
+build-*/
+# ignore PF_RING folder
+PF_RING
+# exclude doxygen related stuff
+docs/doxygen/
+Doxyfile
