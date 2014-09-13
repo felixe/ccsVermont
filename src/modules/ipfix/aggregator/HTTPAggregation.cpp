@@ -1611,7 +1611,7 @@ int HTTPAggregation::getRequestMethod(const char* data, const char* dataEnd, con
 		*start = data;
 		*end = data;
 	}
-	if (getSpaceDelimitedText(data, dataEnd, start, end)) {
+	if (getSpaceDelimitedText(data, dataEnd, start, end, 18)) {
 		if (isRequest(*start, *end)) {
 			return 1;
 		}

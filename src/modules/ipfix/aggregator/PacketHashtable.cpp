@@ -406,8 +406,8 @@ skip_aggregation:
 	if (type == HTTP_TYPE_RESPONSE && flowData->response.status == MESSAGE_END)
 	        pipelinedOffsetEnd = &flowData->response.payloadOffsetEnd;
 
-	if (pipelinedOffsetEnd && aggregationEnd < dataEnd) {
-		// multiple requests are in this request, store the offset to the position and mark the request as pipelined
+	if (pipelinedOffsetEnd && aggregationEnd < dataEnd  && strncmp("1.0", flowData->response.version+5, 3) != 0) {
+		// multiple messages are in this segment, store the offset to the position and mark that another message (part) follows
 		uint16_t bufferOffset = 0;
 		if (dataEnd-data > payloadLength)
 			bufferOffset = (dataEnd-data) - payloadLength;
