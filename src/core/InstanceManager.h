@@ -47,6 +47,7 @@ class InstanceManager : public Sensor
 		queue<T*> freeInstances;// unused instances
 		Mutex mutex;			// we wanna be thread-safe
 		static const int DEFAULT_NO_INSTANCES = 1000;
+		int noInstances; /**< number of instances which are preallocated upon initialization and reside in memory. */
 		uint32_t statCreatedInstances; /**< number of created instances, used for statistical purposes */
 		uint32_t usedInstances; /**< number of instances in use, used for memory management and statistical purposes */
 
@@ -54,12 +55,17 @@ class InstanceManager : public Sensor
 		InstanceManager(string type, int preAllocInstances = DEFAULT_NO_INSTANCES)
 			: statCreatedInstances(0), usedInstances(0)
 		{
+		    if (preAllocInstances == 0)
+		        preAllocInstances = DEFAULT_NO_INSTANCES;
+
 			for (int i=0; i<preAllocInstances; i++) {
 				freeInstances.push(new T(this));
 			}
 			statCreatedInstances = preAllocInstances;
+			noInstances = preAllocInstances;
 			usedBytes += sizeof(InstanceManager<T>)+preAllocInstances*(sizeof(T)+4);
 			SensorManager::getInstance().addSensor(this, "InstanceManager (" + type + ")", 0);
+			msg(MSG_INFO, "InstanceManager<%s> %lu bytes (%.2f MiB) resident in memory", type.c_str(),  sizeof(T),(double(sizeof(T)*preAllocInstances))/1024/1024);
 		}
 
 		virtual ~InstanceManager()
@@ -147,7 +153,7 @@ class InstanceManager : public Sensor
 	                THROWEXCEPTION("referenceCount of instance is < 0");
 	            }
 
-			    if (usedInstances <= DEFAULT_NO_INSTANCES+1) {
+			    if (usedInstances <= noInstances+1) {
 			        freeInstances.push(instance);
 			    } else {
 #if defined(DEBUG)

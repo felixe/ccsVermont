@@ -84,12 +84,12 @@ int LibzeroObserver::slavecount;
 int LibzeroObserver::clusterId = 1;
 int LibzeroObserver::hashMode = IP_ADDR;
 
-LibzeroObserver::LibzeroObserver(const std::string& interfaces, int numlibzeroobservers, uint64_t maxpackets) : thread(LibzeroObserver::observerThread),
+LibzeroObserver::LibzeroObserver(const std::string& interfaces, int numlibzeroobservers, uint64_t maxpackets, int instances = 0) : thread(LibzeroObserver::observerThread),
 	capturelen(PCAP_DEFAULT_CAPTURE_LENGTH), responsibleForCluster(0), statClusterTotalRecvPackets(0),
 	maxPackets(maxpackets), numLibzeroObservers(numlibzeroobservers), ready(false), filter_exp(0),
     observationDomainID(0), // FIXME: this must be configured!
 	receivedBytes(0), lastReceivedBytes(0), processedPackets(0), lastProcessedPackets(0), captureInterfaces(NULL),
-	slowMessageShown(false), statTotalLostPackets(0), statTotalRecvPackets(0), packetManager("Packet")
+	slowMessageShown(false), statTotalLostPackets(0), statTotalRecvPackets(0), packetManager("Packet", instances)
 {
     if(interfaces.size() > 0) {
         captureInterfaces = (char*)malloc(interfaces.size() + 1);
@@ -104,7 +104,7 @@ LibzeroObserver::LibzeroObserver(const std::string& interfaces, int numlibzeroob
 				"adjust compile-time parameter PCAP_MAX_CAPTURE_LENGTH!", PCAP_DEFAULT_CAPTURE_LENGTH, PCAP_MAX_CAPTURE_LENGTH);
 
 	}
-
+	
 };
 
 LibzeroObserver::~LibzeroObserver()

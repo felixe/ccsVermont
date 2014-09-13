@@ -61,6 +61,7 @@ private:
 	bool offlineAutoExit;
 	float offlineSpeed;
 	uint64_t maxPackets;
+	int noInstances; // defines the number of instances which should be preallocated by the instance manager
 };
 
 #endif /*OBSERVERCFG_H_*/

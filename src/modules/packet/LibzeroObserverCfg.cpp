@@ -47,7 +47,8 @@ LibzeroObserverCfg::LibzeroObserverCfg(XMLElement* elem)
 	interface(),
 	pcap_filter(),
 	capture_len(PCAP_DEFAULT_CAPTURE_LENGTH),
-	maxPackets(0)
+	maxPackets(0),
+	noInstances(0)
 {
 	if (!elem) return;  // needed because of table inside ConfigManager
 
@@ -76,7 +77,9 @@ LibzeroObserverCfg::LibzeroObserverCfg(XMLElement* elem)
             }
         } else if (e->matches("clusterId")) {
             clusterId = getInt("clusterId");
-		} else if (e->matches("next")) { // ignore next
+	} else if (e->matches("instances")) {
+		noInstances = getInt("instances");
+        } else if (e->matches("next")) { // ignore next
 		} else {
 			msg(MSG_FATAL, "Unknown observer config statement %s\n", e->getName().c_str());
 			continue;
@@ -92,7 +95,7 @@ LibzeroObserverCfg::~LibzeroObserverCfg()
 
 LibzeroObserver* LibzeroObserverCfg::createInstance()
 {
-	instance = new LibzeroObserver(interface, numLibzeroObservers, maxPackets);
+	instance = new LibzeroObserver(interface, numLibzeroObservers, maxPackets, noInstances);
 
 	if (capture_len) {
 		if(!instance->setCaptureLen(capture_len)) {

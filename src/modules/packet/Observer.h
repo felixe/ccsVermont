@@ -42,7 +42,7 @@
 class Observer : public Module, public Source<Packet*>, public Destination<NullEmitable*>
 {
 public:
-	Observer(const std::string& interface, bool offline, uint64_t maxpackets);
+	Observer(const std::string& interface, bool offline, uint64_t maxpackets, int instances);
 	~Observer();
 
 	virtual void performStart();
@@ -58,7 +58,7 @@ public:
 	bool prepare(const std::string& filter);
 	static void doLogging(void *arg);
 	virtual std::string getStatisticsXML(double interval);
-
+	static InstanceManager<Packet>& getPacketManager();
 
 protected:
 	Thread thread;
@@ -97,9 +97,6 @@ protected:
 	// save the given filter expression
 	char* filter_exp;
 
-	// manages instances of Packets
-	static InstanceManager<Packet> packetManager;
-
 	uint32_t observationDomainID;
 
 	// number of received bytes (used for statistics)
@@ -133,6 +130,8 @@ protected:
 	static void *observerThread(void *);
 
 	int dataLinkType; // contains the datalink type of the capturing device
+
+    static int noInstances; // defines the number of packet instances which should be preallocated by the instance manager
 };
 
 #endif

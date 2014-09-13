@@ -7,6 +7,7 @@
 		<!--<interface>eth0</interface>-->
 		<filename>dumps/http.pcap</filename>
 		<pcap_filter>ip and tcp</pcap_filter>
+		<instances>10000</instances>
 		<offlineAutoExit>1</offlineAutoExit>
 		<offlineSpeed>0</offlineSpeed>
 		<captureLength>2000</captureLength>

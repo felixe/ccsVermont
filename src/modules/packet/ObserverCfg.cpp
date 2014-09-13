@@ -45,7 +45,8 @@ ObserverCfg::ObserverCfg(XMLElement* elem)
 	replaceOfflineTimestamps(false),
 	offlineAutoExit(true),
 	offlineSpeed(1.0),
-	maxPackets(0)
+	maxPackets(0),
+	noInstances(0)
 {
 	if (!elem) return;  // needed because of table inside ConfigManager
 
@@ -72,6 +73,8 @@ ObserverCfg::ObserverCfg(XMLElement* elem)
 			capture_len = getInt("captureLength");
 		} else if (e->matches("maxPackets")) {
 			maxPackets = getInt("maxPackets");
+		} else if (e->matches("instances")) {
+			noInstances = getInt("instances");
 		} else if (e->matches("next")) { // ignore next
 		} else {
 			msg(MSG_FATAL, "Unknown observer config statement %s\n", e->getName().c_str());
@@ -87,7 +90,7 @@ ObserverCfg::~ObserverCfg()
 
 Observer* ObserverCfg::createInstance()
 {
-	instance = new Observer(interface, offline, maxPackets);
+	instance = new Observer(interface, offline, maxPackets, noInstances);
 	instance->setOfflineSpeed(offlineSpeed);
 	instance->setOfflineAutoExit(offlineAutoExit);
 	if (replaceOfflineTimestamps) instance->replaceOfflineTimestamps();

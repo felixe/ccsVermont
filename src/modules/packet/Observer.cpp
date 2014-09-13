@@ -76,10 +76,9 @@
 
 using namespace std;
 
+int Observer::noInstances;
 
-InstanceManager<Packet> Observer::packetManager("Packet");
-
-Observer::Observer(const std::string& interface, bool offline, uint64_t maxpackets) : thread(Observer::observerThread), allDevices(NULL),
+Observer::Observer(const std::string& interface, bool offline, uint64_t maxpackets, int instances = 0) : thread(Observer::observerThread), allDevices(NULL),
 	captureDevice(NULL), capturelen(PCAP_DEFAULT_CAPTURE_LENGTH), pcap_timeout(PCAP_TIMEOUT),
 	pcap_promisc(1), maxPackets(maxpackets), ready(false), filter_exp(0), observationDomainID(0), // FIXME: this must be configured!
 	receivedBytes(0), lastReceivedBytes(0), processedPackets(0),
@@ -105,6 +104,10 @@ Observer::Observer(const std::string& interface, bool offline, uint64_t maxpacke
 				"adjust compile-time parameter PCAP_MAX_CAPTURE_LENGTH!", capturelen, PCAP_DEFAULT_CAPTURE_LENGTH);
 
 	}
+
+	// initialize the InstanceManager
+    noInstances = instances;
+	getPacketManager();
 };
 
 Observer::~Observer()
@@ -146,7 +149,7 @@ void *Observer::observerThread(void *arg)
 {
 	/* first we need to get the instance back from the void *arg */
 	Observer *obs=(Observer *)arg;
-	InstanceManager<Packet>& packetManager = obs->packetManager;
+	InstanceManager<Packet>& packetManager = getPacketManager();
 
 	Packet *p = NULL;
 	const unsigned char *pcapData;
@@ -306,7 +309,7 @@ void *Observer::observerThread(void *arg)
 			    timeradd(&start, &delta_to_be, &packetHeader.ts);
 
 			// initialize packet structure (init copies packet data)
-			p = obs->packetManager.getNewInstance();
+			p = obs->getPacketManager().getNewInstance();
 			p->init((char*)pcapData,
 				// in contrast to live capturing, the data length is not limited
 				// to any snap length when reading from a pcap file
@@ -565,6 +568,17 @@ int Observer::getPacketTimeout()
 int Observer::getPcapStats(struct pcap_stat *out)
 {
 	return(pcap_stats(captureDevice, out));
+}
+
+/**
+ * Initializes the instance manager on first use.
+ * The first initialized Observer determines the number of preallocated and memory resident instances,
+ * which are shared by all Observers.
+ * @return the single instance of the used PacketManager
+ */
+InstanceManager<Packet>& Observer::getPacketManager() {
+    static InstanceManager<Packet>* packetManager = new InstanceManager<Packet>("Packet", noInstances);
+    return *packetManager;
 }
 
 /**

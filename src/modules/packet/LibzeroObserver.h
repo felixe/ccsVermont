@@ -52,7 +52,7 @@
 class LibzeroObserver : public Module, public Source<Packet*>, public Destination<NullEmitable*>
 {
 public:
-	LibzeroObserver(const std::string& interfaces, int numLibzeroObservers, uint64_t maxpackets);
+	LibzeroObserver(const std::string& interfaces, int numLibzeroObservers, uint64_t maxpackets, int instances);
 	~LibzeroObserver();
 
 	virtual void performStart();

@@ -59,6 +59,7 @@ private:
 	std::string pcap_filter;
 	unsigned int capture_len;
 	uint64_t maxPackets;
+	int noInstances; // defines the number of instances which should be preallocated by the instance manager
 
     static int numLibzeroObservers;
     static int hashMode;
