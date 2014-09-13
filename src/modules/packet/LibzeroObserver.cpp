@@ -172,7 +172,7 @@ void *LibzeroObserver::observerThread(void *arg)
 
             // initialize packet structure (init copies packet data)
             p = packetManager.getNewInstance();
-            p->init((char*)buffer, hdr.caplen, hdr.ts, obs->observationDomainID, hdr.len);
+            p->init((char*)buffer, hdr.caplen, hdr.ts, obs->observationDomainID, hdr.len, DLT_EN10MB);
 
             DPRINTF("received packet at %u.%04u, len=%d",
                 (unsigned)p->timestamp.tv_sec,
