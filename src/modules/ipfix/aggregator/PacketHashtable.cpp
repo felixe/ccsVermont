@@ -2056,10 +2056,10 @@ void PacketHashtable::aggregatePacket(Packet* p)
         if (createAfterExpiry && (!flowfound || expiryforced)) {
             // create new flow
             DPRINTFL(MSG_INFO, "creating new bucket for hash=%u", hash);
-            int flowID = tcpStream->isForward() ? tcpStream->httpData->forwardFlows : tcpStream->httpData->reverseFlows;
 
             HashtableBucket* firstbucket = buckets[hash];
             if (httpAggregation) {
+                int flowID = tcpStream->isForward() ? tcpStream->httpData->forwardFlows : tcpStream->httpData->reverseFlows;
                 boost::shared_array<IpfixRecord::Data> htdata; // just a temporary stopgap
                 buckets[hash] = createBucket(htdata, p->observationDomainID, firstbucket, 0, hash);
                 buckets[hash]->data = buildBucketData(p, httpData, &buckets[hash]);
