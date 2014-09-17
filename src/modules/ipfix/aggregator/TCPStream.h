@@ -194,8 +194,14 @@ public:
     static int CLOSED;       /**< Stream has been closed before */
 
     // statistics
+    static uint64_t statConnections;                           /**< Number of observed TCP connections, also non established connection */
+    static uint64_t statAttemptedConnections;                  /**< Number of attempted TCP connections */
+    static uint64_t statEstablishedConnections;                /**< Number of established TCP connections */
+    static uint64_t statClosedConnections;                     /**< Number of closed TCP connections */
     static uint64_t statTotalConnections;                      /**< Total number of observed TCP connections, also non established connection */
+    static uint64_t statTotalAttemptedConnections;             /**< Total number of attempted TCP connections */
     static uint64_t statTotalEstablishedConnections;           /**< Total number of established TCP connections */
+    static uint64_t statTotalClosedConnections;                /**< Total number of closed TCP connections */
     static uint64_t statTotalPackets;                          /**< Total number of received packets */
     static uint64_t statTotalPacketsProcessed;                 /**< Total number of packets which could be processed w/ or w/o reassembly */
     static uint64_t statTotalSegmentBytes;                     /**< Total number of bytes of received segments */
@@ -219,6 +225,8 @@ public:
     static uint64_t statTotalExpiredEstablishedConnections;    /**< Total number of established connections which were expired */
     static uint64_t statTotalExpiredClosedConnections;         /**< Total number of closed connections which were expired */
 
+    static uint64_t statSamplesCount;                          /**< Counts the number of recorded samples */
+
     virtual std::string getStatisticsXML(double interval);
 
 private:
@@ -229,7 +237,7 @@ private:
     void refreshTimeout(TCPStream* ts, bool refreshClosed = false);
     void refreshTimeout(TCPStream* ts, TimeoutList& list, const uint32_t& timeout);
     void expireList(bool all, TimeoutList& list, timeval currentTime);
-    void changeState(TCPStream* ts, TCPStream::tcp_state_t newState);
+    void changeState(TCPStream* ts, TCPStream::tcp_state_t newState, bool regular=false);
     void changeList(TCPStream* ts, TimeoutList& from, TimeoutList& to);
     TimeoutList& getList(TCPStream::tcp_state_t state);
 

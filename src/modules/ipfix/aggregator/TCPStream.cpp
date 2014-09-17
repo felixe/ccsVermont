@@ -305,28 +305,19 @@ bool TCPMonitor::analysePacket(Packet* p, TCPStream* ts) {
         src.nextSeq = seq + 1;
         if (ts->state == TCPStream::TCP_UNDEFINED)
             statTotalHalfEstablishedConnections++;
-        ts->state = TCPStream::TCP_ATTEMPT;
+        changeState(ts, TCPStream::TCP_ATTEMPT);
     } else if (isSet(flags, FLAG_SYN | FLAG_ACK) && src.initSeq==0 && src.initSeq != seq && dst.initSeq + 1 == ack) {
         // connection established, i.e. a SYN+ACK packet has been seen after a SYN
         DPRINTFL(MSG_INFO, "tcpmon: TCP handshake: connection established (SYN+ACK)");
         src.initSeq = seq;
         src.nextSeq = seq + 1;
 
-        if (ts->state == TCPStream::TCP_UNDEFINED) // do we need this?
-            statTotalEstablishedConnections++;
-        if (ts->state == TCPStream::TCP_ATTEMPT) {
-            statTotalEstablishedConnections++;
-            statTotalRegularEstablishedConnections++;
-        }
-
         // update the state of the TCPStream and move it to the proper timeout list
-        changeState(ts, TCPStream::TCP_ESTABLISHED);
+        changeState(ts, TCPStream::TCP_ESTABLISHED, true);
     } else if (isSet(flags, FLAG_FIN) && src.seqFin == 0 && (src.nextSeq == seq || (src.initSeq == 0 && src.nextSeq == 0))) {
 
         // if this is the first observed packet
         if (ts->state == TCPStream::TCP_UNDEFINED || ts->state == TCPStream::TCP_ATTEMPT) {
-            statTotalEstablishedConnections++;
-            statTotalNonRegularEstablishedConnections++;
             ts->addAnnotationFlag(FlowAnnotation::TCP_NO_HANDSHAKE);
             // update the state of the TCPStream and move it to the proper timeout list
             changeState(ts, TCPStream::TCP_ESTABLISHED);
@@ -414,7 +405,6 @@ bool TCPMonitor::analysePacket(Packet* p, TCPStream* ts) {
             src.initSeq = seq - 1;
             src.nextSeq = seq + slen;
 
-            statTotalEstablishedConnections++;
             statTotalNonRegularEstablishedConnections++;
             ts->addAnnotationFlag(FlowAnnotation::TCP_NO_HANDSHAKE);
 
@@ -595,7 +585,7 @@ TCPStream* TCPMonitor::findOrCreateStream(Packet* p) {
         ts->httpData->direction = &ts->direction;
 
         DPRINTFL(MSG_INFO, "tcpmon: created new stream with hash: %lu", hash_value(*ts));
-        statTotalConnections++;
+        statConnections++;
 #ifdef DEBUG
 		ts->printKey();
 #endif
@@ -756,13 +746,34 @@ TCPMonitor::expireList(bool all, TimeoutList& list, timeval compare) {
  * Changes the state of the TCPStream and moves the TCPStream to the proper timeout list
  * @param ts TCPStream which should be updated
  * @param newState the new State of the TCPStream
+ * @param regular specifies if a connection has been established regular (TCP-handshake)
  */
-void TCPMonitor::changeState(TCPStream* ts, TCPStream::tcp_state_t newState) {
-    if (ts->state == newState)
+void TCPMonitor::changeState(TCPStream* ts, TCPStream::tcp_state_t newState, bool regular) {
+    if (ts->state >= newState)
         return;
+
+    switch (newState) {
+        case TCPStream::TCP_ATTEMPT:
+            statAttemptedConnections++;
+            break;
+        case TCPStream::TCP_ESTABLISHED:
+            statEstablishedConnections++;
+            if (regular && ts->state == TCPStream::TCP_ATTEMPT) {
+                statTotalRegularEstablishedConnections++;
+            } else {
+                statTotalNonRegularEstablishedConnections++;
+            }
+            break;
+        case TCPStream::TCP_CLOSED:
+            statClosedConnections++;
+            break;
+        default:
+            THROWEXCEPTION("invalid list/state change requested");
+    }
 
     TimeoutList& from = getList(ts->state);
     TimeoutList& to = getList(newState);
+
 
     ts->state = newState;
     changeList(ts, from, to);
@@ -846,7 +857,14 @@ int TCPMonitor::OUT_OF_ORDER = 1;
 int TCPMonitor::CLOSED       = 2;
 
 // statistics
+uint64_t TCPMonitor::statConnections;
 uint64_t TCPMonitor::statTotalConnections;
+uint64_t TCPMonitor::statAttemptedConnections;
+uint64_t TCPMonitor::statTotalAttemptedConnections;
+uint64_t TCPMonitor::statEstablishedConnections;
+uint64_t TCPMonitor::statTotalEstablishedConnections;
+uint64_t TCPMonitor::statClosedConnections;
+uint64_t TCPMonitor::statTotalClosedConnections;
 uint64_t TCPMonitor::statTotalPackets;
 uint64_t TCPMonitor::statTotalPacketsProcessed;
 uint64_t TCPMonitor::statTotalSegmentBytes;
@@ -860,7 +878,6 @@ uint64_t TCPMonitor::statTotalSkippedBytes;
 uint64_t TCPMonitor::statTotalSkippedBufferedPackets;
 uint64_t TCPMonitor::statTotalSkippedPacketsInGaps;
 uint64_t TCPMonitor::statTotalBufferOverflows;
-uint64_t TCPMonitor::statTotalEstablishedConnections;
 uint64_t TCPMonitor::statTotalRegularEstablishedConnections;
 uint64_t TCPMonitor::statTotalNonRegularEstablishedConnections;
 uint64_t TCPMonitor::statTotalExpiredConnectionsAttempts;
@@ -871,14 +888,34 @@ uint64_t TCPMonitor::statTotalResettedConnections;
 uint64_t TCPMonitor::statTotalHalfEstablishedConnections;
 uint64_t TCPMonitor::statTotalInvalidPackets;
 
+uint64_t TCPMonitor::statSamplesCount;
+
 std::string TCPMonitor::getStatisticsXML(double interval)
 {
+
+    statSamplesCount++;
+    statTotalConnections += statConnections;
+    statTotalAttemptedConnections += statAttemptedConnections;
+    statTotalEstablishedConnections += statEstablishedConnections;
+    statTotalClosedConnections += statClosedConnections;
+
     ostringstream oss;
     oss << "\n";
-    oss << "\t\t\t\t" << "<Connections>" << htable->size() << "</Connections>" << "\n";
-    oss << "\t\t\t\t" << "<AttemptedConnections>" << attemptedConnections.size() << "</AttemptedConnections>" << "\n";
-    oss << "\t\t\t\t" << "<EstablishedConnections>" << establishedConnections.size() << "</EstablishedConnections>" << "\n";
-    oss << "\t\t\t\t" << "<ClosedConnections>" << closedConnections.size() << "</ClosedConnections>" << "\n";
+    oss << "\t\t\t\t" << "<Connections>" << statConnections << "</Connections>" << "\n";
+    oss << "\t\t\t\t" << "<AttemptedConnections>" << statAttemptedConnections << "</AttemptedConnections>" << "\n";
+    oss << "\t\t\t\t" << "<EstablishedConnections>" << statEstablishedConnections << "</EstablishedConnections>" << "\n";
+    oss << "\t\t\t\t" << "<ClosedConnections>" << statClosedConnections << "</ClosedConnections>" << "\n";
+
+    oss << "\t\t\t\t" << "<ActiveConnections>" << htable->size() << "</ActiveConnections>" << "\n";
+    oss << "\t\t\t\t" << "<ActiveAttemptedConnections>" << attemptedConnections.size() << "</ActiveAttemptedConnections>" << "\n";
+    oss << "\t\t\t\t" << "<ActiveEstablishedConnections>" << establishedConnections.size() << "</ActiveEstablishedConnections>" << "\n";
+    oss << "\t\t\t\t" << "<ActiveClosedConnections>" << closedConnections.size() << "</ActiveClosedConnections>" << "\n";
+
+    oss << "\t\t\t\t" << "<AvgConnections>" << statTotalConnections/(statSamplesCount) << "</AvgConnections>" << "\n";
+    oss << "\t\t\t\t" << "<AvgAttemptedConnections>" << statTotalAttemptedConnections/(statSamplesCount) << "</AvgAttemptedConnections>" << "\n";
+    oss << "\t\t\t\t" << "<AvgEstablishedConnections>" << statTotalEstablishedConnections/(statSamplesCount) << "</AvgEstablishedConnections>" << "\n";
+    oss << "\t\t\t\t" << "<AvgClosedConnections>" << statTotalClosedConnections/(statSamplesCount) << "</AvgClosedConnections>" << "\n";
+
     oss << "\t\t\t\t" << "<TotalConnections>" << statTotalConnections << "</TotalConnections>" << "\n";
     oss << "\t\t\t\t" << "<TotalEstablishedConnections>" << statTotalEstablishedConnections << "</TotalEstablishedConnections>" << "\n";
     oss << "\t\t\t\t" << "<TotalHalfEstablishedConnections>" << statTotalHalfEstablishedConnections << "</TotalHalfEstablishedConnections>" << "\n";
@@ -907,6 +944,10 @@ std::string TCPMonitor::getStatisticsXML(double interval)
 
     // reset counters
     statBufferedPackets = 0;
+    statConnections = 0;
+    statAttemptedConnections = 0;
+    statEstablishedConnections = 0;
+    statClosedConnections = 0;
 
     return oss.str();
 }
