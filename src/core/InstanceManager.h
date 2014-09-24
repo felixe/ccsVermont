@@ -49,11 +49,11 @@ class InstanceManager : public Sensor
 		static const int DEFAULT_NO_INSTANCES = 1000;
 		int noInstances; /**< number of instances which are preallocated upon initialization and reside in memory. */
 		uint32_t statCreatedInstances; /**< number of created instances, used for statistical purposes */
-		uint32_t usedInstances; /**< number of instances in use, used for memory management and statistical purposes */
+		uint32_t instancesInUse; /**< number of instances in use, used for memory management and statistical purposes */
 
 	public:
 		InstanceManager(string type, int preAllocInstances = DEFAULT_NO_INSTANCES)
-			: statCreatedInstances(0), usedInstances(0)
+			: statCreatedInstances(0), instancesInUse(0)
 		{
 		    if (preAllocInstances == 0)
 		        preAllocInstances = DEFAULT_NO_INSTANCES;
@@ -106,7 +106,7 @@ class InstanceManager : public Sensor
 				freeInstances.pop();
 			}
 
-			usedInstances++;
+			instancesInUse++;
 
 #if defined(DEBUG)
 			DPRINTF("adding used instance 0x%08X", (void*)instance);
@@ -153,7 +153,7 @@ class InstanceManager : public Sensor
 	                THROWEXCEPTION("referenceCount of instance is < 0");
 	            }
 
-			    if (usedInstances <= noInstances+1) {
+			    if (instancesInUse <= noInstances+1) {
 			        freeInstances.push(instance);
 			    } else {
 #if defined(DEBUG)
@@ -170,7 +170,7 @@ class InstanceManager : public Sensor
 				DPRINTF("removing used instance 0x%08X", (void*)instance);
 				usedInstances.erase(iter);
 #endif
-				usedInstances--;
+				instancesInUse--;
 #else // IM_DISABLE
 				DPRINTF("removing used instance 0x%08X", (void*)instance);
 				instance->deletedByManager = true;
@@ -191,7 +191,7 @@ class InstanceManager : public Sensor
 		string getStatisticsXML(double interval)
 		{
 			char text[200];
-			snprintf(text, ARRAY_SIZE(text), "<createdInstances>%u</createdInstances><usedInstances>%u</usedInstances>", statCreatedInstances, usedInstances);
+			snprintf(text, ARRAY_SIZE(text), "<createdInstances>%u</createdInstances><usedInstances>%u</usedInstances>", statCreatedInstances, instancesInUse);
 			return string(text);
 		}
 };
