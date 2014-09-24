@@ -1986,7 +1986,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
             DPRINTFL(MSG_INFO, "bucket found for hash!");
             // This slot is already used, search spill chain for equal flow
             while (1) {
-                bool rightBucket = false;
+                bool rightBucket = true;
                 if (httpAggregation) {
                     uint16_t flowID = tcpStream->isForward() ? tcpStream->httpData->forwardFlows : tcpStream->httpData->reverseFlows;
                     rightBucket = (bucket->streamID == tcpStream->streamNum) && (bucket->flowID == flowID);
@@ -2025,7 +2025,7 @@ void PacketHashtable::aggregatePacket(Packet* p)
             if (bucket != 0) DPRINTFL(MSG_INFO, "revbucket found for hash!");
             else DPRINTFL(MSG_INFO, "no revbucket found for hash!");
             while (bucket!=0) {
-                bool rightBucket = false;
+                bool rightBucket = true;
                 if (httpAggregation) {
                     uint16_t flowID = tcpStream->isForward() ? tcpStream->httpData->forwardFlows : tcpStream->httpData->reverseFlows;
                     rightBucket = (bucket->streamID == tcpStream->streamNum) && (bucket->flowID == flowID);
@@ -2196,7 +2196,7 @@ void PacketHashtable::aggregateIntoExistingFlow(IpfixRecord::Data* srcData,  HTT
          if (bucket != 0) DPRINTFL(MSG_INFO, "revbucket found for hash!");
          else DPRINTFL(MSG_INFO, "no revbucket found for hash!");
          while (bucket!=0) {
-             bool rightBucket = false;
+             bool rightBucket = true;
              if (httpAggregation) {
                  uint16_t flowID = tcpStream->isForward() ? tcpStream->httpData->forwardFlows : tcpStream->httpData->reverseFlows;
                  rightBucket = (bucket->streamID == tcpStream->streamNum) && (bucket->flowID == flowID);
