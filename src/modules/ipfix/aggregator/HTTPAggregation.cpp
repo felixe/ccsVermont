@@ -39,12 +39,13 @@
  * @param aggregationStart Used to store the position in the payload from which the aggregation should start.
  * @param aggregationEnd Used to store the position in the payload at which the aggregation should stop.
  */
-void HTTPAggregation::detectHTTP(const char** data, const char** dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd) {
+void HTTPAggregation::detectHTTP(const char** data, const char** dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd, const char** bodyStart) {
 	DPRINTFL(MSG_VDEBUG, "httpagg: START in %s direction, message type: %s",
 	        flowData->isReverse() ? "reverse" : "forward", flowData->isForward() ? toString(flowData->streamInfo->forwardType) : toString(flowData->streamInfo->reverseType));
 	DPRINTFL(MSG_VDEBUG, "httpagg: forwardFlows: %d, reverse Flows: %d, request status=%X, response status=%X",
 	        flowData->streamInfo->forwardFlows, flowData->streamInfo->reverseFlows, flowData->request.status, flowData->response.status);
 
+	*bodyStart = NULL;
 	*aggregationStart = *data;
 
 //	uint32_t& lostBytes = flowData->isForward() ? flowData->streamInfo->forwardLostBytes : flowData->streamInfo->reverseLostBytes;
@@ -132,7 +133,7 @@ void HTTPAggregation::detectHTTP(const char** data, const char** dataEnd, FlowDa
 
 		DPRINTFL(MSG_DEBUG, "httpagg: processing new traffic. trying to detect HTTP data.");
 
-		if (!processNewHTTPTraffic(*aggregationStart, *dataEnd, flowData, aggregationStart, aggregationEnd))
+		if (!processNewHTTPTraffic(*aggregationStart, *dataEnd, flowData, aggregationStart, aggregationEnd, bodyStart))
 		    return; // this message is not a start of a HTTP request or response
 
 	} else {
@@ -144,7 +145,7 @@ void HTTPAggregation::detectHTTP(const char** data, const char** dataEnd, FlowDa
 		if (flowData->streamInfo->reverseType == flowData->streamInfo->forwardType || flowData->streamInfo->reverseType == HTTP_TYPE_UNKNOWN || flowData->streamInfo->forwardType == HTTP_TYPE_UNKNOWN)
 			THROWEXCEPTION("HTTP types were set faulty, this should never happen!");
 
-		processHTTPMessage(*aggregationStart, *dataEnd, flowData, aggregationStart, aggregationEnd);
+		processHTTPMessage(*aggregationStart, *dataEnd, flowData, aggregationStart, aggregationEnd, bodyStart);
 	}
 
 	http_status_t* status = flowData->getStatus();
@@ -244,7 +245,7 @@ void HTTPAggregation::detectHTTP(const char** data, const char** dataEnd, FlowDa
  * @param aggregationStart Used to store the position in the payload from which the aggregation should start
  * @param aggregationEnd Used to store the position in the payload at which the aggregation should stop.
  */
-int HTTPAggregation::processNewHTTPTraffic(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd) {
+int HTTPAggregation::processNewHTTPTraffic(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd, const char** bodyStart) {
 	const char* start = data;
 	const char* end = data;
 
@@ -271,7 +272,7 @@ int HTTPAggregation::processNewHTTPTraffic(const char* data, const char* dataEnd
 				flowData->streamInfo->reverseType = HTTP_TYPE_RESPONSE;
 			}
 
-			processHTTPMessage(end, dataEnd, flowData, aggregationStart, aggregationEnd);
+			processHTTPMessage(end, dataEnd, flowData, aggregationStart, aggregationEnd, bodyStart);
 		} else if (type == HTTP_TYPE_RESPONSE) {
 		    statTotalPartialResponses++;
 		    // the first message observed was a HTTP response, that almost never be the case.
@@ -292,7 +293,7 @@ int HTTPAggregation::processNewHTTPTraffic(const char* data, const char* dataEnd
 				flowData->streamInfo->reverseType = HTTP_TYPE_REQUEST;
 			}
 
-			processHTTPMessage(end, dataEnd, flowData, aggregationStart, aggregationEnd);
+			processHTTPMessage(end, dataEnd, flowData, aggregationStart, aggregationEnd, bodyStart);
 		}
 
 		return 1;
@@ -323,7 +324,7 @@ int HTTPAggregation::processNewHTTPTraffic(const char* data, const char* dataEnd
  * @param aggregationEnd Used to store the position in the payload at which the aggregation should stop.
  * @return Returns 1 if the end of the message was reached, 0 otherwise
  */
-int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd) {
+int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd, const char** bodyStart) {
 	const char* start = data;
 	const char* end = data;
 	http_type_t type = *(flowData->getType());
@@ -368,6 +369,9 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
                     return 0;
                 }
 		    } else {
+		        if (flowData->request.status != MESSAGE_END) {
+		            printf("unfinished message uri: %.*s\n", flowData->request.uriLength, flowData->request.uri);
+		        }
 	            if (getResponseVersion(start, dataEnd, &start, &end)) {
 	                statTotalPartialResponses++;
 	                DPRINTFL(MSG_INFO, "httpagg: response version = '%.*s'", end-start, start);
@@ -435,6 +439,7 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
 					return 1;
 				} else {
 					status = MESSAGE_HEADER;
+					*bodyStart = end;
 				}
 				//DPRINTFL(MSG_VDEBUG, "httpagg: message-header fields = \n'%.*s'", end-start, start);
 			} else {
@@ -519,6 +524,7 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
                     return 1;
                 } else {
                     status = MESSAGE_HEADER;
+                    *bodyStart = end;
                 }
             } else {
                 DPRINTFL(MSG_DEBUG, "httpagg: response header did not end yet, wait for new payload");

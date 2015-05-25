@@ -23,6 +23,7 @@
 		<rule>
 			<templateId>999</templateId>
             <httpAggregation>1</httpAggregation>
+            <httpSkipHeader>0</httpSkipHeader>
             <httpMsgBufferSize>102400</httpMsgBufferSize>
             <tcpMonitor>
                 <attemptedConnectionTimeout unit="sec">20</attemptedConnectionTimeout>

@@ -347,8 +347,9 @@ void PacketHashtable::aggregateHTTP(IpfixRecord::Data* bucket, HashtableBucket* 
 
 	const char* aggregationStart = 0;
 	const char* aggregationEnd = 0;
+	const char* bodyStart = 0;
 
-	detectHTTP(&data, &dataEnd, flowData, &aggregationStart, &aggregationEnd);
+	detectHTTP(&data, &dataEnd, flowData, &aggregationStart, &aggregationEnd, &bodyStart);
 
 	if (!aggregationStart || !aggregationEnd || aggregationEnd <= aggregationStart) {
 	    if (flowData->response.status == MESSAGE_END) {
@@ -363,8 +364,16 @@ void PacketHashtable::aggregateHTTP(IpfixRecord::Data* bucket, HashtableBucket* 
 	}
 
 	{
-        uint32_t avail = efd->dstLength - ppd->byteCount;
-        if (avail>0) {
+	    // if httpSkipHeader is set in the config file, bytes belonging to the HTTP message header won't be aggregated
+	    bool skip = false;
+	    if (efd->typeSpecData.http.skipHeader && *flowData->getStatus() != MESSAGE_PROTO_UPGR) {
+	        if (bodyStart)
+	            aggregationStart = bodyStart;
+            skip = ppd->byteCount == 0 && !bodyStart;
+	    }
+
+	    uint32_t avail = efd->dstLength - ppd->byteCount;
+        if (avail>0 && !skip) {
             uint32_t size = aggregationEnd - aggregationStart;
             size = min(avail, size);
             memcpy(dst+ppd->byteCount, aggregationStart, size);
@@ -920,6 +929,7 @@ void PacketHashtable::fillExpFieldData(ExpFieldData* efd, TemplateInfo::FieldInf
 	efd->varSrcIdx = isRawPacketPtrVariable(hfi->type);
 	efd->privDataOffset = hfi->privDataOffset;
 	efd->typeSpecData.http.aggregate = false;
+	efd->typeSpecData.http.skipHeader = false;
 	efd->typeSpecData.http.flowDataOffset = ExpHelperTable::UNUSED;
 	efd->typeSpecData.http.requestMethodOffset = ExpHelperTable::UNUSED;
 	efd->typeSpecData.http.requestUriOffset = ExpHelperTable::UNUSED;
@@ -1199,6 +1209,7 @@ void PacketHashtable::buildExpHelperTable()
 
 			efd->typeSpecData.http.flowDataOffset = flowDataOffset; // both directions share the same FlowData information
 			efd->typeSpecData.http.aggregate = httpAggregation;
+			efd->typeSpecData.http.skipHeader = httpSkipHeader;
             efd->typeSpecData.http.requestVersionOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestVersion, IPFIX_PEN_vermont));
 			efd->typeSpecData.http.requestMethodOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestMethod, IPFIX_PEN_vermont));
 			efd->typeSpecData.http.requestUriOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont));
@@ -1251,6 +1262,7 @@ void PacketHashtable::buildExpHelperTable()
 
             efd->typeSpecData.http.flowDataOffset = flowDataOffset; // both directions share the same FlowData information
             efd->typeSpecData.http.aggregate = httpAggregation;
+            efd->typeSpecData.http.skipHeader = httpSkipHeader;
             efd->typeSpecData.http.requestVersionOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestVersion, IPFIX_PEN_vermont));
             efd->typeSpecData.http.requestMethodOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestMethod, IPFIX_PEN_vermont));
             efd->typeSpecData.http.requestUriOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont));

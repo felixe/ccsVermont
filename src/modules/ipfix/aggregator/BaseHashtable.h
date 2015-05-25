@@ -116,6 +116,7 @@ protected:
 
 	bool biflowAggregation; /**< set to true if biflow aggregation is to be done*/
 	bool httpAggregation; /**< set to true if http flow aggregation is to be done*/
+	bool httpSkipHeader; /**< set to true, if the HTTP msg header payload aggregation should be skipped, instead only the msg body will be exported */
 	uint32_t* revKeyMapper; /**< contains indizes to dataTemplate for a reverse flow*/
 	/**
 	 * contains indizes to reversed flow key fields

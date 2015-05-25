@@ -78,6 +78,7 @@ class Rule : private PrintHelpers {
 		int fieldCount;
 		uint32_t biflowAggregation;	/**< true if biflows have to be aggregated */
 		uint32_t httpAggregation;	/**< true if http-flows have to be aggregated */
+		uint32_t httpSkipHeader;    /**< true if the HTTP msg header payload aggregation should be skipped, instead only the msg body will be exported */
 		uint32_t httpMsgBufferSize; /**< The maximal number of bytes buffered per HTTP message if payload needs to be combined to be parsed successfully. */
 		uint32_t tcpmonTimeoutAttempt;   /**< expiry timeout for TCP connection attempts in the TcpMonitor */
 		uint32_t tcpmonTimeoutEstablished; /**< expiry timeout for inactive established TCP connections in the TcpMonitor */

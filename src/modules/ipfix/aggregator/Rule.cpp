@@ -40,7 +40,7 @@
 /* --- functions ------------*/
 
 Rule::Rule()
-	: id(0), preceding(0), fieldCount(0), biflowAggregation(0), httpAggregation(0), httpMsgBufferSize(0),
+	: id(0), preceding(0), fieldCount(0), biflowAggregation(0), httpAggregation(0), httpSkipHeader(0), httpMsgBufferSize(0),
 	  tcpmonTimeoutAttempt(0), tcpmonTimeoutEstablished(0), tcpmonTimeoutClosed(0), tcpmonBufferSize(0),
 	  tcpmonPCAPTimestamps(1), hashtable(0), patternFields(0), patternFieldsLen(0)
 {

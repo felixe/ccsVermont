@@ -82,7 +82,9 @@ Rule* AggregatorBaseCfg::readRule(XMLElement* elem) {
 			rule->biflowAggregation = getInt("biflowAggregation", 0, e);
 		} else if (e->matches("httpAggregation")) {
 			rule->httpAggregation = getInt("httpAggregation", 0, e);
-		} else if (e->matches("httpMsgBufferSize")) {
+		} else if (e->matches("httpSkipHeader")) {
+            rule->httpSkipHeader = getInt("httpSkipHeader", 0, e);
+        } else if (e->matches("httpMsgBufferSize")) {
             rule->httpMsgBufferSize = getUInt32("httpMsgBufferSize", 0, e);
         } else if (e->matches("tcpMonitor")) {
             XMLNode::XMLSet<XMLElement*> tcpMonitorSet = e->getElementChildren();
@@ -127,8 +129,8 @@ Rule* AggregatorBaseCfg::readRule(XMLElement* elem) {
         msg(MSG_DIALOG, "Implicitly enabling biflowAggregation, since httpAggregation only works in conjunction with biflowAggregation.");
     }
 
-    if (!rule->httpAggregation && (rule->tcpmonTimeoutAttempt || rule->tcpmonTimeoutEstablished || rule->tcpmonTimeoutClosed || rule->tcpmonBufferSize || rule->httpMsgBufferSize)) {
-        msg(MSG_INFO, "The options attemptedConnectionTimeout, establishedConnectionTimeout, closedConnectionTimeout, tcpmonBufferSize and httpaggBufferSize have no impact if httpAggregation is disabled.");
+    if (!rule->httpAggregation && (rule->tcpmonTimeoutAttempt || rule->tcpmonTimeoutEstablished || rule->tcpmonTimeoutClosed || rule->tcpmonBufferSize || rule->httpSkipHeader || rule->httpMsgBufferSize)) {
+        msg(MSG_INFO, "The options attemptedConnectionTimeout, establishedConnectionTimeout, closedConnectionTimeout, tcpmonBufferSize, httpSkipHeader and httpaggBufferSize have no impact if httpAggregation is disabled.");
     }
 
 	// exclude coexistence of patterns and biflow aggregation

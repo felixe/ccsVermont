@@ -122,6 +122,7 @@ private:
 			    uint32_t responsePhraseOffset;  /**< offset from start of record data to IPFIX_ETYPEID_httpResponsePhrase */
 			    uint32_t flowAnnotationOffset;   /**< offset from start of record data to IPFIX_ETYPEID_flowAnnotation */
 			    bool aggregate;                 /**< set to true, if HTTP aggregation was activated */
+			    bool skipHeader;                /**< set to true, if the HTTP msg header payload aggregation should be skipped, instead only the msg body will be exported */
 			} http;
 		} typeSpecData;
 

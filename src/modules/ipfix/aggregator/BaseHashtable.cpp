@@ -33,6 +33,7 @@ BaseHashtable::BaseHashtable(Source<IpfixRecord*>* recordsource, Rule* rule,
 		uint16_t minBufferTime, uint16_t maxBufferTime, uint8_t hashbits)
 	: biflowAggregation(rule->biflowAggregation),
 	  httpAggregation(rule->httpAggregation),
+	  httpSkipHeader(rule->httpSkipHeader),
 	  httpMsgBufferSize(rule->httpMsgBufferSize),
 	  revKeyMapper(NULL),
 	  switchArray(NULL),

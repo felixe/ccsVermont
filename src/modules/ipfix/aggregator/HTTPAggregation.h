@@ -225,14 +225,14 @@ public:
 	virtual std::string getStatisticsXML(double interval);
 
 protected:
-	static void detectHTTP(const char** data, const char** dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd);
+	static void detectHTTP(const char** data, const char** dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd, const char** bodyStart);
 	static const char* toString(http_type_t type);
 	static void initializeFlowData(FlowData* flowData, HTTPStreamData* streamData);
 	static void printRange(const char* data, int range);
 
 private:
-	static int processNewHTTPTraffic(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd);
-	static int processHTTPMessage(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd);
+	static int processNewHTTPTraffic(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd, const char** bodyStart);
+	static int processHTTPMessage(const char* data, const char* dataEnd, FlowData* flowData, const char** aggregationStart, const char** aggregationEnd, const char** bodyStart);
 	static int getSpaceDelimitedText(const char* data, const char* dataEnd, const char** start, const char** end, int max = 0);
 	static int getCRLFDelimitedText(const char* data, const char* dataEnd, const char** start, const char** end, int max = 0);
 	static int getDelimitedText(const char* data, const char* dataEnd, const char** start, const char** end, int max = 0);
