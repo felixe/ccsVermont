@@ -369,9 +369,6 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
                     return 0;
                 }
 		    } else {
-		        if (flowData->request.status != MESSAGE_END) {
-		            printf("unfinished message uri: %.*s\n", flowData->request.uriLength, flowData->request.uri);
-		        }
 	            if (getResponseVersion(start, dataEnd, &start, &end)) {
 	                statTotalPartialResponses++;
 	                DPRINTFL(MSG_INFO, "httpagg: response version = '%.*s'", end-start, start);
