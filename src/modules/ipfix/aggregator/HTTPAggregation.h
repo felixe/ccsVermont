@@ -221,6 +221,7 @@ public:
     static uint64_t statBufferedBytes;
     static uint64_t statTotalBufferOverflows;                  /**< Total number of Buffer overflows */
     static uint64_t statTotalParsingErrors;
+    static uint64_t statTotalParsedHeaderBytes;
 
 	virtual std::string getStatisticsXML(double interval);
 

@@ -229,6 +229,11 @@ void HTTPAggregation::detectHTTP(const char** data, const char** dataEnd, FlowDa
             testFinishedMessage(flowData);
 #endif
 
+
+    if (*aggregationStart<*aggregationEnd && *flowData->getStatus() < MESSAGE_HEADER) {
+        statTotalParsedHeaderBytes += (*aggregationEnd-*aggregationStart);
+    }
+
     DPRINTFL(MSG_VDEBUG, "httpagg: forwardFlows: %d, reverse Flows: %d, request status=%X, response status=%X",
             flowData->streamInfo->forwardFlows, flowData->streamInfo->reverseFlows, flowData->request.status, flowData->response.status);
     DPRINTFL(MSG_VDEBUG, "httpagg: END");
@@ -429,6 +434,7 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
 					// we are finished here since the message should not contain a message-body
 					status = MESSAGE_END;
 					*aggregationEnd = end;
+					statTotalParsedHeaderBytes += (end-*aggregationStart);
 					if (end<dataEnd) {
 						DPRINTFL(MSG_INFO, "httpagg: still %d bytes payload remaining, the segment may contain multiple requests", dataEnd-end);
 						return 1;
@@ -437,6 +443,7 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
 				} else {
 					status = MESSAGE_HEADER;
 					*bodyStart = end;
+					statTotalParsedHeaderBytes += (end-*aggregationStart);
 				}
 				//DPRINTFL(MSG_VDEBUG, "httpagg: message-header fields = \n'%.*s'", end-start, start);
 			} else {
@@ -518,10 +525,12 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
                         DPRINTFL(MSG_INFO, "httpagg: still %d bytes payload remaining, the segment may contain multiple responses", dataEnd-data);
                     }
                     *aggregationEnd = end;
+                    statTotalParsedHeaderBytes += (end-*aggregationStart);
                     return 1;
                 } else {
                     status = MESSAGE_HEADER;
                     *bodyStart = end;
+                    statTotalParsedHeaderBytes += (end-*aggregationStart);
                 }
             } else {
                 DPRINTFL(MSG_DEBUG, "httpagg: response header did not end yet, wait for new payload");
@@ -2289,6 +2298,7 @@ uint64_t HTTPAggregation::statTotalBufferedBytes;
 uint64_t HTTPAggregation::statBufferedBytes;
 uint64_t HTTPAggregation::statTotalBufferOverflows;
 uint64_t HTTPAggregation::statTotalParsingErrors;
+uint64_t HTTPAggregation::statTotalParsedHeaderBytes;
 
 std::string HTTPAggregation::getStatisticsXML(double interval)
 {
@@ -2303,6 +2313,7 @@ std::string HTTPAggregation::getStatisticsXML(double interval)
     oss << "\t\t\t\t" << "<BufferedBytes>" << statBufferedBytes << "</BufferedBytes>" << "\n";
     oss << "\t\t\t\t" << "<TotalHTTPBufferOverflows>" << statTotalBufferOverflows << "</TotalHTTPBufferOverflows>" << "\n";
     oss << "\t\t\t\t" << "<TotalParsingErrors>" << statTotalParsingErrors << "</TotalParsingErrors>" << "\n";
+    oss << "\t\t\t\t" << "<TotalParsedHeaderBytes>" << statTotalParsedHeaderBytes << "</TotalParsedHeaderBytes>" << "\n";
     oss << "\t\t\t";
 
     statBufferedBytes = 0;
