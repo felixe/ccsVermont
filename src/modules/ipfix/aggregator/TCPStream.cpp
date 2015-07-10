@@ -405,7 +405,6 @@ bool TCPMonitor::analysePacket(Packet* p, TCPStream* ts) {
             src.initSeq = seq - 1;
             src.nextSeq = seq + slen;
 
-            statTotalNonRegularEstablishedConnections++;
             ts->addAnnotationFlag(FlowAnnotation::TCP_NO_HANDSHAKE);
 
             // update the state of the TCPStream and move it to the proper timeout list
