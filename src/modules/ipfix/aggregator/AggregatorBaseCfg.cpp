@@ -123,6 +123,18 @@ Rule* AggregatorBaseCfg::readRule(XMLElement* elem) {
 		rule = NULL;
 	}
 
+	if (rule->httpAggregation) {
+	    bool front = false;
+	    bool rev = false;
+        for (int i;i<rule->fieldCount;i++) {
+          if (rule->field[i]->type == InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload, IPFIX_PEN_vermont))
+              front = true;
+          else if (rule->field[i]->type == InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload, IPFIX_PEN_vermont|IPFIX_PEN_reverse))
+              rev = true;
+        }
+        if (!(front && rev))
+            THROWEXCEPTION("HTTP aggregation requires the fields frontPayload and revFrontPayload to be set in the configuration!");
+	}
     // biflowAggregation has to be enabled for httpAggregation
     if (rule->httpAggregation && !rule->biflowAggregation) {
         rule->biflowAggregation = 1;
@@ -164,11 +176,14 @@ Rule::Field* AggregatorBaseCfg::readNonFlowKeyRule(XMLElement* e)
 		ruleField->type.length++; // for additional mask field
 	}
 
-	if (ruleField->type == InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload, IPFIX_PEN_vermont) ||
-			ruleField->type == InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload, IPFIX_PEN_vermont|IPFIX_PEN_reverse)) {
-		if (ruleField->type.length<5)
-			THROWEXCEPTION("type %s must have at least size 5!", ipfix_id_lookup(ruleField->type.id, ruleField->type.enterprise)->name);
-	}
+	// HTTP aggregation requires the IPFIX_ETYPEID_frontPayload field to work.
+	// However, it might not be desired to export payload in every case, and thus
+	// a payload length of 0 bytes should be allowed.
+//	if (ruleField->type == InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload, IPFIX_PEN_vermont) ||
+//			ruleField->type == InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload, IPFIX_PEN_vermont|IPFIX_PEN_reverse)) {
+//		if (ruleField->type.length<5)
+//			THROWEXCEPTION("type %s must have at least size 5!", ipfix_id_lookup(ruleField->type.id, ruleField->type.enterprise)->name);
+//	}
 
 	return ruleField;
 }

@@ -557,9 +557,13 @@ void (*PacketHashtable::getCopyDataFunction(const ExpFieldData* efd))(PacketHash
                     break;
 
 				case IPFIX_ETYPEID_frontPayload:
+                    if (efd->dstLength < 0) {
+                        THROWEXCEPTION("unsupported length %d for type %s", efd->dstLength, efd->typeId.toString().c_str());
+                    }
+                    break;
 				case IPFIX_ETYPEID_httpRequestUri:
 				case IPFIX_ETYPEID_httpRequestHost:
-					if (efd->dstLength < 5) {
+					if (efd->dstLength < 1) {
 						THROWEXCEPTION("unsupported length %d for type %s", efd->dstLength, efd->typeId.toString().c_str());
 					}
 					break;
