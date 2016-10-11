@@ -185,7 +185,7 @@ void HTTPAggregation::detectHTTP(const char** data, const char** dataEnd, FlowDa
                 */
                 flowData->response.status = NO_MESSAGE;
                 if (flowData->response.statusCode)
-                    bzero(flowData->response.statusCode, IPFIX_ELENGTH_httpResponseCode);
+                    bzero(flowData->response.statusCode, IPFIX_LENGTH_httpStatusCode);
                 if (flowData->response.version)
                     bzero(flowData->response.version, IPFIX_ELENGTH_httpVersionIdentifier);
                 if (flowData->response.responsePhrase)
@@ -455,7 +455,7 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
 			break;
 		}
         case MESSAGE_RES_VERSION: {
-            int code = getResponseCode(start, dataEnd, &start, &end);
+            int code = getStatusCode(start, dataEnd, &start, &end);
             flowData->response.statusCode_ = code;
             if (code) {
                 if (isMessageBodyForbidden(code))
@@ -1705,7 +1705,7 @@ int HTTPAggregation::getResponseVersion(const char* data, const char* dataEnd, c
  * @param end Used to store the position at which the parsed text ends
  * @return Returns the response code if the string is valid, 0 otherwise
  */
-uint16_t HTTPAggregation::getResponseCode(const char* data, const char* dataEnd, const char** start, const char** end) {
+uint16_t HTTPAggregation::getStatusCode(const char* data, const char* dataEnd, const char** start, const char** end) {
 	if (getSpaceDelimitedText(data, dataEnd, start, end, 3)) {
 		if (*end-*start!=3)
 			return 0;

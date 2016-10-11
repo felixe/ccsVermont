@@ -321,8 +321,8 @@ void PacketHashtable::aggregateHTTP(IpfixRecord::Data* bucket, HashtableBucket* 
              flowData->response.version = reinterpret_cast<char*>(bucket+efd->typeSpecData.http.responseVersionOffset);
 
         // prepare pointer for http response code aggregation
-        if (efd->typeSpecData.http.responseCodeOffset != ExpHelperTable::UNUSED)
-            flowData->response.statusCode = reinterpret_cast<uint16_t*>(bucket+efd->typeSpecData.http.responseCodeOffset);
+        if (efd->typeSpecData.http.statusCodeOffset != ExpHelperTable::UNUSED)
+            flowData->response.statusCode = reinterpret_cast<uint16_t*>(bucket+efd->typeSpecData.http.statusCodeOffset);
 
         // prepare pointer for http response phrase aggregation
         if (efd->typeSpecData.http.responsePhraseOffset != ExpHelperTable::UNUSED)
@@ -455,6 +455,14 @@ void (*PacketHashtable::getCopyDataFunction(const ExpFieldData* efd))(PacketHash
 	}
 	switch (efd->typeId.enterprise) {
 		case 0:
+			switch (efd->typeId.id) {
+				case IPFIX_TYPEID_httpStatusCode:
+				    if (efd->dstLength != 2) {
+                        		THROWEXCEPTION("unsupported length %d for type %s", efd->dstLength, efd->typeId.toString().c_str());
+                    			}
+			}		
+                    	break;
+
 		case IPFIX_PEN_reverse:
 			switch (efd->typeId.id) {
 				case IPFIX_TYPEID_protocolIdentifier:
@@ -527,12 +535,7 @@ void (*PacketHashtable::getCopyDataFunction(const ExpFieldData* efd))(PacketHash
 					}
 					break;
 
-				case IPFIX_ETYPEID_httpResponseCode:
-				    if (efd->dstLength != 2) {
-                        THROWEXCEPTION("unsupported length %d for type %s", efd->dstLength, efd->typeId.toString().c_str());
-                    }
-                    break;
-
+			
 				case IPFIX_ETYPEID_frontPayloadLen:
 				case IPFIX_ETYPEID_frontPayloadPktCount:
 				case IPFIX_ETYPEID_maxPacketGap:
@@ -610,7 +613,7 @@ void (*PacketHashtable::getCopyDataFunction(const ExpFieldData* efd))(PacketHash
 			efd->typeId == IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont) ||
 			efd->typeId == IeInfo(IPFIX_ETYPEID_httpRequestVersion, IPFIX_PEN_vermont) ||
             efd->typeId == IeInfo(IPFIX_ETYPEID_httpResponseVersion, IPFIX_PEN_vermont) ||
-            efd->typeId == IeInfo(IPFIX_ETYPEID_httpResponseCode, IPFIX_PEN_vermont) ||
+            efd->typeId == IeInfo(IPFIX_TYPEID_httpStatusCode, 0) ||
             efd->typeId == IeInfo(IPFIX_ETYPEID_httpResponsePhrase, IPFIX_PEN_vermont) ||
             efd->typeId == IeInfo(IPFIX_ETYPEID_httpRequestHost, IPFIX_PEN_vermont) ||
             efd->typeId == IeInfo(IPFIX_ETYPEID_flowAnnotation, IPFIX_PEN_vermont)) {
@@ -684,6 +687,7 @@ uint16_t PacketHashtable::getRawPacketFieldLength(const IeInfo& type)
 
 			case IPFIX_TYPEID_bgpSourceAsNumber:
 			case IPFIX_TYPEID_bgpDestinationAsNumber:
+            		case IPFIX_TYPEID_httpStatusCode:
 				return 0;
 
 			default:
@@ -711,7 +715,6 @@ uint16_t PacketHashtable::getRawPacketFieldLength(const IeInfo& type)
 				return type.length;				// length is variable and is set in configuration
 
             case IPFIX_ETYPEID_httpRequestMethod:
-            case IPFIX_ETYPEID_httpResponseCode:
             case IPFIX_ETYPEID_httpRequestVersion:
             case IPFIX_ETYPEID_httpResponseVersion:
             case IPFIX_ETYPEID_httpResponsePhrase:
@@ -810,9 +813,14 @@ uint16_t PacketHashtable::getRawPacketFieldOffset(const IeInfo& type, const Pack
 					DPRINTFL(MSG_VDEBUG, "given id is %s, protocol is %d, but expected was %d", type.toString().c_str(), p->ipProtocolType, Packet::TCP);
 				}
 				break;
+			case IPFIX_TYPEID_httpStatusCode:
+			// this field does not have fixed position in the raw packet
+				break;
+
 			default:
 				THROWEXCEPTION("PacketHashtable: raw id offset into packet header for typeid %s is unkown, failed to determine raw packet offset", type.toString().c_str());
 				break;
+
 		}
 	} else if (type.enterprise==IPFIX_PEN_vermont || type.enterprise==(IPFIX_PEN_vermont|IPFIX_PEN_reverse)) {
 		switch (type.id) {
@@ -835,7 +843,6 @@ uint16_t PacketHashtable::getRawPacketFieldOffset(const IeInfo& type, const Pack
 			case IPFIX_ETYPEID_httpRequestUri:
             case IPFIX_ETYPEID_httpRequestVersion:
             case IPFIX_ETYPEID_httpResponseVersion:
-			case IPFIX_ETYPEID_httpResponseCode:
             case IPFIX_ETYPEID_httpResponsePhrase:
             case IPFIX_ETYPEID_httpRequestHost:
             case IPFIX_ETYPEID_flowAnnotation:
@@ -877,6 +884,7 @@ bool PacketHashtable::isRawPacketPtrVariable(const IeInfo& type)
 				case IPFIX_TYPEID_classOfServiceIPv4:
 				case IPFIX_TYPEID_bgpSourceAsNumber:
 				case IPFIX_TYPEID_bgpDestinationAsNumber:
+            			case IPFIX_TYPEID_httpStatusCode:
 					return false;
 
 				case IPFIX_TYPEID_icmpTypeCodeIPv4:
@@ -899,7 +907,6 @@ bool PacketHashtable::isRawPacketPtrVariable(const IeInfo& type)
 	            case IPFIX_ETYPEID_httpRequestUri:
 	            case IPFIX_ETYPEID_httpRequestVersion:
 	            case IPFIX_ETYPEID_httpResponseVersion:
-	            case IPFIX_ETYPEID_httpResponseCode:
 	            case IPFIX_ETYPEID_httpResponsePhrase:
 	            case IPFIX_ETYPEID_httpRequestHost:
 	            case IPFIX_ETYPEID_flowAnnotation:
@@ -938,7 +945,7 @@ void PacketHashtable::fillExpFieldData(ExpFieldData* efd, TemplateInfo::FieldInf
 	efd->typeSpecData.http.requestMethodOffset = ExpHelperTable::UNUSED;
 	efd->typeSpecData.http.requestUriOffset = ExpHelperTable::UNUSED;
 	efd->typeSpecData.http.requestUriLength = 0;
-	efd->typeSpecData.http.responseCodeOffset = ExpHelperTable::UNUSED;
+	efd->typeSpecData.http.statusCodeOffset = ExpHelperTable::UNUSED;
 
 	// initialize static source index, if current field does not have a variable pointer
 	if (!efd->varSrcIdx) {
@@ -1020,6 +1027,7 @@ bool PacketHashtable::typeAvailable(const IeInfo& type)
 				case IPFIX_TYPEID_tcpControlBits:
 				case IPFIX_TYPEID_bgpSourceAsNumber:
 				case IPFIX_TYPEID_bgpDestinationAsNumber:
+	            		case IPFIX_TYPEID_httpStatusCode:
 					return true;
 			}
 			break;
@@ -1033,14 +1041,13 @@ bool PacketHashtable::typeAvailable(const IeInfo& type)
 				case IPFIX_ETYPEID_dpaFlowCount:
 				case IPFIX_ETYPEID_dpaReverseStart:
 				case IPFIX_ETYPEID_transportOctetDeltaCount:
-	            case IPFIX_ETYPEID_httpRequestMethod:
-	            case IPFIX_ETYPEID_httpRequestUri:
-	            case IPFIX_ETYPEID_httpRequestVersion:
-	            case IPFIX_ETYPEID_httpResponseVersion:
-	            case IPFIX_ETYPEID_httpResponseCode:
-	            case IPFIX_ETYPEID_httpResponsePhrase:
-	            case IPFIX_ETYPEID_httpRequestHost:
-	            case IPFIX_ETYPEID_flowAnnotation:
+	                        case IPFIX_ETYPEID_httpRequestMethod:
+	            	        case IPFIX_ETYPEID_httpRequestUri:
+                                case IPFIX_ETYPEID_httpRequestVersion:
+	            		case IPFIX_ETYPEID_httpResponseVersion:
+	                        case IPFIX_ETYPEID_httpResponsePhrase:
+	            		case IPFIX_ETYPEID_httpRequestHost:
+	            		case IPFIX_ETYPEID_flowAnnotation:
 					return true;
 			}
 			break;
@@ -1219,7 +1226,7 @@ void PacketHashtable::buildExpHelperTable()
 			efd->typeSpecData.http.requestUriOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont));
 			efd->typeSpecData.http.requestHostOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestHost, IPFIX_PEN_vermont));
 			efd->typeSpecData.http.responseVersionOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpResponseVersion, IPFIX_PEN_vermont));
-			efd->typeSpecData.http.responseCodeOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpResponseCode, IPFIX_PEN_vermont));
+			efd->typeSpecData.http.statusCodeOffset = getDstOffset(IeInfo(IPFIX_TYPEID_httpStatusCode, 0));
 			efd->typeSpecData.http.responsePhraseOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpResponsePhrase, IPFIX_PEN_vermont));
 			efd->typeSpecData.http.flowAnnotationOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_flowAnnotation, IPFIX_PEN_vermont));
 
@@ -1272,7 +1279,7 @@ void PacketHashtable::buildExpHelperTable()
             efd->typeSpecData.http.requestUriOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont));
             efd->typeSpecData.http.requestHostOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestHost, IPFIX_PEN_vermont));
             efd->typeSpecData.http.responseVersionOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpResponseVersion, IPFIX_PEN_vermont));
-            efd->typeSpecData.http.responseCodeOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpResponseCode, IPFIX_PEN_vermont));
+            efd->typeSpecData.http.statusCodeOffset = getDstOffset(IeInfo(IPFIX_TYPEID_httpStatusCode, 0));
             efd->typeSpecData.http.responsePhraseOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpResponsePhrase, IPFIX_PEN_vermont));
             efd->typeSpecData.http.flowAnnotationOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_flowAnnotation, IPFIX_PEN_vermont));
 
@@ -1441,8 +1448,8 @@ boost::shared_array<IpfixRecord::Data> PacketHashtable::createBucketDataCopy(con
 
 			if (http.responseVersionOffset != ExpHelperTable::UNUSED)
 			    bzero(data + http.responseVersionOffset, IPFIX_ELENGTH_httpVersionIdentifier);
-			if (http.responseCodeOffset != ExpHelperTable::UNUSED)
-			    bzero(data + http.responseCodeOffset, IPFIX_ELENGTH_httpResponseCode);
+			if (http.statusCodeOffset != ExpHelperTable::UNUSED)
+			    bzero(data + http.statusCodeOffset, IPFIX_LENGTH_httpStatusCode);
 			if (http.responseVersionOffset != ExpHelperTable::UNUSED)
 			    bzero(data + http.responseVersionOffset, IPFIX_ELENGTH_httpResponsePhrase);
 			break;
@@ -1573,7 +1580,10 @@ void PacketHashtable::aggregateField(const ExpFieldData* efd, HashtableBucket* h
 					case IPFIX_TYPEID_tcpControlBits:  // 1 byte src and dst, bitwise-or flows
 						*(uint8_t*)baseData |= *(uint8_t*)deltaData;
 						break;
-
+					
+	                		case IPFIX_TYPEID_httpStatusCode:
+						//ignored, because we aggregate elsewhere
+                                                break;
 						// no other types needed, as this is only for raw field input
 					default:
 						DPRINTF("non-aggregatable type: %s", efd->typeId.toString().c_str());
@@ -1667,7 +1677,6 @@ void PacketHashtable::aggregateField(const ExpFieldData* efd, HashtableBucket* h
 	                case IPFIX_ETYPEID_httpRequestUri:
 	                case IPFIX_ETYPEID_httpRequestVersion:
 	                case IPFIX_ETYPEID_httpResponseVersion:
-	                case IPFIX_ETYPEID_httpResponseCode:
 	                case IPFIX_ETYPEID_httpResponsePhrase:
 	                case IPFIX_ETYPEID_httpRequestHost:
 					case IPFIX_ETYPEID_frontPayloadLen:
@@ -1704,7 +1713,6 @@ void PacketHashtable::aggregateField(const ExpFieldData* efd, HashtableBucket* h
 	                case IPFIX_ETYPEID_httpRequestUri:
 	                case IPFIX_ETYPEID_httpRequestVersion:
 	                case IPFIX_ETYPEID_httpResponseVersion:
-	                case IPFIX_ETYPEID_httpResponseCode:
 	                case IPFIX_ETYPEID_httpResponsePhrase:
 	                case IPFIX_ETYPEID_httpRequestHost:
 					case IPFIX_ETYPEID_frontPayloadLen:

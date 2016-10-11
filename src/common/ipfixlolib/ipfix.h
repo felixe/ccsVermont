@@ -154,6 +154,7 @@ extern "C" {
 #define PSAMP_TYPEID_observationTimeMilliSeconds    323
 #define PSAMP_TYPEID_observationTimeMicroSeconds    324
 
+#define IPFIX_TYPEID_httpStatusCode		    457
 
 #define IPFIX_PEN_reverse                           29305
 
@@ -199,9 +200,8 @@ extern "C" {
 #define IPFIX_ETYPEID_httpRequestVersion            12
 #define IPFIX_ETYPEID_httpRequestHost               13
 #define IPFIX_ETYPEID_httpResponseVersion           14
-#define IPFIX_ETYPEID_httpResponseCode              15
-#define IPFIX_ETYPEID_httpResponsePhrase            16
-#define IPFIX_ETYPEID_flowAnnotation                17
+#define IPFIX_ETYPEID_httpResponsePhrase            15
+#define IPFIX_ETYPEID_flowAnnotation                16
 
 #define IPFIX_LENGTH_ipVersion                      IPFIX_LENGTH_octet
 #define IPFIX_LENGTH_sourceIPv4Address              IPFIX_LENGTH_ipv4Address
@@ -305,6 +305,8 @@ extern "C" {
 #define PSAMP_LENGTH_observationTimeMilliSeconds    IPFIX_LENGTH_unsigned64
 #define PSAMP_LENGTH_observationTimeMicroSeconds    IPFIX_LENGTH_unsigned64
 
+#define IPFIX_LENGTH_httpStatusCode              IPFIX_LENGTH_unsigned16
+
 // enterprise TYPEIDs
 #define IPFIX_ELENGTH_frontPayloadLen				IPFIX_LENGTH_unsigned32
 #define IPFIX_ELENGTH_dpaFlowCount					IPFIX_LENGTH_unsigned32
@@ -315,7 +317,6 @@ extern "C" {
 #define IPFIX_ELENGTH_frontPayloadPktCount			IPFIX_LENGTH_unsigned32
 #define IPFIX_ELENGTH_anonymisationType				IPFIX_LENGTH_octet
 #define IPFIX_ELENGTH_httpRequestMethod             16
-#define IPFIX_ELENGTH_httpResponseCode              IPFIX_LENGTH_unsigned16
 #define IPFIX_ELENGTH_httpResponsePhrase			32
 #define IPFIX_ELENGTH_httpVersionIdentifier         IPFIX_LENGTH_unsigned64
 

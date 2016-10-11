@@ -255,7 +255,7 @@ private:
 	static int getRequestUri(const char* data, const char* dataEnd, const char** start, const char** end);
 	static int getRequestVersion(const char* data, const char* dataEnd, const char** start, const char** end);
 	static int getResponseVersion(const char* data, const char* dataEnd, const char** start, const char** end);
-	static uint16_t getResponseCode(const char* data, const char* dataEnd, const char** start, const char** end);
+	static uint16_t getStatusCode(const char* data, const char* dataEnd, const char** start, const char** end);
 	static int getResponsePhrase(const char* data, const char* dataEnd, const char** start, const char** end);
 	static int processMessageHeader(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
 	static int isValidMessageHeaderTerminatorSuffix(const char* data, const char* dataEnd, const char** end);

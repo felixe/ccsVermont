@@ -448,7 +448,7 @@ int BaseHashtable::isToBeAggregated(InformationElement::IeInfo& type)
                 case IPFIX_ETYPEID_httpRequestUri:
                 case IPFIX_ETYPEID_httpRequestVersion:
                 case IPFIX_ETYPEID_httpResponseVersion:
-                case IPFIX_ETYPEID_httpResponseCode:
+                case IPFIX_TYPEID_httpStatusCode:
                 case IPFIX_ETYPEID_httpResponsePhrase:
                 case IPFIX_ETYPEID_httpRequestHost:
                 case IPFIX_ETYPEID_flowAnnotation:
@@ -470,7 +470,7 @@ int BaseHashtable::isToBeAggregated(InformationElement::IeInfo& type)
                 case IPFIX_ETYPEID_httpRequestUri:
                 case IPFIX_ETYPEID_httpRequestVersion:
                 case IPFIX_ETYPEID_httpResponseVersion:
-                case IPFIX_ETYPEID_httpResponseCode:
+                case IPFIX_TYPEID_httpStatusCode:
                 case IPFIX_ETYPEID_httpResponsePhrase:
                 case IPFIX_ETYPEID_httpRequestHost:
                 case IPFIX_ETYPEID_flowAnnotation:
@@ -621,6 +621,11 @@ void BaseHashtable::genBiflowStructs()
 						dstAsIdx = i;
 						mapReverseElement(InformationElement::IeInfo(IPFIX_TYPEID_bgpDestinationAsNumber, 0));
 						break;
+					
+	                		case IPFIX_TYPEID_httpStatusCode:
+						mapReverseElement(fi->type);
+						break;
+						
 					default:
 						defaultassign = true;
 						break;
@@ -633,14 +638,13 @@ void BaseHashtable::genBiflowStructs()
 					case IPFIX_ETYPEID_dpaFlowCount:
 					case IPFIX_ETYPEID_dpaReverseStart:
 					case IPFIX_ETYPEID_anonymisationType:
-	                case IPFIX_ETYPEID_httpRequestMethod:
-	                case IPFIX_ETYPEID_httpRequestUri:
-	                case IPFIX_ETYPEID_httpRequestVersion:
-	                case IPFIX_ETYPEID_httpResponseVersion:
-	                case IPFIX_ETYPEID_httpResponseCode:
-	                case IPFIX_ETYPEID_httpResponsePhrase:
-	                case IPFIX_ETYPEID_httpRequestHost:
-	                case IPFIX_ETYPEID_flowAnnotation:
+	                		case IPFIX_ETYPEID_httpRequestMethod:
+	                		case IPFIX_ETYPEID_httpRequestUri:
+	                		case IPFIX_ETYPEID_httpRequestVersion:
+	                		case IPFIX_ETYPEID_httpResponseVersion:
+	                		case IPFIX_ETYPEID_httpResponsePhrase:
+	                		case IPFIX_ETYPEID_httpRequestHost:
+	                		case IPFIX_ETYPEID_flowAnnotation:
 						mapReverseElement(fi->type);
 						break;
 
