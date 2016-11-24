@@ -412,6 +412,10 @@ int BaseHashtable::isToBeAggregated(InformationElement::IeInfo& type)
 				case IPFIX_TYPEID_postPacketDeltaCount:
 				case IPFIX_TYPEID_droppedOctetDeltaCount:
 				case IPFIX_TYPEID_droppedPacketDeltaCount:
+	               		case IPFIX_TYPEID_httpStatusCode:
+		                case IPFIX_TYPEID_httpRequestMethod:
+		                case IPFIX_TYPEID_httpRequestTarget:
+		                case IPFIX_TYPEID_httpRequestHost:
 				case IPFIX_TYPEID_tcpControlBits:
 					return 1;
 			}
@@ -444,14 +448,10 @@ int BaseHashtable::isToBeAggregated(InformationElement::IeInfo& type)
 				case IPFIX_ETYPEID_dpaFlowCount:
 				case IPFIX_ETYPEID_dpaReverseStart:
 				case IPFIX_ETYPEID_transportOctetDeltaCount:
-                case IPFIX_ETYPEID_httpRequestMethod:
-                case IPFIX_ETYPEID_httpRequestUri:
-                case IPFIX_ETYPEID_httpRequestVersion:
-                case IPFIX_ETYPEID_httpResponseVersion:
-                case IPFIX_TYPEID_httpStatusCode:
-                case IPFIX_ETYPEID_httpResponsePhrase:
-                case IPFIX_ETYPEID_httpRequestHost:
-                case IPFIX_ETYPEID_flowAnnotation:
+		                case IPFIX_ETYPEID_httpRequestVersion:
+		                case IPFIX_ETYPEID_httpResponseVersion:
+		                case IPFIX_ETYPEID_httpResponsePhrase:
+		                case IPFIX_ETYPEID_flowAnnotation:
 					return 1;
 			}
 			break;
@@ -466,14 +466,10 @@ int BaseHashtable::isToBeAggregated(InformationElement::IeInfo& type)
 				case IPFIX_ETYPEID_dpaFlowCount:
 				case IPFIX_ETYPEID_dpaReverseStart:
 				case IPFIX_ETYPEID_transportOctetDeltaCount:
-                case IPFIX_ETYPEID_httpRequestMethod:
-                case IPFIX_ETYPEID_httpRequestUri:
-                case IPFIX_ETYPEID_httpRequestVersion:
-                case IPFIX_ETYPEID_httpResponseVersion:
-                case IPFIX_TYPEID_httpStatusCode:
-                case IPFIX_ETYPEID_httpResponsePhrase:
-                case IPFIX_ETYPEID_httpRequestHost:
-                case IPFIX_ETYPEID_flowAnnotation:
+        		        case IPFIX_ETYPEID_httpRequestVersion:
+                		case IPFIX_ETYPEID_httpResponseVersion:
+		                case IPFIX_ETYPEID_httpResponsePhrase:
+        		        case IPFIX_ETYPEID_flowAnnotation:
 					return 1;
 			}
 			break;
@@ -623,6 +619,9 @@ void BaseHashtable::genBiflowStructs()
 						break;
 					
 	                		case IPFIX_TYPEID_httpStatusCode:
+	                		case IPFIX_TYPEID_httpRequestMethod:
+	                		case IPFIX_TYPEID_httpRequestTarget:
+	                		case IPFIX_TYPEID_httpRequestHost:
 						mapReverseElement(fi->type);
 						break;
 						
@@ -638,12 +637,9 @@ void BaseHashtable::genBiflowStructs()
 					case IPFIX_ETYPEID_dpaFlowCount:
 					case IPFIX_ETYPEID_dpaReverseStart:
 					case IPFIX_ETYPEID_anonymisationType:
-	                		case IPFIX_ETYPEID_httpRequestMethod:
-	                		case IPFIX_ETYPEID_httpRequestUri:
 	                		case IPFIX_ETYPEID_httpRequestVersion:
 	                		case IPFIX_ETYPEID_httpResponseVersion:
 	                		case IPFIX_ETYPEID_httpResponsePhrase:
-	                		case IPFIX_ETYPEID_httpRequestHost:
 	                		case IPFIX_ETYPEID_flowAnnotation:
 						mapReverseElement(fi->type);
 						break;

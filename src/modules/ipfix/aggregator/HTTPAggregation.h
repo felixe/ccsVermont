@@ -42,7 +42,7 @@ public:
 
 	static const http_status_t NO_MESSAGE           = 0x0000; /**< HTTP message did not start yet */
 	static const http_status_t MESSAGE_REQ_METHOD   = 0x0001; /**< HTTP request method was parsed successfully */
-	static const http_status_t MESSAGE_REQ_URI      = 0x0003; /**< HTTP request uri was parsed successfully */
+	static const http_status_t MESSAGE_REQ_TARGET      = 0x0003; /**< HTTP request target (uri) was parsed successfully */
 	static const http_status_t MESSAGE_REQ_VERSION  = 0x0007; /**< HTTP request version was parsed successfully */
 	static const http_status_t MESSAGE_RES_VERSION  = 0x0010; /**< HTTP response version was parsed successfully */
 	static const http_status_t MESSAGE_RES_CODE     = 0x0030; /**< HTTP response status code was parsed successfully */
@@ -158,11 +158,11 @@ public:
 	         * Request-Line  = Method SP Request-URI SP HTTP-Version CRLF
 	         */
 	        char* method;   /**< method of a HTTP request */
-	        char* uri;      /**< uri of a HTTP request */
+	        char* target;      /**< target (ex uri) of a HTTP request */
 	        char* version;  /**< HTTP version of a HTTP request */
 	        char* host;     /**< host header field of a HTTP request */
 
-	        uint16_t uriLength;     /**< max length of request uri */
+	        uint16_t targetLength;     /**< max length of request target (ex uri) */
 	        uint16_t hostLength;    /**< max length of request host */
 	    } request;
 
@@ -252,7 +252,7 @@ private:
 	static int isVersion(const char* data, const char* dataEnd);
 	static int isNotification(const char* data, const char* dataEnd);
 	static int isMessageBodyForbidden(const int httpVersion);
-	static int getRequestUri(const char* data, const char* dataEnd, const char** start, const char** end);
+	static int getRequestTarget(const char* data, const char* dataEnd, const char** start, const char** end);
 	static int getRequestVersion(const char* data, const char* dataEnd, const char** start, const char** end);
 	static int getResponseVersion(const char* data, const char* dataEnd, const char** start, const char** end);
 	static uint16_t getStatusCode(const char* data, const char* dataEnd, const char** start, const char** end);

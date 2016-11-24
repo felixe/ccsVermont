@@ -239,6 +239,12 @@ void PrintHelpers::printFieldData(InformationElement::IeInfo type, IpfixRecord::
 	switch (type.enterprise) {
 		case 0:
 			switch (type.id) {
+				
+                		case IPFIX_TYPEID_httpRequestTarget:
+				case IPFIX_TYPEID_httpRequestMethod:
+				case IPFIX_TYPEID_httpRequestHost:
+			    		printFrontPayload(type, pattern, false);
+					return;
 				case IPFIX_TYPEID_protocolIdentifier:
 					printProtocol(type, pattern);
 					return;
@@ -295,10 +301,8 @@ void PrintHelpers::printFieldData(InformationElement::IeInfo type, IpfixRecord::
 				type==InformationElement::IeInfo(IPFIX_ETYPEID_frontPayload, IPFIX_PEN_vermont|IPFIX_PEN_reverse)) {
 				printFrontPayload(type, pattern, true);
 				return;
-			} else if (type==InformationElement::IeInfo(IPFIX_ETYPEID_httpRequestMethod, IPFIX_PEN_vermont) ||
-                type==InformationElement::IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont) ||
+			} else if (
                 type==InformationElement::IeInfo(IPFIX_ETYPEID_httpRequestVersion, IPFIX_PEN_vermont) ||
-                type==InformationElement::IeInfo(IPFIX_ETYPEID_httpRequestHost, IPFIX_PEN_vermont) ||
                 type==InformationElement::IeInfo(IPFIX_ETYPEID_httpResponseVersion, IPFIX_PEN_vermont) ||
                 type==InformationElement::IeInfo(IPFIX_ETYPEID_httpResponsePhrase, IPFIX_PEN_vermont)) {
 			    printFrontPayload(type, pattern, false);

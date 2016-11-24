@@ -120,6 +120,9 @@ struct ipfix_identifier ipfixids[] = {
  { PSAMP_TYPEID_observationTimeMilliSeconds, PSAMP_LENGTH_observationTimeMilliSeconds, 0, "observationTimeMilliSeconds" },
  { PSAMP_TYPEID_observationTimeMicroSeconds, PSAMP_LENGTH_observationTimeMicroSeconds, 0, "observationTimeMicroSeconds" },
  { IPFIX_TYPEID_httpStatusCode, IPFIX_LENGTH_httpStatusCode, 0, "httpStatusCode" },
+ { IPFIX_TYPEID_httpRequestMethod, IPFIX_LENGTH_httpRequestMethod, 0, "httpRequestMethod" },
+ { IPFIX_TYPEID_httpRequestHost,0 , 0, "httpRequestHost" },
+ { IPFIX_TYPEID_httpRequestTarget,0 , 0, "httpRequestTarget" },
 
  /* Vermont PEN */
  { IPFIX_ETYPEID_frontPayload, 0, IPFIX_PEN_vermont, "frontPayload" },
@@ -141,10 +144,7 @@ struct ipfix_identifier ipfixids[] = {
  { IPFIX_ETYPEID_transportOctetDeltaCount, IPFIX_ELENGTH_transportOctetDeltaCount, IPFIX_PEN_vermont|IPFIX_PEN_reverse, "revTransportOctetDeltaCount" },
 // { IPFIX_ETYPEID_transportOctetDeltaCount|IPFIX_ETYPE_reverse_bit, IPFIX_ELENGTH_transportOctetDeltaCount, IPFIX_PEN_vermont, "revTransportOctetDeltaCount" },
  { IPFIX_ETYPEID_anonymisationType, IPFIX_ELENGTH_anonymisationType, IPFIX_PEN_vermont, "anonymisationType" },
- { IPFIX_ETYPEID_httpRequestMethod, IPFIX_ELENGTH_httpRequestMethod, IPFIX_PEN_vermont, "httpRequestMethod" },
- { IPFIX_ETYPEID_httpRequestUri, 0, IPFIX_PEN_vermont, "httpRequestUri" },
  { IPFIX_ETYPEID_httpRequestVersion, IPFIX_ELENGTH_httpVersionIdentifier, IPFIX_PEN_vermont, "httpRequestVersion" },
- { IPFIX_ETYPEID_httpRequestHost, 0, IPFIX_PEN_vermont, "httpRequestHost" },
  { IPFIX_ETYPEID_httpResponseVersion, IPFIX_ELENGTH_httpVersionIdentifier, IPFIX_PEN_vermont, "httpResponseVersion" },
  { IPFIX_ETYPEID_httpResponsePhrase, IPFIX_ELENGTH_httpResponsePhrase, IPFIX_PEN_vermont, "httpResponsePhrase" },
  { IPFIX_ETYPEID_flowAnnotation, IPFIX_LENGTH_unsigned32, IPFIX_PEN_vermont, "flowAnnotation" },

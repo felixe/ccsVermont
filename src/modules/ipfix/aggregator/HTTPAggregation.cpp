@@ -263,7 +263,7 @@ int HTTPAggregation::processNewHTTPTraffic(const char* data, const char* dataEnd
 		    statTotalPartialRequests++;
 			flowData->request.status = MESSAGE_REQ_METHOD;
             if (flowData->request.method)
-                memcpy(flowData->request.method, start, min_(end-start, IPFIX_ELENGTH_httpRequestMethod));
+                memcpy(flowData->request.method, start, min_(end-start, IPFIX_LENGTH_httpRequestMethod));
 
             // no message body may be transfered upon a HEAD request
             if (end-start == 4 && strncmp("HEAD", start, 4)==0)
@@ -363,7 +363,7 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
                     status = MESSAGE_REQ_METHOD;
                     // aggregate the request method
                     if (flowData->request.method)
-                        memcpy(flowData->request.method, start, min_(end-start, IPFIX_ELENGTH_httpRequestMethod));
+                        memcpy(flowData->request.method, start, min_(end-start, IPFIX_LENGTH_httpRequestMethod));
                     // no message body may be transfered upon a HEAD request
                     if (end-start == 4 && strncmp("HEAD", start, 4)==0)
                         flowData->response.transfer = TRANSFER_NO_MSG_BODY;
@@ -397,21 +397,21 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
 			break;
 		}
 		case MESSAGE_REQ_METHOD: {
-			if (getRequestUri(start, dataEnd, &start, &end)) {
-				DPRINTFL(MSG_INFO, "httpagg: request uri = '%.*s'", end-start, start);
-				status = MESSAGE_REQ_URI;
-	            // aggregate the request uri
-				if (flowData->request.uri)
-				    memcpy(flowData->request.uri, start, min_(end-start, flowData->request.uriLength));
+			if (getRequestTarget(start, dataEnd, &start, &end)) {
+				DPRINTFL(MSG_INFO, "httpagg: request target = '%.*s'", end-start, start);
+				status = MESSAGE_REQ_TARGET;
+	            // aggregate the request target
+				if (flowData->request.target)
+				    memcpy(flowData->request.target, start, min_(end-start, flowData->request.targetLength));
 			} else {
-			    DPRINTFL(MSG_DEBUG, "httpagg: request uri did not end yet, wait for new payload");
+			    DPRINTFL(MSG_DEBUG, "httpagg: request target did not end yet, wait for new payload");
                 *aggregationEnd = start;
                 status = status | MESSAGE_FLAG_WAITING;
                 return 0;
 			}
 			break;
 		}
-		case MESSAGE_REQ_URI: {
+		case MESSAGE_REQ_TARGET: {
 			if (getRequestVersion(start, dataEnd, &start, &end)) {
 				status = MESSAGE_REQ_VERSION;
 				DPRINTFL(MSG_INFO, "httpagg: request version = '%.*s'", end-start, start);
@@ -1634,14 +1634,14 @@ int HTTPAggregation::getRequestMethod(const char* data, const char* dataEnd, con
 }
 
 /**
- * Parses the request uri.
+ * Parses the request target (uri).
  * @param data Pointer to the payload to be parsed
  * @param dataEnd Pointer to the end of the payload to be parsed
  * @param start Used to store the position at which the parsed text begins
  * @param end Used to store the position at which the parsed text ends
  * @return Returns 1 if a space delimited text could be parsed, 0 otherwise
  */
-int HTTPAggregation::getRequestUri(const char* data, const char* dataEnd, const char** start, const char** end) {
+int HTTPAggregation::getRequestTarget(const char* data, const char* dataEnd, const char** start, const char** end) {
 	return getSpaceDelimitedText(data, dataEnd, start, end);
 }
 
@@ -2065,11 +2065,11 @@ void HTTPAggregation::initializeFlowData(FlowData* flowData, HTTPStreamData* str
 	flowData->flowAnnotationFlags = 0;
 
 	flowData->request.method = 0;
-	flowData->request.uri = 0;
+	flowData->request.target = 0;
 	flowData->request.version = 0;
 	flowData->request.host = 0;
 	flowData->request.hostLength = 0;
-	flowData->request.uriLength = 0;
+	flowData->request.targetLength = 0;
 	flowData->request.status = NO_MESSAGE;
 	flowData->request.transfer = TRANSFER_UNKNOWN;
 	flowData->request.contentLength = 0;

@@ -300,10 +300,10 @@ void PacketHashtable::aggregateHTTP(IpfixRecord::Data* bucket, HashtableBucket* 
         if (efd->typeSpecData.http.requestMethodOffset != ExpHelperTable::UNUSED)
             flowData->request.method = reinterpret_cast<char*>(bucket+efd->typeSpecData.http.requestMethodOffset);
 
-        // prepare pointer for http request uri aggregation
-        if (efd->typeSpecData.http.requestUriOffset != ExpHelperTable::UNUSED) {
-            flowData->request.uriLength = efd->typeSpecData.http.requestUriLength;
-            flowData->request.uri = reinterpret_cast<char*>(bucket+efd->typeSpecData.http.requestUriOffset);
+        // prepare pointer for http request Target aggregation (was named requestUri in earlier versions)
+        if (efd->typeSpecData.http.requestTargetOffset != ExpHelperTable::UNUSED) {
+            flowData->request.targetLength = efd->typeSpecData.http.requestTargetLength;
+            flowData->request.target = reinterpret_cast<char*>(bucket+efd->typeSpecData.http.requestTargetOffset);
         }
 
         // prepare pointer for http request version aggregation
@@ -457,10 +457,22 @@ void (*PacketHashtable::getCopyDataFunction(const ExpFieldData* efd))(PacketHash
 		case 0:
 			switch (efd->typeId.id) {
 				case IPFIX_TYPEID_httpStatusCode:
-				    if (efd->dstLength != 2) {
-                        		THROWEXCEPTION("unsupported length %d for type %s", efd->dstLength, efd->typeId.toString().c_str());
+					if (efd->dstLength != 2) {
+                        			THROWEXCEPTION("unsupported length %d for type %s", efd->dstLength, efd->typeId.toString().c_str());
                     			}
-			}		
+				case IPFIX_TYPEID_httpRequestTarget:
+				case IPFIX_TYPEID_httpRequestHost:
+					if (efd->dstLength < 1) {
+						THROWEXCEPTION("unsupported length %d for type %s", efd->dstLength, efd->typeId.toString().c_str());
+					}
+					break;
+
+				case IPFIX_TYPEID_httpRequestMethod:
+					if (efd->dstLength < 16) {
+						THROWEXCEPTION("unsupported length %d for type %s", efd->dstLength, efd->typeId.toString().c_str());
+					}
+					break;
+			}
                     	break;
 
 		case IPFIX_PEN_reverse:
@@ -564,19 +576,6 @@ void (*PacketHashtable::getCopyDataFunction(const ExpFieldData* efd))(PacketHash
                         THROWEXCEPTION("unsupported length %d for type %s", efd->dstLength, efd->typeId.toString().c_str());
                     }
                     break;
-				case IPFIX_ETYPEID_httpRequestUri:
-				case IPFIX_ETYPEID_httpRequestHost:
-					if (efd->dstLength < 1) {
-						THROWEXCEPTION("unsupported length %d for type %s", efd->dstLength, efd->typeId.toString().c_str());
-					}
-					break;
-
-				case IPFIX_ETYPEID_httpRequestMethod:
-					if (efd->dstLength < 16) {
-						THROWEXCEPTION("unsupported length %d for type %s", efd->dstLength, efd->typeId.toString().c_str());
-					}
-					break;
-
 				case IPFIX_ETYPEID_httpResponsePhrase:
                     if (efd->dstLength < 16) {
                         THROWEXCEPTION("unsupported length %d for type %s", efd->dstLength, efd->typeId.toString().c_str());
@@ -609,14 +608,14 @@ void (*PacketHashtable::getCopyDataFunction(const ExpFieldData* efd))(PacketHash
 			   efd->typeId == IeInfo(IPFIX_ETYPEID_dpaReverseStart, IPFIX_PEN_vermont) ||
 			   efd->typeId == IeInfo(IPFIX_ETYPEID_dpaForcedExport, IPFIX_PEN_vermont)) {
 		return copyDataDummy;
-	} else if (efd->typeId == IeInfo(IPFIX_ETYPEID_httpRequestMethod, IPFIX_PEN_vermont) ||
-			efd->typeId == IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont) ||
+	} else if (efd->typeId == IeInfo(IPFIX_TYPEID_httpRequestMethod, 0) ||
+			efd->typeId == IeInfo(IPFIX_TYPEID_httpRequestTarget, 0) ||
 			efd->typeId == IeInfo(IPFIX_ETYPEID_httpRequestVersion, IPFIX_PEN_vermont) ||
-            efd->typeId == IeInfo(IPFIX_ETYPEID_httpResponseVersion, IPFIX_PEN_vermont) ||
-            efd->typeId == IeInfo(IPFIX_TYPEID_httpStatusCode, 0) ||
-            efd->typeId == IeInfo(IPFIX_ETYPEID_httpResponsePhrase, IPFIX_PEN_vermont) ||
-            efd->typeId == IeInfo(IPFIX_ETYPEID_httpRequestHost, IPFIX_PEN_vermont) ||
-            efd->typeId == IeInfo(IPFIX_ETYPEID_flowAnnotation, IPFIX_PEN_vermont)) {
+		        efd->typeId == IeInfo(IPFIX_ETYPEID_httpResponseVersion, IPFIX_PEN_vermont) ||
+		        efd->typeId == IeInfo(IPFIX_TYPEID_httpStatusCode, 0) ||
+            		efd->typeId == IeInfo(IPFIX_ETYPEID_httpResponsePhrase, IPFIX_PEN_vermont) ||
+            		efd->typeId == IeInfo(IPFIX_TYPEID_httpRequestHost, 0) ||
+            		efd->typeId == IeInfo(IPFIX_ETYPEID_flowAnnotation, IPFIX_PEN_vermont)) {
 		return copyDataDummy;
 	}else if (efd->typeId == IeInfo(IPFIX_TYPEID_flowStartNanoSeconds, 0) ||
 			efd->typeId == IeInfo(IPFIX_TYPEID_flowEndNanoSeconds, 0)) {
@@ -688,7 +687,13 @@ uint16_t PacketHashtable::getRawPacketFieldLength(const IeInfo& type)
 			case IPFIX_TYPEID_bgpSourceAsNumber:
 			case IPFIX_TYPEID_bgpDestinationAsNumber:
             		case IPFIX_TYPEID_httpStatusCode:
+            		case IPFIX_TYPEID_httpRequestMethod:
 				return 0;
+	        
+		    	case IPFIX_TYPEID_httpRequestTarget:
+        	    	case IPFIX_TYPEID_httpRequestHost:
+				return type.length;				// length is variable and is set in configuration
+
 
 			default:
 				THROWEXCEPTION("PacketHashtable: unknown typeid %s, failed to determine raw packet field length", type.toString().c_str());
@@ -710,11 +715,8 @@ uint16_t PacketHashtable::getRawPacketFieldLength(const IeInfo& type)
 				return 8;
 
 			case IPFIX_ETYPEID_frontPayload:
-            case IPFIX_ETYPEID_httpRequestUri:
-            case IPFIX_ETYPEID_httpRequestHost:
 				return type.length;				// length is variable and is set in configuration
 
-            case IPFIX_ETYPEID_httpRequestMethod:
             case IPFIX_ETYPEID_httpRequestVersion:
             case IPFIX_ETYPEID_httpResponseVersion:
             case IPFIX_ETYPEID_httpResponsePhrase:
@@ -813,8 +815,11 @@ uint16_t PacketHashtable::getRawPacketFieldOffset(const IeInfo& type, const Pack
 					DPRINTFL(MSG_VDEBUG, "given id is %s, protocol is %d, but expected was %d", type.toString().c_str(), p->ipProtocolType, Packet::TCP);
 				}
 				break;
-			case IPFIX_TYPEID_httpStatusCode:
-			// this field does not have fixed position in the raw packet
+			case IPFIX_TYPEID_httpRequestMethod:
+			case IPFIX_TYPEID_httpRequestTarget:
+ 			case IPFIX_TYPEID_httpRequestHost:
+ 			case IPFIX_TYPEID_httpStatusCode:
+			// these fields do not have fixed position in the raw packet
 				break;
 
 			default:
@@ -839,13 +844,10 @@ uint16_t PacketHashtable::getRawPacketFieldOffset(const IeInfo& type, const Pack
 				// this  field isn't part of the raw packet and is stored in the expHelperTable.
 				// so the offset to the zeroBytes pointer should be returned here
 				break;
-			case IPFIX_ETYPEID_httpRequestMethod:
-			case IPFIX_ETYPEID_httpRequestUri:
-            case IPFIX_ETYPEID_httpRequestVersion:
-            case IPFIX_ETYPEID_httpResponseVersion:
-            case IPFIX_ETYPEID_httpResponsePhrase:
-            case IPFIX_ETYPEID_httpRequestHost:
-            case IPFIX_ETYPEID_flowAnnotation:
+           		case IPFIX_ETYPEID_httpResponseVersion:
+		        case IPFIX_ETYPEID_httpRequestVersion:
+            		case IPFIX_ETYPEID_httpResponsePhrase:
+            		case IPFIX_ETYPEID_flowAnnotation:
 				// these fields do not have fixed positions in the raw packet
 				break;
 			default:
@@ -885,6 +887,9 @@ bool PacketHashtable::isRawPacketPtrVariable(const IeInfo& type)
 				case IPFIX_TYPEID_bgpSourceAsNumber:
 				case IPFIX_TYPEID_bgpDestinationAsNumber:
             			case IPFIX_TYPEID_httpStatusCode:
+	            		case IPFIX_TYPEID_httpRequestMethod:
+			        case IPFIX_TYPEID_httpRequestTarget:
+	            		case IPFIX_TYPEID_httpRequestHost:
 					return false;
 
 				case IPFIX_TYPEID_icmpTypeCodeIPv4:
@@ -903,12 +908,9 @@ bool PacketHashtable::isRawPacketPtrVariable(const IeInfo& type)
 				case IPFIX_ETYPEID_dpaForcedExport:
 				case IPFIX_ETYPEID_dpaFlowCount:
 				case IPFIX_ETYPEID_dpaReverseStart:
-	            case IPFIX_ETYPEID_httpRequestMethod:
-	            case IPFIX_ETYPEID_httpRequestUri:
 	            case IPFIX_ETYPEID_httpRequestVersion:
 	            case IPFIX_ETYPEID_httpResponseVersion:
 	            case IPFIX_ETYPEID_httpResponsePhrase:
-	            case IPFIX_ETYPEID_httpRequestHost:
 	            case IPFIX_ETYPEID_flowAnnotation:
 					return false;
 
@@ -943,8 +945,8 @@ void PacketHashtable::fillExpFieldData(ExpFieldData* efd, TemplateInfo::FieldInf
 	efd->typeSpecData.http.skipHeader = false;
 	efd->typeSpecData.http.flowDataOffset = ExpHelperTable::UNUSED;
 	efd->typeSpecData.http.requestMethodOffset = ExpHelperTable::UNUSED;
-	efd->typeSpecData.http.requestUriOffset = ExpHelperTable::UNUSED;
-	efd->typeSpecData.http.requestUriLength = 0;
+	efd->typeSpecData.http.requestTargetOffset = ExpHelperTable::UNUSED;
+	efd->typeSpecData.http.requestTargetLength = 0;
 	efd->typeSpecData.http.statusCodeOffset = ExpHelperTable::UNUSED;
 
 	// initialize static source index, if current field does not have a variable pointer
@@ -1028,6 +1030,9 @@ bool PacketHashtable::typeAvailable(const IeInfo& type)
 				case IPFIX_TYPEID_bgpSourceAsNumber:
 				case IPFIX_TYPEID_bgpDestinationAsNumber:
 	            		case IPFIX_TYPEID_httpStatusCode:
+	                        case IPFIX_TYPEID_httpRequestMethod:
+	            	        case IPFIX_TYPEID_httpRequestTarget:
+	            		case IPFIX_TYPEID_httpRequestHost:
 					return true;
 			}
 			break;
@@ -1041,12 +1046,9 @@ bool PacketHashtable::typeAvailable(const IeInfo& type)
 				case IPFIX_ETYPEID_dpaFlowCount:
 				case IPFIX_ETYPEID_dpaReverseStart:
 				case IPFIX_ETYPEID_transportOctetDeltaCount:
-	                        case IPFIX_ETYPEID_httpRequestMethod:
-	            	        case IPFIX_ETYPEID_httpRequestUri:
                                 case IPFIX_ETYPEID_httpRequestVersion:
 	            		case IPFIX_ETYPEID_httpResponseVersion:
 	                        case IPFIX_ETYPEID_httpResponsePhrase:
-	            		case IPFIX_ETYPEID_httpRequestHost:
 	            		case IPFIX_ETYPEID_flowAnnotation:
 					return true;
 			}
@@ -1222,9 +1224,9 @@ void PacketHashtable::buildExpHelperTable()
 			efd->typeSpecData.http.aggregate = httpAggregation;
 			efd->typeSpecData.http.skipHeader = httpSkipHeader;
             efd->typeSpecData.http.requestVersionOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestVersion, IPFIX_PEN_vermont));
-			efd->typeSpecData.http.requestMethodOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestMethod, IPFIX_PEN_vermont));
-			efd->typeSpecData.http.requestUriOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont));
-			efd->typeSpecData.http.requestHostOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestHost, IPFIX_PEN_vermont));
+			efd->typeSpecData.http.requestMethodOffset = getDstOffset(IeInfo(IPFIX_TYPEID_httpRequestMethod, 0));
+			efd->typeSpecData.http.requestTargetOffset = getDstOffset(IeInfo(IPFIX_TYPEID_httpRequestTarget, 0));
+			efd->typeSpecData.http.requestHostOffset = getDstOffset(IeInfo(IPFIX_TYPEID_httpRequestHost, 0));
 			efd->typeSpecData.http.responseVersionOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpResponseVersion, IPFIX_PEN_vermont));
 			efd->typeSpecData.http.statusCodeOffset = getDstOffset(IeInfo(IPFIX_TYPEID_httpStatusCode, 0));
 			efd->typeSpecData.http.responsePhraseOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpResponsePhrase, IPFIX_PEN_vermont));
@@ -1241,11 +1243,11 @@ void PacketHashtable::buildExpHelperTable()
 				}
 			}
 
-            if (efd->typeSpecData.http.requestUriOffset != ExpHelperTable::UNUSED) {
+            if (efd->typeSpecData.http.requestTargetOffset != ExpHelperTable::UNUSED) {
                 for (uint32_t i=0; i<expHelperTable.noAggFields; i++) {
                     ExpFieldData* efd2 = &expHelperTable.aggFields[i];
-                    if (efd2->typeId==IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont)) {
-                        efd->typeSpecData.http.requestUriLength = efd2->dstLength;
+                    if (efd2->typeId==IeInfo(IPFIX_TYPEID_httpRequestTarget, 0)) {
+                        efd->typeSpecData.http.requestTargetLength = efd2->dstLength;
                         break;
                     }
                 }
@@ -1254,7 +1256,7 @@ void PacketHashtable::buildExpHelperTable()
             if (efd->typeSpecData.http.requestHostOffset != ExpHelperTable::UNUSED) {
                 for (uint32_t i=0; i<expHelperTable.noAggFields; i++) {
                     ExpFieldData* efd2 = &expHelperTable.aggFields[i];
-                    if (efd2->typeId==IeInfo(IPFIX_ETYPEID_httpRequestHost, IPFIX_PEN_vermont)) {
+                    if (efd2->typeId==IeInfo(IPFIX_TYPEID_httpRequestHost, 0)) {
                         efd->typeSpecData.http.requestHostLength = efd2->dstLength;
                         break;
                     }
@@ -1275,9 +1277,9 @@ void PacketHashtable::buildExpHelperTable()
             efd->typeSpecData.http.aggregate = httpAggregation;
             efd->typeSpecData.http.skipHeader = httpSkipHeader;
             efd->typeSpecData.http.requestVersionOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestVersion, IPFIX_PEN_vermont));
-            efd->typeSpecData.http.requestMethodOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestMethod, IPFIX_PEN_vermont));
-            efd->typeSpecData.http.requestUriOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont));
-            efd->typeSpecData.http.requestHostOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpRequestHost, IPFIX_PEN_vermont));
+            efd->typeSpecData.http.requestMethodOffset = getDstOffset(IeInfo(IPFIX_TYPEID_httpRequestMethod, 0));
+            efd->typeSpecData.http.requestTargetOffset = getDstOffset(IeInfo(IPFIX_TYPEID_httpRequestTarget, 0));
+            efd->typeSpecData.http.requestHostOffset = getDstOffset(IeInfo(IPFIX_TYPEID_httpRequestHost, 0));
             efd->typeSpecData.http.responseVersionOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpResponseVersion, IPFIX_PEN_vermont));
             efd->typeSpecData.http.statusCodeOffset = getDstOffset(IeInfo(IPFIX_TYPEID_httpStatusCode, 0));
             efd->typeSpecData.http.responsePhraseOffset = getDstOffset(IeInfo(IPFIX_ETYPEID_httpResponsePhrase, IPFIX_PEN_vermont));
@@ -1294,11 +1296,11 @@ void PacketHashtable::buildExpHelperTable()
 				}
 			}
 
-            if (efd->typeSpecData.http.requestUriOffset != ExpHelperTable::UNUSED) {
+            if (efd->typeSpecData.http.requestTargetOffset != ExpHelperTable::UNUSED) {
                 for (uint32_t i=0; i<expHelperTable.noAggFields; i++) {
                     ExpFieldData* efd2 = &expHelperTable.aggFields[i];
-                    if (efd2->typeId==IeInfo(IPFIX_ETYPEID_httpRequestUri, IPFIX_PEN_vermont)) {
-                        efd->typeSpecData.http.requestUriLength = efd2->dstLength;
+                    if (efd2->typeId==IeInfo(IPFIX_TYPEID_httpRequestTarget, 0)) {
+                        efd->typeSpecData.http.requestTargetLength = efd2->dstLength;
                         break;
                     }
                 }
@@ -1307,7 +1309,7 @@ void PacketHashtable::buildExpHelperTable()
             if (efd->typeSpecData.http.requestHostOffset != ExpHelperTable::UNUSED) {
                 for (uint32_t i=0; i<expHelperTable.noAggFields; i++) {
                     ExpFieldData* efd2 = &expHelperTable.aggFields[i];
-                    if (efd2->typeId==IeInfo(IPFIX_ETYPEID_httpRequestHost, IPFIX_PEN_vermont)) {
+                    if (efd2->typeId==IeInfo(IPFIX_TYPEID_httpRequestHost, 0)) {
                         efd->typeSpecData.http.requestHostLength = efd2->dstLength;
                         break;
                     }
@@ -1438,9 +1440,9 @@ boost::shared_array<IpfixRecord::Data> PacketHashtable::createBucketDataCopy(con
 
 			// erase all HTTP related fields
 			if (http.requestMethodOffset != ExpHelperTable::UNUSED)
-			    bzero(data + http.requestMethodOffset, IPFIX_ELENGTH_httpRequestMethod);
-			if (http.requestUriOffset != ExpHelperTable::UNUSED)
-			    bzero(data + http.requestUriOffset, http.requestUriLength);
+			    bzero(data + http.requestMethodOffset, IPFIX_LENGTH_httpRequestMethod);
+			if (http.requestTargetOffset != ExpHelperTable::UNUSED)
+			    bzero(data + http.requestTargetOffset, http.requestTargetLength);
 			if (http.requestVersionOffset != ExpHelperTable::UNUSED)
 			    bzero(data + http.requestVersionOffset, IPFIX_ELENGTH_httpVersionIdentifier);
 			if (http.requestHostOffset != ExpHelperTable::UNUSED)
@@ -1581,6 +1583,10 @@ void PacketHashtable::aggregateField(const ExpFieldData* efd, HashtableBucket* h
 						*(uint8_t*)baseData |= *(uint8_t*)deltaData;
 						break;
 					
+	
+			                case IPFIX_TYPEID_httpRequestMethod:
+	        		        case IPFIX_TYPEID_httpRequestTarget:
+	                		case IPFIX_TYPEID_httpRequestHost:
 	                		case IPFIX_TYPEID_httpStatusCode:
 						//ignored, because we aggregate elsewhere
                                                 break;
@@ -1672,13 +1678,9 @@ void PacketHashtable::aggregateField(const ExpFieldData* efd, HashtableBucket* h
 						if ((uint32_t)gap > ntohl(*(uint32_t*)baseData)) *(uint32_t*)baseData = htonl(gap);
 						*reinterpret_cast<uint64_t*>(data+efd->privDataOffset) = *(uint64_t*)deltaData;
 						break;
-
-	                case IPFIX_ETYPEID_httpRequestMethod:
-	                case IPFIX_ETYPEID_httpRequestUri:
-	                case IPFIX_ETYPEID_httpRequestVersion:
-	                case IPFIX_ETYPEID_httpResponseVersion:
-	                case IPFIX_ETYPEID_httpResponsePhrase:
-	                case IPFIX_ETYPEID_httpRequestHost:
+	                		case IPFIX_ETYPEID_httpRequestVersion:
+			                case IPFIX_ETYPEID_httpResponseVersion:
+	        		        case IPFIX_ETYPEID_httpResponsePhrase:
 					case IPFIX_ETYPEID_frontPayloadLen:
 						// ignore these fields, as FPA aggregation does everything needed
 					case IPFIX_ETYPEID_flowAnnotation:
@@ -1709,12 +1711,9 @@ void PacketHashtable::aggregateField(const ExpFieldData* efd, HashtableBucket* h
 						*reinterpret_cast<uint64_t*>(data+efd->privDataOffset) = *(uint64_t*)deltaData;
 						break;
 
-	                case IPFIX_ETYPEID_httpRequestMethod:
-	                case IPFIX_ETYPEID_httpRequestUri:
-	                case IPFIX_ETYPEID_httpRequestVersion:
-	                case IPFIX_ETYPEID_httpResponseVersion:
-	                case IPFIX_ETYPEID_httpResponsePhrase:
-	                case IPFIX_ETYPEID_httpRequestHost:
+			                case IPFIX_ETYPEID_httpRequestVersion:
+	        		        case IPFIX_ETYPEID_httpResponseVersion:
+	                		case IPFIX_ETYPEID_httpResponsePhrase:
 					case IPFIX_ETYPEID_frontPayloadLen:
 						// ignore these fields, as FPA aggregation does everything needed
 					case IPFIX_ETYPEID_flowAnnotation:

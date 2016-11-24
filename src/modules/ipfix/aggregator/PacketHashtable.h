@@ -111,11 +111,11 @@ private:
 			} frontPayload;
 			struct HTTPAggregationData {
 			    uint32_t flowDataOffset;        /**< offset from start of record data to @c FlowData structure*/
-			    uint32_t requestMethodOffset;   /**< offset from start of record data to IPFIX_ETYPEID_httpRequestMethod */
-			    uint32_t requestUriOffset;      /**< offset from start of record data to IPFIX_ETYPEID_httpRequestUri */
+			    uint32_t requestMethodOffset;   /**< offset from start of record data to IPFIX_TYPEID_httpRequestMethod */
+			    uint32_t requestTargetOffset;      /**< offset from start of record data to IPFIX_TYPEID_httpRequestTarget */
 			    uint32_t requestVersionOffset;  /**< offset from start of record data to IPFIX_ETYPEID_httpRequestVersion */
-			    uint32_t requestHostOffset;     /**< offset from start of record data to IPFIX_ETYPEID_httpRequestHost */
-			    uint16_t requestUriLength;      /**< max length of the HTTP request uri field */
+			    uint32_t requestHostOffset;     /**< offset from start of record data to IPFIX_TYPEID_httpRequestHost */
+			    uint16_t requestTargetLength;      /**< max length of the HTTP request target (uri) field */
 			    uint16_t requestHostLength;     /**< max length of the HTTP request host header field */
 			    uint32_t responseVersionOffset; /**< offset from start of record data to IPFIX_ETYPEID_httpResponseVersion */
 			    uint32_t statusCodeOffset;    /**< offset from start of record data to IPFIX_TYPEID_httpStatusCode */

@@ -107,6 +107,9 @@ namespace InformationElement {
 
 				case IPFIX_TYPEID_sourceTransportPort:
                 		case IPFIX_TYPEID_httpStatusCode:
+                		case IPFIX_TYPEID_httpRequestMethod:
+                		case IPFIX_TYPEID_httpRequestHost:
+                		case IPFIX_TYPEID_httpRequestTarget:
 				case IPFIX_TYPEID_destinationTransportPort:
 					return Packet::IPProtocolType(Packet::UDP|Packet::TCP);
 
@@ -129,12 +132,9 @@ namespace InformationElement {
                 case IPFIX_ETYPEID_flowAnnotation:
 					return Packet::IPProtocolType(Packet::UDP|Packet::TCP);
 
-                case IPFIX_ETYPEID_httpRequestMethod:
-                case IPFIX_ETYPEID_httpRequestUri:
                 case IPFIX_ETYPEID_httpRequestVersion:
                 case IPFIX_ETYPEID_httpResponseVersion:
                 case IPFIX_ETYPEID_httpResponsePhrase:
-                case IPFIX_ETYPEID_httpRequestHost:
 					return Packet::IPProtocolType(Packet::TCP);
 			}
 			if (enterprise==IPFIX_PEN_vermont) {

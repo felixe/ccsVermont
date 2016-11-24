@@ -5,12 +5,12 @@
 	</sensorManager>
 	<observer id="1">
 		<!--<interface>eth0</interface>-->
-		<filename>dumps/http.pcap</filename>
+		<filename>/home/felix/Daten/arbeit/dumps/pipelining/http.pcap</filename>
 		<pcap_filter>ip and tcp</pcap_filter>
 		<instances>10000</instances>
 		<offlineAutoExit>1</offlineAutoExit>
 		<offlineSpeed>0</offlineSpeed>
-		<captureLength>2000</captureLength>
+		<captureLength>1500</captureLength>
 		<next>2</next>
 	</observer>
 	
@@ -110,7 +110,7 @@
 				<ieName>httpRequestMethod</ieName>
 			</nonFlowKey>
 			<nonFlowKey>
-				<ieName>httpRequestUri</ieName>
+				<ieName>httpRequestTarget</ieName>
 				<ieLength>150</ieLength>
 			</nonFlowKey>
 			<nonFlowKey>
@@ -124,7 +124,7 @@
 				<ieName>httpResponseVersion</ieName>
 			</nonFlowKey>
 			<nonFlowKey>
-				<ieName>httpResponseCode</ieName>
+				<ieName>httpStatusCode</ieName>
 			</nonFlowKey>
 			<nonFlowKey>
 				<ieName>httpResponsePhrase</ieName>
