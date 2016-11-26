@@ -416,6 +416,7 @@ int BaseHashtable::isToBeAggregated(InformationElement::IeInfo& type)
 		                case IPFIX_TYPEID_httpRequestMethod:
 		                case IPFIX_TYPEID_httpRequestTarget:
 		                case IPFIX_TYPEID_httpRequestHost:
+		                case IPFIX_TYPEID_httpMessageVersion:
 				case IPFIX_TYPEID_tcpControlBits:
 					return 1;
 			}
@@ -448,9 +449,8 @@ int BaseHashtable::isToBeAggregated(InformationElement::IeInfo& type)
 				case IPFIX_ETYPEID_dpaFlowCount:
 				case IPFIX_ETYPEID_dpaReverseStart:
 				case IPFIX_ETYPEID_transportOctetDeltaCount:
-		                case IPFIX_ETYPEID_httpRequestVersion:
-		                case IPFIX_ETYPEID_httpResponseVersion:
-		                case IPFIX_ETYPEID_httpResponsePhrase:
+		                case IPFIX_ETYPEID_httpStatusPhrase:
+		                case IPFIX_ETYPEID_httpRespMessageVersion:
 		                case IPFIX_ETYPEID_flowAnnotation:
 					return 1;
 			}
@@ -466,9 +466,8 @@ int BaseHashtable::isToBeAggregated(InformationElement::IeInfo& type)
 				case IPFIX_ETYPEID_dpaFlowCount:
 				case IPFIX_ETYPEID_dpaReverseStart:
 				case IPFIX_ETYPEID_transportOctetDeltaCount:
-        		        case IPFIX_ETYPEID_httpRequestVersion:
-                		case IPFIX_ETYPEID_httpResponseVersion:
-		                case IPFIX_ETYPEID_httpResponsePhrase:
+		                case IPFIX_ETYPEID_httpStatusPhrase:
+		                case IPFIX_ETYPEID_httpRespMessageVersion:
         		        case IPFIX_ETYPEID_flowAnnotation:
 					return 1;
 			}
@@ -617,11 +616,12 @@ void BaseHashtable::genBiflowStructs()
 						dstAsIdx = i;
 						mapReverseElement(InformationElement::IeInfo(IPFIX_TYPEID_bgpDestinationAsNumber, 0));
 						break;
-					
+					//do not reverse these fields:	
 	                		case IPFIX_TYPEID_httpStatusCode:
 	                		case IPFIX_TYPEID_httpRequestMethod:
 	                		case IPFIX_TYPEID_httpRequestTarget:
 	                		case IPFIX_TYPEID_httpRequestHost:
+	                		case IPFIX_TYPEID_httpMessageVersion:
 						mapReverseElement(fi->type);
 						break;
 						
@@ -637,9 +637,8 @@ void BaseHashtable::genBiflowStructs()
 					case IPFIX_ETYPEID_dpaFlowCount:
 					case IPFIX_ETYPEID_dpaReverseStart:
 					case IPFIX_ETYPEID_anonymisationType:
-	                		case IPFIX_ETYPEID_httpRequestVersion:
-	                		case IPFIX_ETYPEID_httpResponseVersion:
-	                		case IPFIX_ETYPEID_httpResponsePhrase:
+	                		case IPFIX_ETYPEID_httpStatusPhrase:
+	                		case IPFIX_ETYPEID_httpRespMessageVersion:
 	                		case IPFIX_ETYPEID_flowAnnotation:
 						mapReverseElement(fi->type);
 						break;

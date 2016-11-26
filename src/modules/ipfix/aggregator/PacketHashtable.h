@@ -113,13 +113,13 @@ private:
 			    uint32_t flowDataOffset;        /**< offset from start of record data to @c FlowData structure*/
 			    uint32_t requestMethodOffset;   /**< offset from start of record data to IPFIX_TYPEID_httpRequestMethod */
 			    uint32_t requestTargetOffset;      /**< offset from start of record data to IPFIX_TYPEID_httpRequestTarget */
-			    uint32_t requestVersionOffset;  /**< offset from start of record data to IPFIX_ETYPEID_httpRequestVersion */
+			    uint32_t reqMessageVersionOffset;  /**< offset from start of record data to IPFIX_TYPEID_httpMessageVersion */
+			    uint32_t resMessageVersionOffset;  /**< offset from start of record data to IPFIX_TYPEID_revHttpMessageVersion */
 			    uint32_t requestHostOffset;     /**< offset from start of record data to IPFIX_TYPEID_httpRequestHost */
 			    uint16_t requestTargetLength;      /**< max length of the HTTP request target (uri) field */
 			    uint16_t requestHostLength;     /**< max length of the HTTP request host header field */
-			    uint32_t responseVersionOffset; /**< offset from start of record data to IPFIX_ETYPEID_httpResponseVersion */
 			    uint32_t statusCodeOffset;    /**< offset from start of record data to IPFIX_TYPEID_httpStatusCode */
-			    uint32_t responsePhraseOffset;  /**< offset from start of record data to IPFIX_ETYPEID_httpResponsePhrase */
+			    uint32_t statusPhraseOffset;  /**< offset from start of record data to IPFIX_ETYPEID_httpStatusPhrase */
 			    uint32_t flowAnnotationOffset;   /**< offset from start of record data to IPFIX_ETYPEID_flowAnnotation */
 			    bool aggregate;                 /**< set to true, if HTTP aggregation was activated */
 			    bool skipHeader;                /**< set to true, if the HTTP msg header payload aggregation should be skipped, instead only the msg body will be exported */

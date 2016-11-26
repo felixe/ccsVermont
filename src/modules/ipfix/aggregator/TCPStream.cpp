@@ -795,8 +795,9 @@ TimeoutList& TCPMonitor::getList(TCPStream::tcp_state_t state) {
         case TCPStream::TCP_CLOSED:
             return closedConnections;
             break;
+    	default:
+	THROWEXCEPTION("undefined TCPStream state");
     }
-    THROWEXCEPTION("undefined TCPStream state");
 }
 
 /**

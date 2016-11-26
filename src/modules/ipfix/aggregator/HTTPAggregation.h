@@ -182,9 +182,9 @@ public:
 	         */
 	        char* version;          /**< version of a HTTP request */
 	        uint16_t* statusCode;   /**< status code of a HTTP request */
-	        char* responsePhrase;   /**< response phrase of a HTTP request */
+	        char* statusPhrase;   /**< response status phrase of a HTTP request */
 
-	        int statusCode_;        /**< stores the status code in host byte order */
+	        int statusCode_;        /**< stores the response status code in host byte order */
 	        char* boundary;         /**< stores a boundary string value. used when the message-body is transferred as Content-type: multipart/byteranges */
 	        uint8_t boundaryLength; /**< stores the length of a boundary string value. used when the message-body is transferred as Content-type: multipart/byteranges */
 	    } response;
@@ -256,7 +256,7 @@ private:
 	static int getRequestVersion(const char* data, const char* dataEnd, const char** start, const char** end);
 	static int getResponseVersion(const char* data, const char* dataEnd, const char** start, const char** end);
 	static uint16_t getStatusCode(const char* data, const char* dataEnd, const char** start, const char** end);
-	static int getResponsePhrase(const char* data, const char* dataEnd, const char** start, const char** end);
+	static int getStatusPhrase(const char* data, const char* dataEnd, const char** start, const char** end);
 	static int processMessageHeader(const char* data, const char* dataEnd, const char** end, FlowData* flowData);
 	static int isValidMessageHeaderTerminatorSuffix(const char* data, const char* dataEnd, const char** end);
 	static int getHeaderField(const char* data, const char* dataEnd, const char** end);

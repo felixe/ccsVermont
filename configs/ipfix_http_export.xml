@@ -5,7 +5,8 @@
 	</sensorManager>
 	<observer id="1">
 		<!--<interface>eth0</interface>-->
-		<filename>/home/felix/Daten/arbeit/dumps/pipelining/http.pcap</filename>
+		<filename>/home/felix/Daten/arbeit/dumps/http/fxProxy.dump</filename>
+		<!--filename>/home/felix/Daten/arbeit/dumps/pipelining/http.pcap</filename-->
 		<pcap_filter>ip and tcp</pcap_filter>
 		<instances>10000</instances>
 		<offlineAutoExit>1</offlineAutoExit>
@@ -114,20 +115,20 @@
 				<ieLength>150</ieLength>
 			</nonFlowKey>
 			<nonFlowKey>
-				<ieName>httpRequestVersion</ieName>
+				<ieName>httpMessageVersion</ieName>
 			</nonFlowKey>
 			<nonFlowKey>
 				<ieName>httpRequestHost</ieName>
 				<ieLength>50</ieLength>
 			</nonFlowKey>
 			<nonFlowKey>
-				<ieName>httpResponseVersion</ieName>
+				<ieName>httpRespMessageVersion</ieName>
 			</nonFlowKey>
 			<nonFlowKey>
 				<ieName>httpStatusCode</ieName>
 			</nonFlowKey>
 			<nonFlowKey>
-				<ieName>httpResponsePhrase</ieName>
+				<ieName>httpStatusPhrase</ieName>
 			</nonFlowKey>
 		</rule>
 		<expiration>

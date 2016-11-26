@@ -159,6 +159,7 @@ extern "C" {
 #define IPFIX_TYPEID_httpRequestMethod              459
 #define IPFIX_TYPEID_httpRequestHost                460
 #define IPFIX_TYPEID_httpRequestTarget              461
+#define IPFIX_TYPEID_httpMessageVersion             462
 
 #define IPFIX_PEN_reverse                           29305
 
@@ -198,11 +199,10 @@ extern "C" {
  * 0: the preceding information element in the data record was not anonymised
  * 1: the preceding information element in the data record was anonymised
  */
-#define IPFIX_ETYPEID_anonymisationType		    9
-#define IPFIX_ETYPEID_httpRequestVersion            10
-#define IPFIX_ETYPEID_httpResponseVersion           11
-#define IPFIX_ETYPEID_httpResponsePhrase            12
-#define IPFIX_ETYPEID_flowAnnotation                13
+#define IPFIX_ETYPEID_anonymisationType			9
+#define IPFIX_ETYPEID_httpStatusPhrase    	        10
+#define IPFIX_ETYPEID_httpRespMessageVersion		12
+#define IPFIX_ETYPEID_flowAnnotation                	13
 
 #define IPFIX_LENGTH_ipVersion                      IPFIX_LENGTH_octet
 #define IPFIX_LENGTH_sourceIPv4Address              IPFIX_LENGTH_ipv4Address
@@ -309,6 +309,7 @@ extern "C" {
 #define IPFIX_LENGTH_httpStatusCode              IPFIX_LENGTH_unsigned16
 //httpRequestMethod is originally defined as string with up to 8 utf-8 characters
 #define IPFIX_LENGTH_httpRequestMethod             16
+#define IPFIX_LENGTH_httpMessageVersion         IPFIX_LENGTH_unsigned64
 //for those who wonder: length of httpRequestTarget and httpRequestHost are defined in the config file
 
 // enterprise TYPEIDs
@@ -320,8 +321,7 @@ extern "C" {
 #define IPFIX_ELENGTH_maxPacketGap					IPFIX_LENGTH_unsigned32
 #define IPFIX_ELENGTH_frontPayloadPktCount			IPFIX_LENGTH_unsigned32
 #define IPFIX_ELENGTH_anonymisationType				IPFIX_LENGTH_octet
-#define IPFIX_ELENGTH_httpResponsePhrase			32
-#define IPFIX_ELENGTH_httpVersionIdentifier         IPFIX_LENGTH_unsigned64
+#define IPFIX_ELENGTH_httpStatusPhrase			32
 
 #define MAX_MSG_LEN   65536
 

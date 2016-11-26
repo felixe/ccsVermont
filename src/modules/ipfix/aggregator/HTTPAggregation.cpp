@@ -187,9 +187,9 @@ void HTTPAggregation::detectHTTP(const char** data, const char** dataEnd, FlowDa
                 if (flowData->response.statusCode)
                     bzero(flowData->response.statusCode, IPFIX_LENGTH_httpStatusCode);
                 if (flowData->response.version)
-                    bzero(flowData->response.version, IPFIX_ELENGTH_httpVersionIdentifier);
-                if (flowData->response.responsePhrase)
-                    bzero(flowData->response.responsePhrase, IPFIX_ELENGTH_httpResponsePhrase);
+                    bzero(flowData->response.version, IPFIX_LENGTH_httpMessageVersion);
+                if (flowData->response.statusPhrase)
+                    bzero(flowData->response.statusPhrase, IPFIX_ELENGTH_httpStatusPhrase);
 
                 uint16_t* len = flowData->isForward() ? &flowData->streamInfo->forwardLength : &flowData->streamInfo->reverseLength;
                 char* line = flowData->isForward() ? flowData->streamInfo->forwardLine : flowData->streamInfo->reverseLine;
@@ -288,7 +288,7 @@ int HTTPAggregation::processNewHTTPTraffic(const char* data, const char* dataEnd
 			flowData->response.status = MESSAGE_RES_VERSION;
             // aggregate the response version
 			if (flowData->response.version)
-			    memcpy(flowData->response.version, start, min_(end-start, IPFIX_ELENGTH_httpVersionIdentifier));
+			    memcpy(flowData->response.version, start, min_(end-start, IPFIX_LENGTH_httpMessageVersion));
 
 			if (flowData->isReverse()) {
 				flowData->streamInfo->reverseType = HTTP_TYPE_RESPONSE;
@@ -380,7 +380,7 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
 	                status = MESSAGE_RES_VERSION;
 	                // aggregate the response version
 	                if (flowData->response.version)
-	                    memcpy(flowData->response.version, start, min_(end-start, IPFIX_ELENGTH_httpVersionIdentifier));
+	                    memcpy(flowData->response.version, start, min_(end-start, IPFIX_LENGTH_httpMessageVersion));
 	            } else {
 	                if (start == dataEnd) {
 	                    // skipping payload
@@ -417,7 +417,7 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
 				DPRINTFL(MSG_INFO, "httpagg: request version = '%.*s'", end-start, start);
                 // aggregate the request version
 				if (flowData->request.version)
-				    memcpy(flowData->request.version, start, min_(end-start, IPFIX_ELENGTH_httpVersionIdentifier));
+				    memcpy(flowData->request.version, start, min_(end-start, IPFIX_LENGTH_httpMessageVersion));
                 eatCRLF(end, dataEnd, &end);
 			} else {
 			    DPRINTFL(MSG_DEBUG, "httpagg: request version did not end yet, wait for new payload");
@@ -492,12 +492,12 @@ int HTTPAggregation::processHTTPMessage(const char* data, const char* dataEnd, F
 
         }
         case MESSAGE_RES_CODE: {
-            if (getResponsePhrase(start, dataEnd, &start, &end)) {
+            if (getStatusPhrase(start, dataEnd, &start, &end)) {
                 status = MESSAGE_RES_PHRASE;
                 DPRINTFL(MSG_INFO, "httpagg: response phrase = '%.*s'", end-start, start);
                 // aggregate the response phrase
-                if (flowData->response.responsePhrase)
-                    memcpy(flowData->response.responsePhrase, start, min_(end-start, IPFIX_ELENGTH_httpResponsePhrase));
+                if (flowData->response.statusPhrase)
+                    memcpy(flowData->response.statusPhrase, start, min_(end-start, IPFIX_ELENGTH_httpStatusPhrase));
                 eatCRLF(end, dataEnd, &end);
 
                 if (flowData->response.statusCode_ == 101) {
@@ -1725,7 +1725,7 @@ uint16_t HTTPAggregation::getStatusCode(const char* data, const char* dataEnd, c
  * @param end Used to store the position at which the parsed text ends
  * @return Returns 1 if the identifier is valid, 0 otherwise
  */
-int HTTPAggregation::getResponsePhrase(const char* data, const char* dataEnd, const char** start, const char** end) {
+int HTTPAggregation::getStatusPhrase(const char* data, const char* dataEnd, const char** start, const char** end) {
     return getCRLFDelimitedText(data, dataEnd, start, end);
 }
 
@@ -2078,7 +2078,7 @@ void HTTPAggregation::initializeFlowData(FlowData* flowData, HTTPStreamData* str
 
 	flowData->response.version = 0;
 	flowData->response.statusCode = 0;
-	flowData->response.responsePhrase = 0;
+	flowData->response.statusPhrase = 0;
 	flowData->response.status = NO_MESSAGE;
 	flowData->response.transfer = TRANSFER_UNKNOWN;
 	flowData->response.contentLength = 0;
