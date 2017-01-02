@@ -44,6 +44,7 @@
 #include "modules/ipfix/IpfixSamplerCfg.h"
 #include "modules/ipfix/IpfixCsExporterCfg.hpp"
 #include "modules/ipfix/NetflowV9ConverterCfg.hpp"
+#include "modules/ipfix/IpfixIdsCfg.h"
 #include "modules/ipfix/aggregator/IpfixAggregatorCfg.h"
 #include "modules/ipfix/aggregator/PacketAggregatorCfg.h"
 #include "modules/ipfix/database/IpfixDbReaderCfg.h"
@@ -102,6 +103,7 @@ Cfg* ConfigManager::configModules[] = {
 	new P2PDetectorCfg(NULL),
 	new HostStatisticsCfg(NULL),
 	new IpfixCsExporterCfg(NULL),
+	new IpfixIdsCfg(NULL),
 #if defined(DB_SUPPORT_ENABLED) || defined(PG_SUPPORT_ENABLED) || defined(ORACLE_SUPPORT_ENABLED)
 	new IpfixDbWriterCfg(NULL),
 	new IpfixDbReaderCfg(NULL),

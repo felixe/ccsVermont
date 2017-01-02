@@ -144,11 +144,9 @@
 		<next>5</next>
 	</ipfixQueue>
 	
-	<ipfixPrinter id="5">
-		<!-- <outputType>table</outputType> -->
-		<outputType>tree</outputType>
-		<filename>flows.dat</filename>
-	</ipfixPrinter> 
+	<ipfixIds id="5">
+		<alertfile>alert.txt</alertfile>
+	</ipfixIds> 
 
 	<!--
 	<ipfixExporter id="5">
