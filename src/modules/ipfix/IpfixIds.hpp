@@ -23,17 +23,20 @@
 
 
 #include "core/Module.h"
+#include "core/Source.h"
+#include "modules/ipfix/IpfixRecord.hpp"
 #include "modules/ipfix/IpfixRecordDestination.h"
+#include "modules/ipfix/IpfixPrinter.hpp"
 
 /**
  * IPFIX Intrusion Detection System Module
- * 
+ *
  * This module takes as input ipfix flows and signature files and checks the flows against the signatures. If a signature matches an alert is written to the given alertfile.
  */
-class IpfixIds : public Module, public IpfixRecordDestination, public Source<NullEmitable*>
+class IpfixIds : public Module, public IpfixRecordDestination, public Source<IpfixRecord*>
 {
 	public:
-		IpfixIds(string alertfile = "");
+		IpfixIds(string alertFileString = "");
 		~IpfixIds();
 
 		virtual void onDataRecord(IpfixDataRecord* record);
@@ -42,10 +45,11 @@ class IpfixIds : public Module, public IpfixRecordDestination, public Source<Nul
 
 	protected:
 		void* lastTemplate;
-		FILE* fh;
+		FILE* alertFile;
 
 	private:
-		string alertfile;
+		string alertFileString;
+		void printPayload(InformationElement::IeInfo type, IpfixRecord::Data* data, bool showOmittedZeroBytes,FILE* file);
 
 };
 

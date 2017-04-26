@@ -5,8 +5,7 @@
 	</sensorManager>
 	<observer id="1">
 		<!--<interface>eth0</interface>-->
-		<filename>/home/felix/Daten/arbeit/dumps/http/fxProxy.dump</filename>
-		<!--filename>/home/felix/Daten/arbeit/dumps/pipelining/http.pcap</filename-->
+		<filename>/home/felix/Daten/arbeit/dumps/http/pipelining/apt-pipelining.dump</filename>
 		<pcap_filter>ip and tcp</pcap_filter>
 		<instances>10000</instances>
 		<offlineAutoExit>1</offlineAutoExit>
@@ -146,22 +145,12 @@
 	
 	<ipfixIds id="5">
 		<alertfile>alert.txt</alertfile>
+		<next>6</next>
 	</ipfixIds> 
 
-	<!--
-	<ipfixExporter id="5">
-		<collector>
-			<ipAddress>127.0.0.1</ipAddress>
-			<transportProtocol>132</transportProtocol>
-			<port>1500</port>
-		</collector>
-	</ipfixExporter>
-	
-		 ipfixFileWriter id="5">
-		<observationDomainId>99</observationDomainId>
-		<maximumFilesize>1024000</maximumFilesize>
-		<destinationPath>.</destinationPath>
-		<filenamePrefix>ipfixdump</filenamePrefix>
-	</ipfixFileWriter
-	-->
+        <ipfixPrinter id="6">
+                <!-- <outputType>table</outputType> -->
+                <outputType>tree</outputType>
+                <filename>flows.dat</filename>
+        </ipfixPrinter>
 </ipfixConfig>

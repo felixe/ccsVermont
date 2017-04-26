@@ -6,12 +6,12 @@
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
  * of the License, or (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
@@ -21,9 +21,11 @@
 #include "IpfixIdsCfg.h"
 
 IpfixIdsCfg::IpfixIdsCfg(XMLElement* elem)
-	: CfgHelper<IpfixIds, IpfixIdsCfg>(elem, "ipfixIds"),
-	  alertfile("")
+	: CfgHelper<IpfixIds, IpfixIdsCfg>(elem, "ipfixIds")
 {
+    //preset variables with known content
+    alertFileString="NULL";
+
 	if (!elem)
 		return;
 
@@ -33,9 +35,12 @@ IpfixIdsCfg::IpfixIdsCfg(XMLElement* elem)
 		XMLElement* e = *it;
 
 		if (e->matches("alertfile")) {
-			alertfile = e->getFirstText();
+			alertFileString = e->getFirstText();
+        } else if (e->matches("next")) { // ignore next
+            continue;
 		} else {
 			msg(MSG_FATAL, "Unknown IpfixIds config statement %s\n", e->getName().c_str());
+			THROWEXCEPTION("Unkown IpfixIds %s. Only 'alertfile' and 'next' allowed.\n", e->getName().c_str());
 			continue;
 		}
 	}
@@ -52,7 +57,7 @@ IpfixIdsCfg* IpfixIdsCfg::create(XMLElement* e)
 
 IpfixIds* IpfixIdsCfg::createInstance()
 {
-	instance = new IpfixIds(alertfile);
+	instance = new IpfixIds(alertFileString);
 	return instance;
 }
 
