@@ -27,6 +27,7 @@
 #include "modules/ipfix/IpfixRecord.hpp"
 #include "modules/ipfix/IpfixRecordDestination.h"
 #include "modules/ipfix/IpfixPrinter.hpp"
+#include "common/SnortRuleParser.h"
 
 /**
  * IPFIX Intrusion Detection System Module
@@ -36,7 +37,7 @@
 class IpfixIds : public Module, public IpfixRecordDestination, public Source<IpfixRecord*>
 {
 	public:
-		IpfixIds(string alertFileString = "");
+		IpfixIds(string alertFileString,string rulesFileString, bool printParsedRules);
 		~IpfixIds();
 
 		virtual void onDataRecord(IpfixDataRecord* record);
@@ -46,9 +47,12 @@ class IpfixIds : public Module, public IpfixRecordDestination, public Source<Ipf
 	protected:
 		void* lastTemplate;
 		FILE* alertFile;
+        std::vector<SnortRuleParser::snortRule> rules;
 
 	private:
 		string alertFileString;
+		string rulesFileString;
+		bool printParsedRules;
 		void printPayload(InformationElement::IeInfo type, IpfixRecord::Data* data, bool showOmittedZeroBytes,FILE* file);
 
 };

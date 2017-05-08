@@ -145,6 +145,8 @@
 	
 	<ipfixIds id="5">
 		<alertfile>alert.txt</alertfile>
+		<rulesfile>/home/felix/git/snortRuleParser/100rules.txt</rulesfile>
+		<printparsedrules>0</printparsedrules>
 		<next>6</next>
 	</ipfixIds> 
 

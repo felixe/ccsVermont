@@ -34,6 +34,8 @@ ADD_LIBRARY(common
 	hmacsha1/sha1_hmac.cpp
 	openssl/OpenSSL.cpp
 	openssl/SSLCTXWrapper.cpp
+	SnortRuleParser.h
+	SnortRuleParser.cpp
 )
 
 SUBDIRS(

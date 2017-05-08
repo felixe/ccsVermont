@@ -25,6 +25,8 @@ IpfixIdsCfg::IpfixIdsCfg(XMLElement* elem)
 {
     //preset variables with known content
     alertFileString="NULL";
+    rulesFileString="NULL";
+    printParsedRules=false;
 
 	if (!elem)
 		return;
@@ -36,11 +38,17 @@ IpfixIdsCfg::IpfixIdsCfg(XMLElement* elem)
 
 		if (e->matches("alertfile")) {
 			alertFileString = e->getFirstText();
+        }else if (e->matches("rulesfile")) {
+			rulesFileString = e->getFirstText();
+        }else if (e->matches("printparsedrules")) {
+			if(e->getFirstText()=="1\0"){
+                printParsedRules=true;
+            }
         } else if (e->matches("next")) { // ignore next
             continue;
 		} else {
 			msg(MSG_FATAL, "Unknown IpfixIds config statement %s\n", e->getName().c_str());
-			THROWEXCEPTION("Unkown IpfixIds %s. Only 'alertfile' and 'next' allowed.\n", e->getName().c_str());
+			THROWEXCEPTION("Unkown IpfixIds %s. Only 'alertfile', 'rulesfile', 'printparsedrules' and 'next' allowed.\n", e->getName().c_str());
 			continue;
 		}
 	}
@@ -57,7 +65,7 @@ IpfixIdsCfg* IpfixIdsCfg::create(XMLElement* e)
 
 IpfixIds* IpfixIdsCfg::createInstance()
 {
-	instance = new IpfixIds(alertFileString);
+	instance = new IpfixIds(alertFileString,rulesFileString,printParsedRules);
 	return instance;
 }
 

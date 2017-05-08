@@ -43,7 +43,8 @@ protected:
 
 private:
 	string alertFileString;
-
+	string rulesFileString;
+	bool printParsedRules;
 };
 
 #endif /*IPFIXIDSCFG_H*/

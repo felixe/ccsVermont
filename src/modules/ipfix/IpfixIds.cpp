@@ -33,12 +33,16 @@
  * Do not forget to call @c startIpfixIds() to begin printing
  * @return handle to use when calling @c destroyIpfixIds()
  */
-IpfixIds::IpfixIds(string alertFileString)
+IpfixIds::IpfixIds(string alertFileString, string rulesFileString, bool printParsedRules)
 {
 
     lastTemplate = 0;
 	string file = "";
 	alertFile = stdout;
+	string line;
+	FILE* rulesFile;
+
+    SnortRuleParser ruleParser;
 
 	//open alertfile for writing
 	if (alertFileString == "NULL") {
@@ -49,9 +53,47 @@ IpfixIds::IpfixIds(string alertFileString)
 			THROWEXCEPTION("IpfixIds: error opening alertfile '%s': %s (%u)", alertFileString.c_str(), strerror(errno), errno);
 	}
 
+	if (rulesFileString == "NULL") {
+        THROWEXCEPTION("IpfixIds: no rulesfile given, aborting!");
+	}else{
+        rulesFile = fopen(rulesFileString.c_str(), "r");
+		if (!rulesFile){
+			THROWEXCEPTION("IpfixIds: error opening rulesfile '%s': %s (%u)", rulesFileString.c_str(), strerror(errno), errno);
+        }else{
+            //just checkin' rule is opened again in the parser
+            int ret = fclose(rulesFile);
+            if (ret){
+                THROWEXCEPTION("IpfixIds: error closing rulesfile '%s': %s (%u). This should not happen!!!", rulesFileString.c_str(), strerror(errno), errno);
+            }
+        }
+	}
     //be nice and tell people what the configuration is
     msg(MSG_INFO, "IpfixIds started with following parameters:");
     msg(MSG_INFO, "  - Alertfile = %s", alertFileString.c_str());
+    msg(MSG_INFO, "  - Rulesfile = %s", rulesFileString.c_str());
+    msg(MSG_INFO, "IpfixIds: starting to parse rulesfile");
+    rules=ruleParser.parseMe(rulesFileString.c_str());
+    if(rules.size()>0){
+        msg(MSG_INFO, "IpfixIds: %d rules parsed succesfully",rules.size());
+    }else{
+        THROWEXCEPTION("0 rules parsed from rulesfile %s. Does this file contain properly formattet Snort rules?",rulesFileString.c_str());
+    }
+
+    //do basic plausability test, if this fails than there is a bug in the parser
+    for(unsigned long i=0;i<rules.size();i++){
+            ruleParser.compareVectorSizes(&rules[i]);
+    }
+
+    if(printParsedRules){
+        fprintf(stdout,"------------------------------------------------------\n");
+        fprintf(stdout,"The following rules have been parsed from rulesfile %s\n", rulesFileString.c_str());
+        fprintf(stdout,"------------------------------------------------------\n");
+        for(unsigned long i=0;i<rules.size();i++){
+            ruleParser.printSnortRule(&rules[i]);
+        }
+        fprintf(stdout,"------------------------------------------------------\n");
+    }
+
 }
 
 /**
@@ -77,10 +119,10 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
         InformationElement::IeInfo hostRecordType;
         InformationElement::IeInfo uriRecordType;
         if(record->templateInfo->setId == TemplateInfo::IpfixOptionsTemplate) {
-            THROWEXCEPTION("IpfixOptionsTemplate arrived, implement something to ignore  it, and hand over");
+            THROWEXCEPTION("IpfixOptionsTemplate arrived, implement something to ignore it, and hand over");
         }
         if(record->templateInfo->setId == TemplateInfo::IpfixDataTemplate) {
-            THROWEXCEPTION("IpfixDataTemplate arrived, implement something to ignore  it, and hand over");
+            THROWEXCEPTION("IpfixDataTemplate arrived, implement something to ignore it, and hand over");
         }
 
 	    //go through ipfix record IE fields
