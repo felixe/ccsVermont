@@ -5,7 +5,7 @@
 	</sensorManager>
 	<observer id="1">
 		<!--<interface>eth0</interface>-->
-		<filename>/home/felix/Daten/arbeit/dumps/http/pipelining/apt-pipelining.dump</filename>
+		<filename>/home/felix/Daten/arbeit/dumps/http/fxProxy.dump</filename>
 		<pcap_filter>ip and tcp</pcap_filter>
 		<instances>10000</instances>
 		<offlineAutoExit>1</offlineAutoExit>
@@ -145,7 +145,7 @@
 	
 	<ipfixIds id="5">
 		<alertfile>alert.txt</alertfile>
-		<rulesfile>/home/felix/git/snortRuleParser/100rules.txt</rulesfile>
+		<rulesfile>/home/felix/flowIDStests/snortRules/httpMethStatUriRules</rulesfile>
 		<printparsedrules>0</printparsedrules>
 		<next>6</next>
 	</ipfixIds> 

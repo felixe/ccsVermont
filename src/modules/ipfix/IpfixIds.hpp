@@ -52,8 +52,17 @@ class IpfixIds : public Module, public IpfixRecordDestination, public Source<Ipf
 	private:
 		string alertFileString;
 		string rulesFileString;
+		PrintHelpers printer;
 		bool printParsedRules;
+		void printTimeSeconds(IpfixRecord::Data* startData);
 		void printPayload(InformationElement::IeInfo type, IpfixRecord::Data* data, bool showOmittedZeroBytes,FILE* file);
+		void printIPv4(InformationElement::IeInfo type, IpfixRecord::Data* data,FILE* file);
+		void writeAlert(string* sid, string* msg, IpfixRecord::Data* srcIPData, InformationElement::IeInfo srcIPType,
+                        IpfixRecord::Data* dstIPData,InformationElement::IeInfo dstIPType,
+                        IpfixRecord::Data* srcPortData, InformationElement::IeInfo srcPortType,
+                        IpfixRecord::Data* dstPortData,InformationElement::IeInfo dstPortType,
+						IpfixRecord::Data* startData,InformationElement::IeInfo startType
+		);
 
 };
 

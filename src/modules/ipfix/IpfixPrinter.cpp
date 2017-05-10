@@ -36,6 +36,9 @@ void PrintHelpers::printIPv4(uint32_t data) {
 	fprintf(fh, "%s", IPToString(data).c_str());
 }
 
+void PrintHelpers::changeFile(FILE* file){
+    fh=file;
+}
 
 void PrintHelpers::printIPv4(InformationElement::IeInfo type, IpfixRecord::Data* data) {
 	int octet1 = 0;
@@ -239,7 +242,7 @@ void PrintHelpers::printFieldData(InformationElement::IeInfo type, IpfixRecord::
 	switch (type.enterprise) {
 		case 0:
 			switch (type.id) {
-				
+
                 		case IPFIX_TYPEID_httpRequestTarget:
 				case IPFIX_TYPEID_httpRequestMethod:
 				case IPFIX_TYPEID_httpRequestHost:
