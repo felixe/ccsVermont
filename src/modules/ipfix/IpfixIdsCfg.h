@@ -44,6 +44,7 @@ protected:
 private:
 	string alertFileString;
 	string rulesFileString;
+	string httpPorts;
 	bool printParsedRules;
 };
 

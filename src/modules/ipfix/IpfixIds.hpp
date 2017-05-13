@@ -22,12 +22,12 @@
 #define IPFIXIDS_H
 
 
+#include "../../common/SnortRuleParser.h"
 #include "core/Module.h"
 #include "core/Source.h"
 #include "modules/ipfix/IpfixRecord.hpp"
 #include "modules/ipfix/IpfixRecordDestination.h"
 #include "modules/ipfix/IpfixPrinter.hpp"
-#include "common/SnortRuleParser.h"
 
 /**
  * IPFIX Intrusion Detection System Module
@@ -37,7 +37,7 @@
 class IpfixIds : public Module, public IpfixRecordDestination, public Source<IpfixRecord*>
 {
 	public:
-		IpfixIds(string alertFileString,string rulesFileString, bool printParsedRules);
+		IpfixIds(string alertFS,string rulesFSg, string httpP,bool printParsedRules);
 		~IpfixIds();
 
 		virtual void onDataRecord(IpfixDataRecord* record);
@@ -47,13 +47,14 @@ class IpfixIds : public Module, public IpfixRecordDestination, public Source<Ipf
 	protected:
 		void* lastTemplate;
 		FILE* alertFile;
+		FILE* rulesFile;
+		std::vector<long int> httpPorts;
         std::vector<SnortRuleParser::snortRule> rules;
+		bool printParsedRules;
 
 	private:
-		string alertFileString;
-		string rulesFileString;
 		PrintHelpers printer;
-		bool printParsedRules;
+		void parsePorts(string* ports);
 		void printTimeSeconds(IpfixRecord::Data* startData);
 		void printPayload(InformationElement::IeInfo type, IpfixRecord::Data* data, bool showOmittedZeroBytes,FILE* file);
 		void printIPv4(InformationElement::IeInfo type, IpfixRecord::Data* data,FILE* file);

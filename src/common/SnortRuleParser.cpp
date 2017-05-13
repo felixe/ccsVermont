@@ -15,6 +15,11 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  *
+ *
+ * Reads Snort rules and puts interesting field in a struct for further usage.
+ * This is rather a READER than a parser, as it assumes a basic structure of rules and does not
+ * do in-depth checks of structure.
+ *
  */
 
 #include "SnortRuleParser.h"
@@ -46,10 +51,11 @@ void SnortRuleParser::compareVectorSizes(SnortRuleParser::snortRule* rule){
     ||rule->body.content.size()!=rule->body.contentModifierHTTP.size()
     ||rule->body.content.size()!=rule->body.contentNocase.size()
     ||rule->body.negatedPcre.size()!=rule->body.pcre.size()){
+    	//fprintf(stderr,"content: %lu, contentOriginal: %lu, negatedContent: %lu, containsHex: %lu, ContentModifierHttp: %lu, contentNocase %d\n",
+        //	rule->body.content.size(),rule->body.contentOriginal.size(),rule->body.negatedContent.size(),rule->body.containsHex.size(),rule->body.contentModifierHTTP.size(),
+		//  rule->body.contentNocase.size());
         THROWEXCEPTION("SnortRuleParser: There was an error in rule parsing, parsed content vectors do not match in size. This should not have happened. Aborting!");
-        //fprintf(stderr,"content: %lu, contentOriginal: %lu, negatedContent: %lu, containsHex: %lu, ContentModifierHttp: %lu",
-        //rule->body.content.size(),rule->body.contentOriginal.size(),rule->body.negatedContent.size(),rule->body.containsHex.size(),rule->body.contentModifierHTTP.size());
-    }
+            }
 }
 
 /**
@@ -60,8 +66,19 @@ void SnortRuleParser::printSnortRule(SnortRuleParser::snortRule* rule){
     //plausability checks:
     compareVectorSizes(rule);
 
+    fprintf(stdout,"Action:\t\t\t\t%s\n",rule->header.action.c_str());
+    fprintf(stdout,"Protocol:\t\t\t%s\n",rule->header.protocol.c_str());
+    fprintf(stdout,"From:\t\t\t\t%s\n",rule->header.from.c_str());
+    fprintf(stdout,"FromPort:\t\t\t%s\n",rule->header.fromPort.c_str());
+    fprintf(stdout,"To:\t\t\t\t%s\n",rule->header.to.c_str());
+    fprintf(stdout,"ToPort:\t\t\t\t%s\n",rule->header.toPort.c_str());
+    if(rule->header.bidirectional){
+    	fprintf(stdout,"Direction:\t\t\t<>\n");
+    }else{
+    	fprintf(stdout,"Direction:\t\t\t->\n");
+    }
+
     fprintf(stdout,"Message:\t\t\t%s\n",rule->body.msg.c_str());
-    fprintf(stdout,"Header:\t\t\t\t%s\n",rule->header.c_str());
 
     //loop through content related vectors
     for(unsigned long i=0;i<rule->body.content.size();i++){
@@ -90,8 +107,8 @@ void SnortRuleParser::printSnortRule(SnortRuleParser::snortRule* rule){
         fprintf(stdout,"pcre:\t\t\t\t%s\n",rule->body.pcre[j].c_str());
     }
 
-    fprintf(stdout,"sid:\t\t\t\t%s\n",rule->body.sid.c_str());
-    fprintf(stdout,"sid rev:\t\t\t%s\n",rule->body.rev.c_str());
+    fprintf(stdout,"Sid:\t\t\t\t%s\n",rule->body.sid.c_str());
+    fprintf(stdout,"Sid rev:\t\t\t%s\n",rule->body.rev.c_str());
     fprintf(stdout,"\n");
 }
 
@@ -181,11 +198,56 @@ void parseMsg(std::string* line, int* linecounter, SnortRuleParser::snortRule* t
 *parses the rule header from given line and writes it to given SnortRuleParser::snortRule class
 */
 void parseHeader(std::string* line, int* linecounter, SnortRuleParser::snortRule* tempRule){
-    std::size_t bodyStartPosition=line->find("(");
-    if(bodyStartPosition==std::string::npos){
+    std::string headerString;
+    std::string from;
+    std::string to;
+    std::size_t start;
+    std::size_t end;
+
+    start=line->find("(");
+    if(start==std::string::npos){
         parsingError(*linecounter, "header");
     }
-    tempRule->header=line->substr(0,bodyStartPosition);
+    headerString=line->substr(0,start);
+    end=headerString.find(" ");
+    tempRule->header.action=headerString.substr(0,end);
+    headerString.erase(0,end+1);
+
+    //TODO: skip rule if it does not apply to tcp
+    end=headerString.find(" ");
+    tempRule->header.protocol=headerString.substr(0,end);
+    headerString.erase(0,end+1);
+
+    end=headerString.find("<>");
+    if(end==std::string::npos){
+    	end=headerString.find("->");
+    	if(end==std::string::npos){
+    		parsingError(*linecounter,"header direction sign");
+    	}
+    	tempRule->header.bidirectional=false;
+    }else{
+    	tempRule->header.bidirectional=true;
+    }
+
+
+	from=headerString.substr(0,end-1);
+	to=headerString.substr(end+3,headerString.size());
+
+	end=from.find(" ");
+	if(end==std::string::npos){
+		parsingError(*linecounter,"no space between from address and port");
+	}
+	tempRule->header.from=from.substr(0,end);
+	tempRule->header.fromPort=from.substr(end+1,from.size());
+
+	end=to.find(" ");
+	if(end==std::string::npos){
+		parsingError(*linecounter,"no space between to address and port");
+	}
+	tempRule->header.to=to.substr(0,end);
+	tempRule->header.toPort=to.substr(end+1,from.size());
+
+
 }
 
 /**
@@ -241,7 +303,7 @@ void parseContent(std::string* line, int* linecounter, SnortRuleParser::snortRul
         //check if it contains hex
         hexStartPosition=contentOrig.find("|");
 
-        //is checked again below, but necessery here too
+        //is checked again below, but necessary here too
         if(hexStartPosition!=std::string::npos||contentOrig.find("|",hexStartPosition+1)!=std::string::npos){
             tempRule->body.containsHex.push_back(1);
             //if it contains hex than add hexfree content before hex content to contentHexFree
@@ -348,6 +410,9 @@ void parseContentModifier(std::string* line, int* linecounter, SnortRuleParser::
             tempRule->body.contentNocase.push_back(false);
         }else{
             tempRule->body.contentNocase.push_back(true);
+            //if yes, than also transform the corresponding content to lowercase, for case insensitive comparison, so we dont have to do that during "flow check runtime"
+//            std::transform(tempRule->body.content[tempRule->body.contentNocase.size()-1].begin(),
+//            tempRule->body.content[tempRule->body.contentNocase.size()-1].end(),	tempRule->body.content[tempRule->body.contentNocase.size()-1].begin(), ::tolower);
         }
 
         //find http content modifier:

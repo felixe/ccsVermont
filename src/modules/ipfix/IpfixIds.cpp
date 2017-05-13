@@ -17,7 +17,6 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  *
  */
-
 #include "IpfixIds.hpp"
 #include "common/Time.h"
 #include "common/Misc.h"
@@ -30,57 +29,73 @@
 
 int alertCounter;
 
+
+
 /**
  * Creates a new IpfixIds.
  * Do not forget to call @c startIpfixIds() to begin printing
  * @return handle to use when calling @c destroyIpfixIds()
  */
-IpfixIds::IpfixIds(string alertFileString, string rulesFileString, bool printParsedRules)
+IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParsedRules)
 {
 	alertCounter=0;
     lastTemplate = 0;
 	string file = "";
 	alertFile = stdout;
 	string line;
-	FILE* rulesFile;
 
     SnortRuleParser ruleParser;
 
 	//open alertfile for writing
-	if (alertFileString == "NULL") {
+	if (alertFS == "NULL") {
         THROWEXCEPTION("IpfixIds: no alertfile given, aborting!");
 	}else{
-		alertFile = fopen(alertFileString.c_str(), "w");
+		alertFile = fopen(alertFS.c_str(), "w");
 		//also tell the printhelper to use alertfile to print and not stdout
 		printer.changeFile(alertFile);
 		if (!alertFile)
-			THROWEXCEPTION("IpfixIds: error opening alertfile '%s': %s (%u)", alertFileString.c_str(), strerror(errno), errno);
+			THROWEXCEPTION("IpfixIds: error opening alertfile '%s': %s (%u)", alertFS.c_str(), strerror(errno), errno);
 	}
 
-	if (rulesFileString == "NULL") {
+	if (rulesFS == "NULL") {
         THROWEXCEPTION("IpfixIds: no rulesfile given, aborting!");
 	}else{
-        rulesFile = fopen(rulesFileString.c_str(), "r");
+        rulesFile = fopen(rulesFS.c_str(), "r");
 		if (!rulesFile){
-			THROWEXCEPTION("IpfixIds: error opening rulesfile '%s': %s (%u)", rulesFileString.c_str(), strerror(errno), errno);
+			THROWEXCEPTION("IpfixIds: error opening rulesfile '%s': %s (%u)", rulesFS.c_str(), strerror(errno), errno);
         }else{
             //just checkin' rule is opened again in the parser
             int ret = fclose(rulesFile);
             if (ret){
-                THROWEXCEPTION("IpfixIds: error closing rulesfile '%s': %s (%u). This should not happen!!!", rulesFileString.c_str(), strerror(errno), errno);
+                THROWEXCEPTION("IpfixIds: error closing rulesfile '%s': %s (%u). This should not happen!!!", rulesFS.c_str(), strerror(errno), errno);
             }
         }
 	}
+
+	//check httpPorts
+	if (httpP == "NULL") {
+        THROWEXCEPTION("IpfixIds: No httpPorts given, aborting!");
+	}else{
+		if(httpP==""){
+			msg(MSG_INFO, "No http ports given, ignoring $HTTP_PORTS directive in rules");
+		}else{
+			//reserve 100, shouldnt be more normally
+			httpPorts.reserve(100);
+			parsePorts(&httpP);
+		}
+	}
+
     //be nice and tell people what the configuration is
     msg(MSG_INFO, "IpfixIds started with following parameters:");
-    msg(MSG_INFO, "  - Alertfile = %s", alertFileString.c_str());
-    msg(MSG_INFO, "  - Rulesfile = %s", rulesFileString.c_str());
+    msg(MSG_INFO, "  - Alertfile = %s", alertFS.c_str());
+    msg(MSG_INFO, "  - Rulesfile = %s", rulesFS.c_str());
+    msg(MSG_INFO, "  - HTTP Ports:");
     msg(MSG_INFO, "IpfixIds: starting to parse rulesfile");
-    rules=ruleParser.parseMe(rulesFileString.c_str());
+    rules=ruleParser.parseMe(rulesFS.c_str());
     if(rules.size()>0){
-        msg(MSG_DIALOG, "IpfixIds: %d rules parsed succesfully",rules.size());
+        msg(MSG_DIALOG, "IpfixIds: %d rules parsed successfully",rules.size());
     }else{
-        THROWEXCEPTION("0 rules parsed from rulesfile %s. Does this file contain properly formattet Snort rules?",rulesFileString.c_str());
+        THROWEXCEPTION("0 rules parsed from rulesfile %s. Does this file contain properly formatted Snort rules?",rulesFS.c_str());
     }
 
     //do basic plausability test, if this fails than there is a bug in the parser
@@ -90,7 +105,7 @@ IpfixIds::IpfixIds(string alertFileString, string rulesFileString, bool printPar
 
     if(printParsedRules){
         fprintf(stdout,"------------------------------------------------------\n");
-        fprintf(stdout,"The following rules have been parsed from rulesfile %s\n", rulesFileString.c_str());
+        fprintf(stdout,"The following rules have been parsed from rulesfile %s\n", rulesFS.c_str());
         fprintf(stdout,"------------------------------------------------------\n");
         for(unsigned long i=0;i<rules.size();i++){
             ruleParser.printSnortRule(&rules[i]);
@@ -109,7 +124,7 @@ IpfixIds::~IpfixIds()
 	//close alertfile before shutdown
     int ret = fclose(alertFile);
 	if (ret){
-		THROWEXCEPTION("IpfixIds: error closing file '%s': %s (%u)", alertFileString.c_str(), strerror(errno), errno);
+		THROWEXCEPTION("IpfixIds: error closing alert file '%s': %s (%u)", strerror(errno), errno);
     }
 }
 
@@ -120,40 +135,30 @@ IpfixIds::~IpfixIds()
 void IpfixIds::onDataRecord(IpfixDataRecord* record)
 {
 
-    unsigned long i;
-    unsigned long j;
-    unsigned long k;
-    bool writeAlertBool;
-    string methodString;
-    string uriString;
-    string statusMsgString;
-    string statusCodeString;
+	unsigned long j;
+	unsigned long k;
+	unsigned long l;
+	bool writeAlertBool;
+	string methodString;
+	string uriString;
+	string statusMsgString;
+	string statusCodeString;
 
-
-    //TODO is it more efficient if we leave the data pointer away and convert to string directly?
-    IpfixRecord::Data* uriData;
-    IpfixRecord::Data* hostData;
-    IpfixRecord::Data* methodData;
-    IpfixRecord::Data* statusMsgData;
-    IpfixRecord::Data* statusCodeData;
-    IpfixRecord::Data* sourceIPData;
-    IpfixRecord::Data* destinationIPData;
-    IpfixRecord::Data* sourcePortData;
-    IpfixRecord::Data* destinationPortData;
-    IpfixRecord::Data* startData;
-
-
-    InformationElement::IeInfo uriType;
-    InformationElement::IeInfo hostType;
-    InformationElement::IeInfo methodType;
-    InformationElement::IeInfo statusMsgType;
-    InformationElement::IeInfo statusCodeType;
-    InformationElement::IeInfo sourceIPType;
-    InformationElement::IeInfo destinationIPType;
-    InformationElement::IeInfo sourcePortType;
-    InformationElement::IeInfo destinationPortType;
-    InformationElement::IeInfo startType;
-
+	IpfixRecord::Data* sourceIPData;
+	IpfixRecord::Data* destinationIPData;
+	IpfixRecord::Data* sourcePortData;
+	IpfixRecord::Data* destinationPortData;
+	IpfixRecord::Data* startData;
+	InformationElement::IeInfo uriType;
+	InformationElement::IeInfo hostType;
+	InformationElement::IeInfo methodType;
+	InformationElement::IeInfo statusMsgType;
+	InformationElement::IeInfo statusCodeType;
+	InformationElement::IeInfo sourceIPType;
+	InformationElement::IeInfo destinationIPType;
+	InformationElement::IeInfo sourcePortType;
+	InformationElement::IeInfo destinationPortType;
+	InformationElement::IeInfo startType;
 
     if(record->templateInfo->setId == TemplateInfo::IpfixOptionsTemplate) {
         THROWEXCEPTION("IpfixOptionsTemplate arrived, implement something to ignore it, and hand over");
@@ -165,24 +170,20 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
     //go through ipfix record IE fields and save pointers to interesting fields
     for (uint32_t i = 0; i < record->templateInfo->fieldCount; i++) {
         if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_httpRequestMethod, 0)) {
-			 methodData = (record->data + record->templateInfo->fieldInfo[i].offset);
-			 methodString= std::string((const char*)methodData);
+			 methodString= std::string((const char*)(record->data + record->templateInfo->fieldInfo[i].offset));
 			 methodType=record->templateInfo->fieldInfo[i].type;
         }
         if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_httpRequestTarget, 0)) {
-			uriData = (record->data + record->templateInfo->fieldInfo[i].offset);
-			uriString = std::string((const char*)uriData);
+			uriString = std::string((const char*)(record->data + record->templateInfo->fieldInfo[i].offset));
 			uriType=record->templateInfo->fieldInfo[i].type;
         }
         if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_httpStatusCode, 0)) {
-			statusCodeData = (record->data + record->templateInfo->fieldInfo[i].offset);
-			statusCodeString = std::string((const char*)statusCodeData);
+			statusCodeString = std::string((const char*)(record->data + record->templateInfo->fieldInfo[i].offset));
 			statusCodeType=record->templateInfo->fieldInfo[i].type;
         }
         //TODO convert also this type to IANA registered type
         if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_ETYPEID_httpStatusPhrase, 0)) {
-        	statusMsgData = (record->data + record->templateInfo->fieldInfo[i].offset);
-            statusMsgString = std::string((const char*)statusMsgData);
+            statusMsgString = std::string((const char*)record->data + record->templateInfo->fieldInfo[i].offset);
             statusMsgType=record->templateInfo->fieldInfo[i].type;
         }
 //        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_httpRequestHost, 0)) {
@@ -212,36 +213,60 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 			startType=record->templateInfo->fieldInfo[i].type;
         }
     }
-
     //check against rules:
-    //TODO: consider nocase keyword
-    for(i=0;i<rules.size();i++){
-    	bool contentMatched[rules[i].body.content.size()]={0};
+    //TODO: implement header address, - port direction checks
+    //TODO: implement NOT content checks
+    for(l=0;l<rules.size();l++){
+    	bool contentMatched[rules[l].body.content.size()]={0};
     	//contentModifier vector MUST have same size than content vector
-        for(j=0;j<rules[i].body.contentModifierHTTP.size();j++){
-            if(rules[i].body.contentModifierHTTP[j]=="http_method"){
-                if(methodString.find(rules[i].body.content[j])!=string::npos){
-                	contentMatched[j]=true;
-                }
-            }else if (rules[i].body.contentModifierHTTP[j]=="http_uri"||rules[i].body.contentModifierHTTP[j]=="http_raw_uri"){
-            	if(uriString.find(rules[i].body.content[j])!=string::npos){
-            		contentMatched[j]=true;
-            	}
-            }else if (rules[i].body.contentModifierHTTP[j]=="http_stat_msg"){
-            	if(statusMsgString.find(rules[i].body.content[j])!=string::npos){
-            		contentMatched[j]=true;
-            	}
-            }else if (rules[i].body.contentModifierHTTP[j]=="http_stat_code"){
-            	if(statusCodeString.find(rules[i].body.content[j])!=string::npos){
-            		contentMatched[j]=true;
-            	}
-            }else{
-                THROWEXCEPTION("Unknown or unexpected contentModifierHttp (or not yet implemented)");
-            }
+        for(j=0;j<rules[l].body.content.size();j++){
+        	//if nocase, convert ipfix content to lowercase, the pattern to compare to has eventually already been converted to lowercase during rule parsing
+        	//TODO: case insensitive search is a performance bottleneck!! improve!!
+        	if(rules[l].body.contentNocase[j]){
+        		if(rules[l].body.contentModifierHTTP[j]=="http_method"){
+					if(strcasestr(methodString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+						contentMatched[j]=true;
+					}
+				}else if (rules[l].body.contentModifierHTTP[j]=="http_uri"||rules[l].body.contentModifierHTTP[j]=="http_raw_uri"){
+					if(strcasestr(uriString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+						contentMatched[j]=true;
+					}
+				}else if (rules[l].body.contentModifierHTTP[j]=="http_stat_msg"){
+					if(strcasestr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+						contentMatched[j]=true;
+					}
+				}else if (rules[l].body.contentModifierHTTP[j]=="http_stat_code"){
+					if(strcasestr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+						contentMatched[j]=true;
+					}
+				}else{
+					THROWEXCEPTION("Unknown or unexpected contentModifierHttp (or not yet implemented)");
+				}
+        	}else{
+				if(rules[l].body.contentModifierHTTP[j]=="http_method"){
+					if(std::strstr(methodString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+						contentMatched[j]=true;
+					}
+				}else if (rules[l].body.contentModifierHTTP[j]=="http_uri"||rules[l].body.contentModifierHTTP[j]=="http_raw_uri"){
+					if(strstr(uriString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+						contentMatched[j]=true;
+					}
+				}else if (rules[l].body.contentModifierHTTP[j]=="http_stat_msg"){
+					if(strstr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+						contentMatched[j]=true;
+					}
+				}else if (rules[l].body.contentModifierHTTP[j]=="http_stat_code"){
+					if(strstr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+						contentMatched[j]=true;
+					}
+				}else{
+					THROWEXCEPTION("Unknown or unexpected contentModifierHttp (or not yet implemented)");
+				}
+        	}
         }
         //if all contents match for this rule, write alert
         writeAlertBool=true;
-        for(k=0;k<rules[i].body.content.size();k++){
+        for(k=0;k<rules[l].body.content.size();k++){
         	if(contentMatched[k]==false){
         		writeAlertBool=false;
         		break;
@@ -249,7 +274,7 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
         }
         if(writeAlertBool){
         	alertCounter++;
-            writeAlert(&rules[i].body.sid, &rules[i].body.msg,sourceIPData,sourceIPType,
+            writeAlert(&rules[l].body.sid, &rules[l].body.msg,sourceIPData,sourceIPType,
              destinationIPData,destinationIPType,
              sourcePortData,sourcePortType,
 			 destinationPortData,destinationPortType,
@@ -258,10 +283,9 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
         }
     }//for loop through rules vector
 
-    //not hand over record but remove references to it
+    /*not hand over record but remove references to it*/
 	//record->removeReference();
-
-	//hand record to next module
+	/*hand record to next module*/
 	send(record);
 }
 
@@ -290,7 +314,6 @@ void IpfixIds::writeAlert(string* sid, string* msg, IpfixRecord::Data* srcIPData
 	printTimeSeconds(startData);
     fprintf(alertFile,"\n\n");
 
-
 }
 
 /**
@@ -307,6 +330,31 @@ void IpfixIds::printTimeSeconds(IpfixRecord::Data* startData){
 	} else {
 		fprintf(alertFile, "no value (only zeroes in field)");
 	}
+}
+
+/**
+ * expects a comma separated list of ints and puts tem in an array of ints
+ */
+void IpfixIds::parsePorts(string* httpPortsString){
+    std::size_t startPosition;
+    std::size_t endPosition;
+    long int port;
+    endPosition=httpPortsString->find(",");
+    while(endPosition!=std::string::npos){
+    	port=strtol(httpPortsString->substr(0,endPosition).c_str(),NULL,10);
+    	if(port==0L){
+    		THROWEXCEPTION("IpfixIds: http Port list is not a comma separated list of numbers: %s (%u)", strerror(errno), errno);
+    	}
+    	httpPorts.push_back(port);
+    	httpPortsString->erase(0,endPosition+1);
+    	endPosition=httpPortsString->find(",");
+    }
+    //if no colon is found there should only be one port (or none but this has already been excluded before)
+    port=strtol(httpPortsString->c_str(),NULL,10);
+		if(port==0L){
+			THROWEXCEPTION("IpfixIds: http Port list is not a comma separated list of numbers: %s (%u)", strerror(errno), errno);
+		}
+    httpPorts.push_back(port);
 }
 /**
 *called on reception of ipfix template

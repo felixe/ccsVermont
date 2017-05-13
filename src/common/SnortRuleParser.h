@@ -16,8 +16,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  *
  */
-//TODO
-//convert more than the first 128 ascii character (minus nonprintable chars)
+//TODO: convert more than the first 128 ascii character (minus nonprintable chars)
 
 #ifndef SNORTRULEPARSER_H_
 #define SNORTRULEPARSER_H_
@@ -29,6 +28,7 @@
     #include <stdint.h>
     #include <vector>
     #include "common/msg.h"
+	#include <algorithm>
 
 class SnortRuleParser
 {
@@ -51,10 +51,20 @@ public:
         std::string sid;
         std::string rev;
     };
+    class ruleHeader {
+    public:
+    	std::string action;
+		std::string protocol;
+		std::string from;
+		std::string fromPort;
+		bool bidirectional;
+		std::string to;
+		std::string toPort;
+    };
 
     class snortRule {
         public:
-        std::string header;
+    	SnortRuleParser::ruleHeader header;
         SnortRuleParser::ruleBody body;
     };
 

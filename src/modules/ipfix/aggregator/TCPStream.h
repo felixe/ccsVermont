@@ -129,8 +129,8 @@ public:
     bool sequenceGaps;      /**< set to true if a gap was observed */
     bool outOfBufferSpace;  /**< set to true if a stream runs out of buffer space */
 
-    shared_ptr<bool> tcpForcedExpiry; /**< Force expiry in the PacketHashtable if a TCPStream object gets deleted. */
-    shared_ptr<uint32_t> tcpFlowAnnotations; /**< TCP related annotations to the IPFIX flow */
+    boost::shared_ptr<bool> tcpForcedExpiry; /**< Force expiry in the PacketHashtable if a TCPStream object gets deleted. */
+    boost::shared_ptr<uint32_t> tcpFlowAnnotations; /**< TCP related annotations to the IPFIX flow */
 
     bool isForward();
     bool isReverse();

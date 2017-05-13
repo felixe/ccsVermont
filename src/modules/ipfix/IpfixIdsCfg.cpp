@@ -27,6 +27,7 @@ IpfixIdsCfg::IpfixIdsCfg(XMLElement* elem)
     alertFileString="NULL";
     rulesFileString="NULL";
     printParsedRules=false;
+    httpPorts="NULL";
 
 	if (!elem)
 		return;
@@ -40,6 +41,8 @@ IpfixIdsCfg::IpfixIdsCfg(XMLElement* elem)
 			alertFileString = e->getFirstText();
         }else if (e->matches("rulesfile")) {
 			rulesFileString = e->getFirstText();
+        }else if (e->matches("httpports")) {
+        	httpPorts = e->getFirstText();
         }else if (e->matches("printparsedrules")) {
 			if(e->getFirstText()=="1\0"){
                 printParsedRules=true;
@@ -48,7 +51,7 @@ IpfixIdsCfg::IpfixIdsCfg(XMLElement* elem)
             continue;
 		} else {
 			msg(MSG_FATAL, "Unknown IpfixIds config statement %s\n", e->getName().c_str());
-			THROWEXCEPTION("Unkown IpfixIds %s. Only 'alertfile', 'rulesfile', 'printparsedrules' and 'next' allowed.\n", e->getName().c_str());
+			THROWEXCEPTION("Unkown IpfixIds %s. Only 'alertfile', 'rulesfile', 'httpPorts', 'printparsedrules' and 'next' allowed.\n", e->getName().c_str());
 			continue;
 		}
 	}
@@ -65,7 +68,7 @@ IpfixIdsCfg* IpfixIdsCfg::create(XMLElement* e)
 
 IpfixIds* IpfixIdsCfg::createInstance()
 {
-	instance = new IpfixIds(alertFileString,rulesFileString,printParsedRules);
+	instance = new IpfixIds(alertFileString,rulesFileString,httpPorts,printParsedRules);
 	return instance;
 }
 
