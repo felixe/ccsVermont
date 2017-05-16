@@ -89,7 +89,7 @@ void SnortRuleParser::printSnortRule(SnortRuleParser::snortRule* rule){
         if(rule->body.containsHex[i]==true){
             fprintf(stdout,"Content (hex converted):\t%s\n",rule->body.content[i].c_str());
         }else{
-            fprintf(stdout,"Content:\t\t\t%s\n",rule->body.content[i].c_str());
+            fprintf(stdout,"Content:\t\t\t\"%s\"\n",rule->body.content[i].c_str());
         }
         fprintf(stdout,"ContentModifierHttp:\t\t%s\n",rule->body.contentModifierHTTP[i].c_str());
         if(rule->body.contentNocase[i]==true){
@@ -366,7 +366,7 @@ void parseContent(std::string* line, int* linecounter, SnortRuleParser::snortRul
 
 /**
 * parses content modifiers from given line and writes it to given tempRule class in the corresponding vector
-* TODO: at the moment only nocase and http_content modifier are parsed
+* Only nocase and http_content modifier are supported. rawbytes, depth, offset, distance, within, fast_pattern are ignored by the parser.
 */
 void parseContentModifier(std::string* line, int* linecounter, SnortRuleParser::snortRule* tempRule){
     std::size_t startPosition;
@@ -442,6 +442,7 @@ void parseContentModifier(std::string* line, int* linecounter, SnortRuleParser::
 
 /**
 * parses pcre patterns in given line and writes it to given tempRule class in the corresponding vector
+* TODO:at the moment pcre patterns are ignored during detection.
 */
 void parsePcre(std::string* line, int* linecounter, SnortRuleParser::snortRule* tempRule){
     std::size_t startPosition;

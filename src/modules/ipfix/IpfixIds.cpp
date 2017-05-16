@@ -89,7 +89,6 @@ IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParse
     msg(MSG_INFO, "IpfixIds started with following parameters:");
     msg(MSG_INFO, "  - Alertfile = %s", alertFS.c_str());
     msg(MSG_INFO, "  - Rulesfile = %s", rulesFS.c_str());
-    msg(MSG_INFO, "  - HTTP Ports:");
     msg(MSG_INFO, "IpfixIds: starting to parse rulesfile");
     rules=ruleParser.parseMe(rulesFS.c_str());
     if(rules.size()>0){
@@ -214,8 +213,7 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
         }
     }
     //check against rules:
-    //TODO: implement header address, - port direction checks
-    //TODO: implement NOT content checks
+    //TODO: implement address and port direction checks
     for(l=0;l<rules.size();l++){
     	bool contentMatched[rules[l].body.content.size()]={0};
     	//contentModifier vector MUST have same size than content vector
@@ -225,19 +223,35 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
         	if(rules[l].body.contentNocase[j]){
         		if(rules[l].body.contentModifierHTTP[j]=="http_method"){
 					if(strcasestr(methodString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-						contentMatched[j]=true;
+						if(rules[l].body.negatedContent[j]){
+							contentMatched[j]=false;
+						}else{
+							contentMatched[j]=true;
+						}
 					}
 				}else if (rules[l].body.contentModifierHTTP[j]=="http_uri"||rules[l].body.contentModifierHTTP[j]=="http_raw_uri"){
 					if(strcasestr(uriString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-						contentMatched[j]=true;
+						if(rules[l].body.negatedContent[j]){
+							contentMatched[j]=false;
+						}else{
+							contentMatched[j]=true;
+						}
 					}
 				}else if (rules[l].body.contentModifierHTTP[j]=="http_stat_msg"){
 					if(strcasestr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-						contentMatched[j]=true;
+						if(rules[l].body.negatedContent[j]){
+							contentMatched[j]=false;
+						}else{
+							contentMatched[j]=true;
+						}
 					}
 				}else if (rules[l].body.contentModifierHTTP[j]=="http_stat_code"){
 					if(strcasestr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-						contentMatched[j]=true;
+						if(rules[l].body.negatedContent[j]){
+							contentMatched[j]=false;
+						}else{
+							contentMatched[j]=true;
+						}
 					}
 				}else{
 					THROWEXCEPTION("Unknown or unexpected contentModifierHttp (or not yet implemented)");
@@ -245,19 +259,35 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
         	}else{
 				if(rules[l].body.contentModifierHTTP[j]=="http_method"){
 					if(std::strstr(methodString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-						contentMatched[j]=true;
+						if(rules[l].body.negatedContent[j]){
+							contentMatched[j]=false;
+						}else{
+							contentMatched[j]=true;
+						}
 					}
 				}else if (rules[l].body.contentModifierHTTP[j]=="http_uri"||rules[l].body.contentModifierHTTP[j]=="http_raw_uri"){
 					if(strstr(uriString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-						contentMatched[j]=true;
+						if(rules[l].body.negatedContent[j]){
+							contentMatched[j]=false;
+						}else{
+							contentMatched[j]=true;
+						}
 					}
 				}else if (rules[l].body.contentModifierHTTP[j]=="http_stat_msg"){
 					if(strstr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-						contentMatched[j]=true;
+						if(rules[l].body.negatedContent[j]){
+							contentMatched[j]=false;
+						}else{
+							contentMatched[j]=true;
+						}
 					}
 				}else if (rules[l].body.contentModifierHTTP[j]=="http_stat_code"){
 					if(strstr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-						contentMatched[j]=true;
+						if(rules[l].body.negatedContent[j]){
+							contentMatched[j]=false;
+						}else{
+							contentMatched[j]=true;
+						}
 					}
 				}else{
 					THROWEXCEPTION("Unknown or unexpected contentModifierHttp (or not yet implemented)");
