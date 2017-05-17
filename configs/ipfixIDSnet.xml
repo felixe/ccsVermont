@@ -1,0 +1,34 @@
+<ipfixConfig xmlns="urn:ietf:params:xml:ns:ipfix-config">
+	<sensorManager id="99">
+		<checkinterval>1</checkinterval>
+		<outputfile>sensor_output.xml</outputfile>
+	</sensorManager>
+
+        <ipfixCollector id="1">
+		<listener>
+	                <ipAddress>192.168.1.2</ipAddress>
+			<port>4740</port>
+			<transportProtocol>UDP</transportProtocol>
+		</listener>
+		<next>4</next>
+        </ipfixCollector>
+	
+	<ipfixQueue id="4">
+		<entries>10000</entries>
+		<next>5</next>
+	</ipfixQueue>
+	
+	<ipfixIds id="5">
+		<alertfile>alert.txt</alertfile>
+		<rulesfile>/home/erlacher/flowIDStests/snortRules/httpMethStatUriRules</rulesfile>
+		<printparsedrules>0</printparsedrules>
+		<httpports></httpports>
+		<next>6</next>
+	</ipfixIds> 
+
+        <ipfixPrinter id="6">
+                <!-- <outputType>table</outputType> -->
+                <outputType>tree</outputType>
+                <filename>flows.dat</filename>
+        </ipfixPrinter>
+</ipfixConfig>

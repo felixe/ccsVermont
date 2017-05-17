@@ -16,7 +16,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  *
  *
- * Reads Snort rules and puts interesting field in a struct for further usage.
+ * Reads Snort rules and puts interesting fields in a struct for further usage.
  * This is rather a READER than a parser, as it assumes a basic structure of rules and does not
  * do in-depth checks of structure.
  *
@@ -411,8 +411,8 @@ void parseContentModifier(std::string* line, int* linecounter, SnortRuleParser::
         }else{
             tempRule->body.contentNocase.push_back(true);
             //if yes, than also transform the corresponding content to lowercase, for case insensitive comparison, so we dont have to do that during "flow check runtime"
-//            std::transform(tempRule->body.content[tempRule->body.contentNocase.size()-1].begin(),
-//            tempRule->body.content[tempRule->body.contentNocase.size()-1].end(),	tempRule->body.content[tempRule->body.contentNocase.size()-1].begin(), ::tolower);
+          //  std::transform(tempRule->body.content[tempRule->body.contentNocase.size()-1].begin(),
+          //  tempRule->body.content[tempRule->body.contentNocase.size()-1].end(),	tempRule->body.content[tempRule->body.contentNocase.size()-1].begin(), ::tolower);
         }
 
         //find http content modifier:

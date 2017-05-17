@@ -74,19 +74,21 @@ IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParse
 
 	//check httpPorts
 	if (httpP == "NULL") {
-        THROWEXCEPTION("IpfixIds: No httpPorts given, aborting!");
+		msg(MSG_INFO, "IpfixIds: No http ports given, ignoring $HTTP_PORTS directive in rules");
 	}else{
 		if(httpP==""){
-			msg(MSG_INFO, "No http ports given, ignoring $HTTP_PORTS directive in rules");
+			msg(MSG_INFO, "IpfixIds: No http ports given, ignoring $HTTP_PORTS directive in rules");
 		}else{
 			//reserve 100, shouldnt be more normally
 			httpPorts.reserve(100);
 			parsePorts(&httpP);
+			msg(MSG_INFO, "IpfixIds: Http Ports given, until implemented, they are ignored");
+			//TODO: implement http ports, see also below
 		}
 	}
 
     //be nice and tell people what the configuration is
-    msg(MSG_INFO, "IpfixIds started with following parameters:");
+    msg(MSG_INFO, "IpfixIds: started with following parameters:");
     msg(MSG_INFO, "  - Alertfile = %s", alertFS.c_str());
     msg(MSG_INFO, "  - Rulesfile = %s", rulesFS.c_str());
     msg(MSG_INFO, "IpfixIds: starting to parse rulesfile");
@@ -94,7 +96,7 @@ IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParse
     if(rules.size()>0){
         msg(MSG_DIALOG, "IpfixIds: %d rules parsed successfully",rules.size());
     }else{
-        THROWEXCEPTION("0 rules parsed from rulesfile %s. Does this file contain properly formatted Snort rules?",rulesFS.c_str());
+        THROWEXCEPTION("IpfixIds: 0 rules parsed from rulesfile %s. Does this file contain properly formatted Snort rules?",rulesFS.c_str());
     }
 
     //do basic plausability test, if this fails than there is a bug in the parser
@@ -104,7 +106,7 @@ IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParse
 
     if(printParsedRules){
         fprintf(stdout,"------------------------------------------------------\n");
-        fprintf(stdout,"The following rules have been parsed from rulesfile %s\n", rulesFS.c_str());
+        fprintf(stdout,"IpfixIds: The following rules have been parsed from rulesfile %s\n", rulesFS.c_str());
         fprintf(stdout,"------------------------------------------------------\n");
         for(unsigned long i=0;i<rules.size();i++){
             ruleParser.printSnortRule(&rules[i]);
@@ -148,6 +150,7 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 	IpfixRecord::Data* sourcePortData;
 	IpfixRecord::Data* destinationPortData;
 	IpfixRecord::Data* startData;
+
 	InformationElement::IeInfo uriType;
 	InformationElement::IeInfo hostType;
 	InformationElement::IeInfo methodType;
@@ -212,8 +215,10 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 			startType=record->templateInfo->fieldInfo[i].type;
         }
     }
+
     //check against rules:
     //TODO: implement address and port direction checks
+    //BEWARE: there are gotos that breaks this loop
     for(l=0;l<rules.size();l++){
     	bool contentMatched[rules[l].body.content.size()]={0};
     	//contentModifier vector MUST have same size than content vector
@@ -228,6 +233,9 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 						}else{
 							contentMatched[j]=true;
 						}
+					}else{
+						//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+						goto skipRule;
 					}
 				}else if (rules[l].body.contentModifierHTTP[j]=="http_uri"||rules[l].body.contentModifierHTTP[j]=="http_raw_uri"){
 					if(strcasestr(uriString.c_str(),rules[l].body.content[j].c_str())!=NULL){
@@ -236,6 +244,8 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 						}else{
 							contentMatched[j]=true;
 						}
+					}else{
+						goto skipRule;
 					}
 				}else if (rules[l].body.contentModifierHTTP[j]=="http_stat_msg"){
 					if(strcasestr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
@@ -244,6 +254,8 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 						}else{
 							contentMatched[j]=true;
 						}
+					}else{
+						goto skipRule;
 					}
 				}else if (rules[l].body.contentModifierHTTP[j]=="http_stat_code"){
 					if(strcasestr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
@@ -252,9 +264,11 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 						}else{
 							contentMatched[j]=true;
 						}
+					}else{
+						goto skipRule;
 					}
 				}else{
-					THROWEXCEPTION("Unknown or unexpected contentModifierHttp (or not yet implemented)");
+					THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp (or not yet implemented)");
 				}
         	}else{
 				if(rules[l].body.contentModifierHTTP[j]=="http_method"){
@@ -264,6 +278,8 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 						}else{
 							contentMatched[j]=true;
 						}
+					}else{
+						goto skipRule;
 					}
 				}else if (rules[l].body.contentModifierHTTP[j]=="http_uri"||rules[l].body.contentModifierHTTP[j]=="http_raw_uri"){
 					if(strstr(uriString.c_str(),rules[l].body.content[j].c_str())!=NULL){
@@ -272,6 +288,8 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 						}else{
 							contentMatched[j]=true;
 						}
+					}else{
+						goto skipRule;
 					}
 				}else if (rules[l].body.contentModifierHTTP[j]=="http_stat_msg"){
 					if(strstr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
@@ -280,6 +298,8 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 						}else{
 							contentMatched[j]=true;
 						}
+					}else{
+						goto skipRule;
 					}
 				}else if (rules[l].body.contentModifierHTTP[j]=="http_stat_code"){
 					if(strstr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
@@ -288,9 +308,11 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 						}else{
 							contentMatched[j]=true;
 						}
+					}else{
+						goto skipRule;
 					}
 				}else{
-					THROWEXCEPTION("Unknown or unexpected contentModifierHttp (or not yet implemented)");
+					THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp (or not yet implemented)");
 				}
         	}
         }
@@ -302,6 +324,7 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
         		break;
         	}
         }
+
         if(writeAlertBool){
         	alertCounter++;
             writeAlert(&rules[l].body.sid, &rules[l].body.msg,sourceIPData,sourceIPType,
@@ -311,6 +334,8 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 			 startData,startType
             );
         }
+        //jump here if a content match was false, so we save the time to do other content matches
+        skipRule:;
     }//for loop through rules vector
 
     /*not hand over record but remove references to it*/

@@ -1,0 +1,31 @@
+<ipfixConfig xmlns="urn:ietf:params:xml:ns:ipfix-config">
+	<sensorManager id="99">
+		<checkinterval>1</checkinterval>
+		<outputfile>sensor_output.xml</outputfile>
+	</sensorManager>
+
+        <ipfixReceiverFile id="1">
+                <packetFileDirectory>./</packetFileDirectory>
+                <packetFileBasename>fxProxyPimped.ipfix</packetFileBasename>
+                <from>0</from>
+                <to>end</to>
+                <ignoreTimestamps>true</ignoreTimestamps>
+                <offlineSpeed>0</offlineSpeed>
+                <next>4</next>
+        </ipfixReceiverFile>
+
+	<ipfixQueue id="4">
+		<entries>1000</entries>
+		<next>5</next>
+	</ipfixQueue>
+
+        <ipfixExporter id="5">
+		<maxRecordRate>2000</maxRecordRate>
+		<collector>
+	                <ipAddress>192.168.1.2</ipAddress>
+			<port>4740</port>
+			<transportProtocol>UDP</transportProtocol>
+		</collector>
+        </ipfixExporter>
+
+</ipfixConfig>

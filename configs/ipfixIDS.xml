@@ -5,7 +5,7 @@
 	</sensorManager>
 	<observer id="1">
 		<!--<interface>eth0</interface>-->
-		<filename>/mnt/ramdisk/fxProxy.dump</filename>
+		<filename>/media/felix/4ccc093d-41d6-4fda-b95a-b70cc109ef8d/Daten/arbeit/dumps/http/fxProxy.dump</filename>
 		<pcap_filter>ip and tcp</pcap_filter>
 		<instances>10000</instances>
 		<offlineAutoExit>1</offlineAutoExit>
@@ -53,6 +53,9 @@
 			<nonFlowKey>
 				<ieName>flowEndNanoSeconds</ieName>
 			</nonFlowKey>
+                        <nonFlowKey>
+                                <ieName>octetDeltaCount</ieName>
+                        </nonFlowKey>
 			<nonFlowKey>
 				<ieName>frontPayload</ieName>
 				<ieLength>20</ieLength>
@@ -66,6 +69,9 @@
                         </nonFlowKey>
                         <nonFlowKey>
                                 <ieName>revflowEndNanoSeconds</ieName>
+                        </nonFlowKey>
+                        <nonFlowKey>
+                                <ieName>revOctetDeltaCount</ieName>
                         </nonFlowKey>
 			<nonFlowKey>
 				<ieName>dpaForcedExport</ieName>

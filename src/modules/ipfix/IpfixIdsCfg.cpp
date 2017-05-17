@@ -32,7 +32,7 @@ IpfixIdsCfg::IpfixIdsCfg(XMLElement* elem)
 	if (!elem)
 		return;
 
-	msg(MSG_INFO, "ParserCfg: Start reading ipfixIds section");
+	msg(MSG_INFO, "IpfixIds ParserCfg: Start reading ipfixIds section");
 	XMLNode::XMLSet<XMLElement*> set = _elem->getElementChildren();
 	for (XMLNode::XMLSet<XMLElement*>::iterator it = set.begin(); it != set.end(); it++) {
 		XMLElement* e = *it;
@@ -51,7 +51,7 @@ IpfixIdsCfg::IpfixIdsCfg(XMLElement* elem)
             continue;
 		} else {
 			msg(MSG_FATAL, "Unknown IpfixIds config statement %s\n", e->getName().c_str());
-			THROWEXCEPTION("Unkown IpfixIds %s. Only 'alertfile', 'rulesfile', 'httpPorts', 'printparsedrules' and 'next' allowed.\n", e->getName().c_str());
+			THROWEXCEPTION("Unkown IpfixIds %s. Only 'alertfile', 'rulesfile', 'httpports', 'printparsedrules' and 'next' allowed.\n", e->getName().c_str());
 			continue;
 		}
 	}
