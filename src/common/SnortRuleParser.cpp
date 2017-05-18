@@ -20,6 +20,10 @@
  * This is rather a READER than a parser, as it assumes a basic structure of rules and does not
  * do in-depth checks of structure.
  *
+ * REMARKS:
+ * -If hex chars are encountered (everything between two '|' signs) it is converted to ascii, but only if part of the first 128 ascii chars and only if printable
+ * -Whitespace in content patterns with http_uri modifier is generally converted to the + sign, if you want %20 as whitespacethan change it in the rule.
+ *
  */
 
 #include "SnortRuleParser.h"
@@ -82,17 +86,16 @@ void SnortRuleParser::printSnortRule(SnortRuleParser::snortRule* rule){
 
     //loop through content related vectors
     for(unsigned long i=0;i<rule->body.content.size();i++){
-        if(rule->body.negatedContent[i]==true){
+        if(rule->body.negatedContent.at(i)==true){
             fprintf(stdout,"NOT ");
         }
-        //fprintf(stdout,"ContentOriginal:\t%s\n",rule->body.contentOriginal[i].c_str());
-        if(rule->body.containsHex[i]==true){
-            fprintf(stdout,"Content (hex converted):\t%s\n",rule->body.content[i].c_str());
+        if(rule->body.containsHex.at(i)==true){
+            fprintf(stdout,"Content (hex converted):\t%s\n",rule->body.content.at(i).c_str());
         }else{
-            fprintf(stdout,"Content:\t\t\t\"%s\"\n",rule->body.content[i].c_str());
+            fprintf(stdout,"Content:\t\t\t\"%s\"\n",rule->body.content.at(i).c_str());
         }
-        fprintf(stdout,"ContentModifierHttp:\t\t%s\n",rule->body.contentModifierHTTP[i].c_str());
-        if(rule->body.contentNocase[i]==true){
+        fprintf(stdout,"ContentModifierHttp:\t\t%s\n",rule->body.contentModifierHTTP.at(i).c_str());
+        if(rule->body.contentNocase.at(i)==true){
             fprintf(stdout,"Nocase:\t\t\t\ttrue\n");
         }else{
             fprintf(stdout,"Nocase:\t\t\t\tfalse\n");
@@ -101,10 +104,10 @@ void SnortRuleParser::printSnortRule(SnortRuleParser::snortRule* rule){
 
     //loop through pcre related vectors
     for(unsigned long j=0;j<rule->body.pcre.size();j++){
-        if(rule->body.negatedPcre[j]==true){
+        if(rule->body.negatedPcre.at(j)==true){
             fprintf(stdout,"NOT ");
         }
-        fprintf(stdout,"pcre:\t\t\t\t%s\n",rule->body.pcre[j].c_str());
+        fprintf(stdout,"pcre:\t\t\t\t%s\n",rule->body.pcre.at(j).c_str());
     }
 
     fprintf(stdout,"Sid:\t\t\t\t%s\n",rule->body.sid.c_str());
@@ -310,7 +313,7 @@ void parseContent(std::string* line, int* linecounter, SnortRuleParser::snortRul
             contentHexFree=contentHexFree+contentOrig.substr(0,hexStartPosition);
         }else{
             tempRule->body.containsHex.push_back(0);
-            //if it does not contain hex at all add it now to hex free content
+            //if it does not contain hex at all add it now to the (empty) hex free content
             contentHexFree=contentHexFree+contentOrig;
         }
         //find all hex codes and convert them to ascii
@@ -381,7 +384,7 @@ void parseContentModifier(std::string* line, int* linecounter, SnortRuleParser::
     //this string is the same as lineCopy, only quotet text is replaces by X. length is the same. this way, searches dont trigger falsely on content found in quotes
     std::string lineCopySearch=replaceQuotedText(&lineCopy);
 
-    //on the first check there should definitively be at least on content
+    //on the first check there should definitively be at least one content
     startPosition=lineCopySearch.find("content:",bodyStartPosition)+8;
     endPosition=lineCopySearch.find("content:",startPosition);
     //for last content in rule the end is marked by the closing bracket of the rule body
@@ -411,7 +414,7 @@ void parseContentModifier(std::string* line, int* linecounter, SnortRuleParser::
         }else{
             tempRule->body.contentNocase.push_back(true);
             //if yes, than also transform the corresponding content to lowercase, for case insensitive comparison, so we dont have to do that during "flow check runtime"
-          //  std::transform(tempRule->body.content[tempRule->body.contentNocase.size()-1].begin(),
+          //  std::transform(tempRule->body.contentmaketempRule->body.contentNocase.size()-1].begin(),
           //  tempRule->body.content[tempRule->body.contentNocase.size()-1].end(),	tempRule->body.content[tempRule->body.contentNocase.size()-1].begin(), ::tolower);
         }
 
@@ -424,7 +427,21 @@ void parseContentModifier(std::string* line, int* linecounter, SnortRuleParser::
             if(httpModifierEndPosition==std::string::npos){
                 parsingError(*linecounter,"content (modifier), content httpModifier end position");
             }
-            tempRule->body.contentModifierHTTP.push_back(allModifiers.substr(httpModifierStartPosition,(httpModifierEndPosition-httpModifierStartPosition)));
+            temp=allModifiers.substr(httpModifierStartPosition,(httpModifierEndPosition-httpModifierStartPosition));
+            tempRule->body.contentModifierHTTP.push_back(temp);
+            //replace whitespaces in content patterns for http uris
+            if(temp=="http_uri"){
+            	//printf("uri detected, replacing:\n");
+            	//temp=tempRule->body.content[tempRule->body.contentModifierHTTP.size()-1];
+            	//printf("uri detected, replacing:\n");
+                for(int i = 0; i < tempRule->body.content.at(tempRule->body.contentModifierHTTP.size()-1).length(); i++)
+                {
+                    if(tempRule->body.content.at(tempRule->body.contentModifierHTTP.size()-1).at(i)== ' '){
+                    	tempRule->body.content.at(tempRule->body.contentModifierHTTP.size()-1).at(i) = '+';
+                    }
+                }
+                //tempRule->body.content.at(tempRule->body.contentModifierHTTP.size()-1)=temp;
+            }
         }
 
         //erase content keyword and content string, so that next content can be found
@@ -433,7 +450,7 @@ void parseContentModifier(std::string* line, int* linecounter, SnortRuleParser::
 
         startPosition=lineCopySearch.find("content:",bodyStartPosition)+8;
         endPosition=lineCopySearch.find("content:",startPosition);
-        //for last content in rule the end is marked by the closing bracket of the rule body
+        //for last content in rule, the end is marked by the closing bracket of the rule body
         if(endPosition==std::string::npos){
             endPosition=(lineCopy.find(";)",startPosition))+1;
         }
