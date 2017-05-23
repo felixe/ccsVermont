@@ -67,6 +67,7 @@ void SnortRuleParser::compareVectorSizes(SnortRuleParser::snortRule* rule){
 */
 void SnortRuleParser::printSnortRule(SnortRuleParser::snortRule* rule){
 
+	std::string modifierHttp;
     //plausability checks:
     compareVectorSizes(rule);
 
@@ -94,7 +95,16 @@ void SnortRuleParser::printSnortRule(SnortRuleParser::snortRule* rule){
         }else{
             fprintf(stdout,"Content:\t\t\t\"%s\"\n",rule->body.content.at(i).c_str());
         }
-        fprintf(stdout,"ContentModifierHttp:\t\t%s\n",rule->body.contentModifierHTTP.at(i).c_str());
+        switch(rule->body.contentModifierHTTP.at(i)){
+        	case 0: modifierHttp=""; break;
+        	case 1: modifierHttp="http_method"; break;
+        	case 2: modifierHttp="http_uri"; break;
+        	case 3: modifierHttp="http_raw_uri"; break;
+        	case 4: modifierHttp="http_stat_msg"; break;
+        	case 5: modifierHttp="http_stat_code"; break;
+        	default: THROWEXCEPTION("IpfixIds: Wrong content modifier HTTP encoding. Aborting!");
+        }
+        fprintf(stdout,"ContentModifierHttp:\t\t%s\n",modifierHttp.c_str());
         if(rule->body.contentNocase.at(i)==true){
             fprintf(stdout,"Nocase:\t\t\t\ttrue\n");
         }else{
@@ -216,7 +226,7 @@ void parseHeader(std::string* line, int* linecounter, SnortRuleParser::snortRule
     tempRule->header.action=headerString.substr(0,end);
     headerString.erase(0,end+1);
 
-    //TODO: skip rule if it does not apply to tcp
+    //TODO: skip rule if it does not apply to tcp (not necessary as Vermont works only on tcp)
     end=headerString.find(" ");
     tempRule->header.protocol=headerString.substr(0,end);
     headerString.erase(0,end+1);
@@ -424,16 +434,18 @@ void parseContentModifier(std::string* line, int* linecounter, SnortRuleParser::
         //find http content modifier:
         httpModifierStartPosition=allModifiers.find("http_");
         if(httpModifierStartPosition==std::string::npos){
-            tempRule->body.contentModifierHTTP.push_back("");
+            tempRule->body.contentModifierHTTP.push_back(0);
         }else{
             httpModifierEndPosition=allModifiers.find(";",httpModifierStartPosition);
             if(httpModifierEndPosition==std::string::npos){
                 parsingError(*linecounter,"content (modifier), content httpModifier end position");
             }
             temp=allModifiers.substr(httpModifierStartPosition,(httpModifierEndPosition-httpModifierStartPosition));
-            tempRule->body.contentModifierHTTP.push_back(temp);
-            //replace whitespaces in content patterns for http uris
-            if(temp=="http_uri"){
+            if(temp=="http_method"){
+            	tempRule->body.contentModifierHTTP.push_back(1);
+            }else if(temp=="http_uri"){
+            	tempRule->body.contentModifierHTTP.push_back(2);
+            	//replace whitespaces in content patterns for http uris
             	//printf("uri detected, replacing:\n");
             	//temp=tempRule->body.content[tempRule->body.contentModifierHTTP.size()-1];
             	//printf("uri detected, replacing:\n");
@@ -444,6 +456,12 @@ void parseContentModifier(std::string* line, int* linecounter, SnortRuleParser::
                     }
                 }
                 //tempRule->body.content.at(tempRule->body.contentModifierHTTP.size()-1)=temp;
+            }else if(temp=="http_raw_uri"){
+            	tempRule->body.contentModifierHTTP.push_back(3);
+            }else if(temp=="http_stat_msg"){
+            	tempRule->body.contentModifierHTTP.push_back(4);
+            }else if(temp=="http_stat_code"){
+            	tempRule->body.contentModifierHTTP.push_back(5);
             }
         }
 

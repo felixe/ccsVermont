@@ -283,98 +283,126 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 			}
     	}
 
-    	//contentModifier vector MUST have same size than content vector
+    	//
+    	//This is the performance hungry loop. Any improvements here have massive impact on performance
+    	//
         for(j=0;j<rules[l].body.content.size();j++){
-        	//TODO: case insensitive search is a performance bottleneck!! improve!!
-        	if(rules[l].body.contentNocase[j]){
-        		//TODO: do not make it check the modifier with a string search here but do it in the rule parser!
-        		if(rules[l].body.contentModifierHTTP[j]=="http_method"){
-					if(strcasestr(methodString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-						if(rules[l].body.negatedContent[j]){
-							contentMatched[j]=false;
+        //contentModifier vector MUST have same size than content vector
+        	if(rules[l].body.contentNocase[j]){//case insensitive search
+        		switch(rules[l].body.contentModifierHTTP[j]){
+        			//TODO: its probably faster to encode method to something like int to avoid string comparison
+					case 1:{//http_method
+						if(strcasestr(methodString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+							if(rules[l].body.negatedContent[j]){
+								contentMatched[j]=false;
+							}else{
+								contentMatched[j]=true;
+							}
+							break;
 						}else{
-							contentMatched[j]=true;
+							//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+							goto skipRule;
 						}
-					}else{
-						//skip the rest of the rule if content search is negative, this avoids expensive useless searches
-						goto skipRule;
 					}
-				}else if (rules[l].body.contentModifierHTTP[j]=="http_uri"||rules[l].body.contentModifierHTTP[j]=="http_raw_uri"){
-					if(strcasestr(uriString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-						if(rules[l].body.negatedContent[j]){
-							contentMatched[j]=false;
+					case 2:	//http_uri
+					case 3:{//http_raw_uri
+						if(strcasestr(uriString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+							if(rules[l].body.negatedContent[j]){
+								contentMatched[j]=false;
+							}else{
+								contentMatched[j]=true;
+							}
+							break;
 						}else{
-							contentMatched[j]=true;
+							goto skipRule;
 						}
-					}else{
-						goto skipRule;
 					}
-				}else if (rules[l].body.contentModifierHTTP[j]=="http_stat_msg"){
-					if(strcasestr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-						if(rules[l].body.negatedContent[j]){
-							contentMatched[j]=false;
+					case 4:{//http_stat_msg
+						if(strcasestr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+							if(rules[l].body.negatedContent[j]){
+								contentMatched[j]=false;
+							}else{
+								contentMatched[j]=true;
+							}
+							break;
 						}else{
-							contentMatched[j]=true;
+							goto skipRule;
 						}
-					}else{
-						goto skipRule;
 					}
-				}else if (rules[l].body.contentModifierHTTP[j]=="http_stat_code"){
-					if(strcasestr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-						if(rules[l].body.negatedContent[j]){
-							contentMatched[j]=false;
+					//TODO:try encoding stat code to int and see if its faster (useless because almost never used in rules)
+					case 5:{//http_stat_code
+						if(strcasestr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+							if(rules[l].body.negatedContent[j]){
+								contentMatched[j]=false;
+							}else{
+								contentMatched[j]=true;
+							}
+							break;
 						}else{
-							contentMatched[j]=true;
+							goto skipRule;
 						}
-					}else{
-						goto skipRule;
 					}
-				}else{
-					THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp (or not yet implemented)");
-				}
-        	}else{
-				if(rules[l].body.contentModifierHTTP[j]=="http_method"){
-					if(std::strstr(methodString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-						if(rules[l].body.negatedContent[j]){
-							contentMatched[j]=false;
+					default:{
+						THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp (or not yet implemented)");
+					}
+        		}
+        	}else{//case sensitive search
+        		switch(rules[l].body.contentModifierHTTP[j]){
+					//TODO: its probably faster to encode method to something like int to avoid string comparison
+					case 1:{//http_method
+						if(strstr(methodString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+							if(rules[l].body.negatedContent[j]){
+								contentMatched[j]=false;
+							}else{
+								contentMatched[j]=true;
+							}
+							break;
 						}else{
-							contentMatched[j]=true;
+							//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+							goto skipRule;
 						}
-					}else{
-						goto skipRule;
 					}
-				}else if (rules[l].body.contentModifierHTTP[j]=="http_uri"||rules[l].body.contentModifierHTTP[j]=="http_raw_uri"){
-					if(strstr(uriString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-						if(rules[l].body.negatedContent[j]){
-							contentMatched[j]=false;
+					case 2:	//http_uri
+					case 3:{//http_raw_uri
+						if(strstr(uriString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+							if(rules[l].body.negatedContent[j]){
+								contentMatched[j]=false;
+							}else{
+								contentMatched[j]=true;
+							}
+							break;
 						}else{
-							contentMatched[j]=true;
+							goto skipRule;
 						}
-					}else{
-						goto skipRule;
 					}
-				}else if (rules[l].body.contentModifierHTTP[j]=="http_stat_msg"){
-					if(strstr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-						if(rules[l].body.negatedContent[j]){
-							contentMatched[j]=false;
+					case 4:{//http_stat_msg
+						if(strstr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+							if(rules[l].body.negatedContent[j]){
+								contentMatched[j]=false;
+							}else{
+								contentMatched[j]=true;
+							}
+							break;
 						}else{
-							contentMatched[j]=true;
+							goto skipRule;
 						}
-					}else{
-						goto skipRule;
 					}
-				}else if (rules[l].body.contentModifierHTTP[j]=="http_stat_code"){
-					if(strstr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-						if(rules[l].body.negatedContent[j]){
-							contentMatched[j]=false;
+					//TODO:try encoding stat code to int and see if its faster (useless because almost never used in rules)
+					case 5:{//http_stat_code
+						if(strstr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+							if(rules[l].body.negatedContent[j]){
+								contentMatched[j]=false;
+							}else{
+								contentMatched[j]=true;
+							}
+							break;
 						}else{
-							contentMatched[j]=true;
+							goto skipRule;
 						}
-					}else{
-						goto skipRule;
 					}
-				}else{
-					THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp (or not yet implemented)");
+					default:{
+						THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp (or not yet implemented)");
+					}
 				}
         	}
         }

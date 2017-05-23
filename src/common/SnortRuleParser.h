@@ -45,7 +45,13 @@ public:
         std::vector<bool> containsHex;
         std::vector<bool> contentNocase;
         std::vector<std::string> content;
-        std::vector<std::string> contentModifierHTTP;
+        std::vector<int> contentModifierHTTP;
+        //content modifier are encoded for faster processing:
+        //1:http_method
+        //2:http_uri
+        //3:http_raw_uri
+        //4:http_stat_msg
+        //5:http_stat_code
         std::vector<std::string> pcre;
         std::vector<bool> negatedPcre;
         std::string sid;
