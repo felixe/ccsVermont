@@ -72,10 +72,10 @@ void SnortRuleParser::printSnortRule(SnortRuleParser::snortRule* rule){
 
     fprintf(stdout,"Action:\t\t\t\t%s\n",rule->header.action.c_str());
     fprintf(stdout,"Protocol:\t\t\t%s\n",rule->header.protocol.c_str());
-    fprintf(stdout,"From:\t\t\t\t%s\n",rule->header.from.c_str());
-    fprintf(stdout,"FromPort:\t\t\t%s\n",rule->header.fromPort.c_str());
-    fprintf(stdout,"To:\t\t\t\t%s\n",rule->header.to.c_str());
-    fprintf(stdout,"ToPort:\t\t\t\t%s\n",rule->header.toPort.c_str());
+    fprintf(stdout,"From:\t\t\t\t\"%s\"\n",rule->header.from.c_str());
+    fprintf(stdout,"FromPort:\t\t\t\"%s\"\n",rule->header.fromPort.c_str());
+    fprintf(stdout,"To:\t\t\t\t\"%s\"\n",rule->header.to.c_str());
+    fprintf(stdout,"ToPort:\t\t\t\t\"%s\"\n",rule->header.toPort.c_str());
     if(rule->header.bidirectional){
     	fprintf(stdout,"Direction:\t\t\t<>\n");
     }else{
@@ -232,23 +232,26 @@ void parseHeader(std::string* line, int* linecounter, SnortRuleParser::snortRule
     	tempRule->header.bidirectional=true;
     }
 
-
+    //the end-1 omits the trailing space in this string
 	from=headerString.substr(0,end-1);
-	to=headerString.substr(end+3,headerString.size());
+	headerString.erase(0,end+3);
+	to=headerString.substr(0,headerString.size()-1);
 
 	end=from.find(" ");
 	if(end==std::string::npos){
 		parsingError(*linecounter,"no space between from address and port");
 	}
 	tempRule->header.from=from.substr(0,end);
-	tempRule->header.fromPort=from.substr(end+1,from.size());
+	from.erase(0,end+1);
+	tempRule->header.fromPort=from.substr(0,from.size());
 
 	end=to.find(" ");
 	if(end==std::string::npos){
 		parsingError(*linecounter,"no space between to address and port");
 	}
 	tempRule->header.to=to.substr(0,end);
-	tempRule->header.toPort=to.substr(end+1,from.size());
+	to.erase(0,end+1);
+	tempRule->header.toPort=to.substr(0,to.size());
 
 
 }

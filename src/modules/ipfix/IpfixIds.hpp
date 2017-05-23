@@ -48,7 +48,7 @@ class IpfixIds : public Module, public IpfixRecordDestination, public Source<Ipf
 		void* lastTemplate;
 		FILE* alertFile;
 		FILE* rulesFile;
-		std::vector<long int> httpPorts;
+		std::vector<long> httpPorts;
         std::vector<SnortRuleParser::snortRule> rules;
 		bool printParsedRules;
 
@@ -64,6 +64,7 @@ class IpfixIds : public Module, public IpfixRecordDestination, public Source<Ipf
                         IpfixRecord::Data* dstPortData,InformationElement::IeInfo dstPortType,
 						IpfixRecord::Data* startData,InformationElement::IeInfo startType
 		);
+		long getFlowPort(InformationElement::IeInfo type, IpfixRecord::Data* data);
 
 };
 

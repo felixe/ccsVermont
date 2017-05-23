@@ -28,6 +28,7 @@
 #include <arpa/inet.h>
 
 int alertCounter;
+bool httpPortsGiven;
 
 
 
@@ -43,6 +44,7 @@ IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParse
 	string file = "";
 	alertFile = stdout;
 	string line;
+	httpPortsGiven=false;
 
     SnortRuleParser ruleParser;
 
@@ -82,8 +84,7 @@ IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParse
 			//reserve 100, shouldnt be more normally
 			httpPorts.reserve(100);
 			parsePorts(&httpP);
-			msg(MSG_INFO, "IpfixIds: Http Ports given, until implemented, they are ignored");
-			//TODO: implement http ports, see also below
+			httpPortsGiven=true;
 		}
 	}
 
@@ -140,6 +141,13 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 	unsigned long k;
 	unsigned long l;
 	bool writeAlertBool;
+	bool portMatched;
+	long portRule;
+	long flowSrcPort;
+	long flowDstPort;
+	//end pointer for strtol operations
+	char* end;
+
 	string methodString;
 	string uriString;
 	string statusMsgString;
@@ -217,15 +225,69 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
     }
 
     //check against rules:
-    //TODO: implement address and port direction checks
-    //BEWARE: there are gotos that breaks this loop
+    //BEWARE: there are gotos that break this loop
     for(l=0;l<rules.size();l++){
     	bool contentMatched[rules[l].body.content.size()]={0};
+    	//check ports if necessary, source direction
+        //TODO: implement address direction checks
+    	if(httpPortsGiven){
+        	flowSrcPort=getFlowPort(sourcePortType,sourcePortData);
+        	flowDstPort=getFlowPort(destinationPortType,destinationPortData);
+			if(rules[l].header.fromPort!="any"){
+				if(rules[l].header.fromPort=="$HTTP_PORTS"){
+					portMatched=false;
+					for(int i=0;i<httpPorts.size();i++){
+						//go through configuration defined httpPorts and compare
+						if(httpPorts.at(i)==flowSrcPort){
+							portMatched=true;
+							break;
+						}
+					}
+					if(!portMatched){
+						goto skipRule;
+					}
+				}else {//port must be a single number
+					portRule=strtol(rules[l].header.fromPort.c_str(),&end,10);
+					if(portRule==0){
+						msg(MSG_INFO,"Invalid rule (%s), it does not contain a valid source port definition (a number, '$HTTP_PORTS' or 'any')",rules[l].body.sid.c_str());
+						goto skipRule;
+					}else if(portRule!=flowDstPort){
+						goto skipRule;
+					}//if single port number matches, continue with rule
+				}
+			}
+			//same port check for destination direction
+			if(rules[l].header.toPort!="any"){
+				if(rules[l].header.toPort=="$HTTP_PORTS"){
+					portMatched=false;
+					for(int i=0;i<httpPorts.size();i++){
+						//go through configuration defined httpPorts and compare
+						if(httpPorts.at(i)==flowDstPort){
+							portMatched=true;
+							break;
+						}
+					}
+					if(!portMatched){
+						goto skipRule;
+					}
+				}else {//port must be a single number
+					portRule=strtol(rules[l].header.toPort.c_str(),&end,10);
+					if(portRule==0){
+						msg(MSG_INFO,"Invalid rule (%s), it does not contain a valid destination port definition (a number, '$HTTP_PORTS' or 'any')",rules[l].body.sid.c_str());
+						goto skipRule;
+					}else if(portRule!=flowDstPort){
+						goto skipRule;
+					}
+					//if single port number matches, continue with rule
+				}
+			}
+    	}
+
     	//contentModifier vector MUST have same size than content vector
         for(j=0;j<rules[l].body.content.size();j++){
-        	//if nocase, convert ipfix content to lowercase, the pattern to compare to has eventually already been converted to lowercase during rule parsing
         	//TODO: case insensitive search is a performance bottleneck!! improve!!
         	if(rules[l].body.contentNocase[j]){
+        		//TODO: do not make it check the modifier with a string search here but do it in the rule parser!
         		if(rules[l].body.contentModifierHTTP[j]=="http_method"){
 					if(strcasestr(methodString.c_str(),rules[l].body.content[j].c_str())!=NULL){
 						if(rules[l].body.negatedContent[j]){
@@ -388,7 +450,7 @@ void IpfixIds::printTimeSeconds(IpfixRecord::Data* startData){
 }
 
 /**
- * expects a comma separated list of ints and puts tem in an array of ints
+ * expects a comma separated list of ints and puts them in an array of ints
  */
 void IpfixIds::parsePorts(string* httpPortsString){
     std::size_t startPosition;
@@ -468,4 +530,29 @@ void IpfixIds::printPayload(InformationElement::IeInfo type, IpfixRecord::Data* 
 	if (showOmittedZeroBytes && lastPrintedCharacter+1<type.length) {
 		fprintf(file, " --> Not displaying %ld trailing zero-bytes", type.length-(lastPrintedCharacter+1));
 	}
+}
+
+long IpfixIds::getFlowPort(InformationElement::IeInfo type, IpfixRecord::Data* data) {
+	if (type.length == 0) {
+		THROWEXCEPTION("IpfixIds: Flow with zero-length Port");
+	}
+	if (type.length == 2) {
+		int port = ((uint16_t)data[0] << 8)+data[1];
+		return port;
+	}
+//	if ((type.length >= 4) && ((type.length % 4) == 0)) {
+//		int i;
+//		for (i = 0; i < type.length; i+=4) {
+//			int starti = ((uint16_t)data[i+0] << 8)+data[i+1];
+//			int endi = ((uint16_t)data[i+2] << 8)+data[i+3];
+//			if (i > 0) fprintf(fh, ",");
+//			if (starti != endi) {
+//				fprintf(fh, "%u:%u", starti, endi);
+//			} else {
+//				fprintf(fh, "%u", starti);
+//			}
+//		}
+//		return;
+//	}
+	THROWEXCEPTION("Port with length %u unparseable", type.length);
 }
