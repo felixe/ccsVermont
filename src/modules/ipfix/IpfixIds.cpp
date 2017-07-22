@@ -143,15 +143,15 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 	bool writeAlertBool;
 	bool portMatched;
 	long portRule;
-	long flowSrcPort;
-	long flowDstPort;
+//	long flowSrcPort;
+//	long flowDstPort;
 	//end pointer for strtol operations
 	char* end;
 
 	string methodString;
 	string uriString;
 	string statusMsgString;
-	string statusCodeString;
+//	string statusCodeString;
 
 	IpfixRecord::Data* sourceIPData;
 	IpfixRecord::Data* destinationIPData;
@@ -162,8 +162,8 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 	InformationElement::IeInfo uriType;
 	InformationElement::IeInfo hostType;
 	InformationElement::IeInfo methodType;
-	InformationElement::IeInfo statusMsgType;
-	InformationElement::IeInfo statusCodeType;
+//	InformationElement::IeInfo statusMsgType;
+//	InformationElement::IeInfo statusCodeType;
 	InformationElement::IeInfo sourceIPType;
 	InformationElement::IeInfo destinationIPType;
 	InformationElement::IeInfo sourcePortType;
@@ -187,15 +187,15 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 			uriString = std::string((const char*)(record->data + record->templateInfo->fieldInfo[i].offset));
 			uriType=record->templateInfo->fieldInfo[i].type;
         }
-        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_httpStatusCode, 0)) {
-			statusCodeString = std::string((const char*)(record->data + record->templateInfo->fieldInfo[i].offset));
-			statusCodeType=record->templateInfo->fieldInfo[i].type;
-        }
-        //TODO convert also this type to IANA registered type
-        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_ETYPEID_httpStatusPhrase, 0)) {
-            statusMsgString = std::string((const char*)record->data + record->templateInfo->fieldInfo[i].offset);
-            statusMsgType=record->templateInfo->fieldInfo[i].type;
-        }
+//        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_httpStatusCode, 0)) {
+//			statusCodeString = std::string((const char*)(record->data + record->templateInfo->fieldInfo[i].offset));
+//			statusCodeType=record->templateInfo->fieldInfo[i].type;
+//        }
+//        //TODO convert also this type to IANA registered type
+//        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_ETYPEID_httpStatusPhrase, 0)) {
+//            statusMsgString = std::string((const char*)record->data + record->templateInfo->fieldInfo[i].offset);
+//            statusMsgType=record->templateInfo->fieldInfo[i].type;
+//        }
 //        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_httpRequestHost, 0)) {
 //                        hostData = (record->data + record->templateInfo->fieldInfo[i].offset);
 //                        hostRecordType=record->templateInfo->fieldInfo[i].type;
@@ -230,58 +230,58 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
     	bool contentMatched[rules[l].body.content.size()]={0};
     	//check ports if necessary, source direction
         //TODO: implement address direction checks
-    	if(httpPortsGiven){
-        	flowSrcPort=getFlowPort(sourcePortType,sourcePortData);
-        	flowDstPort=getFlowPort(destinationPortType,destinationPortData);
-			if(rules[l].header.fromPort!="any"){
-				if(rules[l].header.fromPort=="$HTTP_PORTS"){
-					portMatched=false;
-					for(int i=0;i<httpPorts.size();i++){
-						//go through configuration defined httpPorts and compare
-						if(httpPorts.at(i)==flowSrcPort){
-							portMatched=true;
-							break;
-						}
-					}
-					if(!portMatched){
-						goto skipRule;
-					}
-				}else {//port must be a single number
-					portRule=strtol(rules[l].header.fromPort.c_str(),&end,10);
-					if(portRule==0){
-						msg(MSG_INFO,"Invalid rule (%s), it does not contain a valid source port definition (a number, '$HTTP_PORTS' or 'any')",rules[l].body.sid.c_str());
-						goto skipRule;
-					}else if(portRule!=flowDstPort){
-						goto skipRule;
-					}//if single port number matches, continue with rule
-				}
-			}
-			//same port check for destination direction
-			if(rules[l].header.toPort!="any"){
-				if(rules[l].header.toPort=="$HTTP_PORTS"){
-					portMatched=false;
-					for(int i=0;i<httpPorts.size();i++){
-						//go through configuration defined httpPorts and compare
-						if(httpPorts.at(i)==flowDstPort){
-							portMatched=true;
-							break;
-						}
-					}
-					if(!portMatched){
-						goto skipRule;
-					}
-				}else {//port must be a single number
-					portRule=strtol(rules[l].header.toPort.c_str(),&end,10);
-					if(portRule==0){
-						msg(MSG_INFO,"Invalid rule (%s), it does not contain a valid destination port definition (a number, '$HTTP_PORTS' or 'any')",rules[l].body.sid.c_str());
-						goto skipRule;
-					}else if(portRule!=flowDstPort){
-						goto skipRule;
-					}
-					//if single port number matches, continue with rule
-				}
-			}
-    	}
+//    	if(httpPortsGiven){
+//        	flowSrcPort=getFlowPort(sourcePortType,sourcePortData);
+//        	flowDstPort=getFlowPort(destinationPortType,destinationPortData);
+//			if(rules[l].header.fromPort!="any"){
+//				if(rules[l].header.fromPort=="$HTTP_PORTS"){
+//					portMatched=false;
+//					for(int i=0;i<httpPorts.size();i++){
+//						//go through configuration defined httpPorts and compare
+//						if(httpPorts.at(i)==flowSrcPort){
+//							portMatched=true;
+//							break;
+//						}
+//					}
+//					if(!portMatched){
+//						goto skipRule;
+//					}
+//				}else {//port must be a single number
+//					portRule=strtol(rules[l].header.fromPort.c_str(),&end,10);
+//					if(portRule==0){
+//						msg(MSG_INFO,"Invalid rule (%s), it does not contain a valid source port definition (a number, '$HTTP_PORTS' or 'any')",rules[l].body.sid.c_str());
+//						goto skipRule;
+//					}else if(portRule!=flowDstPort){
+//						goto skipRule;
+//					}//if single port number matches, continue with rule
+//				}
+//			}
+//			//same port check for destination direction
+//			if(rules[l].header.toPort!="any"){
+//				if(rules[l].header.toPort=="$HTTP_PORTS"){
+//					portMatched=false;
+//					for(int i=0;i<httpPorts.size();i++){
+//						//go through configuration defined httpPorts and compare
+//						if(httpPorts.at(i)==flowDstPort){
+//							portMatched=true;
+//							break;
+//						}
+//					}
+//					if(!portMatched){
+//						goto skipRule;
+//					}
+//				}else {//port must be a single number
+//					portRule=strtol(rules[l].header.toPort.c_str(),&end,10);
+//					if(portRule==0){
+//						msg(MSG_INFO,"Invalid rule (%s), it does not contain a valid destination port definition (a number, '$HTTP_PORTS' or 'any')",rules[l].body.sid.c_str());
+//						goto skipRule;
+//					}else if(portRule!=flowDstPort){
+//						goto skipRule;
+//					}
+//					//if single port number matches, continue with rule
+//				}
+//			}
+//    	}
 
     	//
     	//This is the performance hungry loop. Any improvements here have massive impact on performance
@@ -317,31 +317,33 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 							goto skipRule;
 						}
 					}
-					case 4:{//http_stat_msg
-						if(strcasestr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-							if(rules[l].body.negatedContent[j]){
-								contentMatched[j]=false;
-							}else{
-								contentMatched[j]=true;
-							}
-							break;
-						}else{
-							goto skipRule;
-						}
-					}
-					//TODO:try encoding stat code to int and see if its faster (useless because almost never used in rules)
-					case 5:{//http_stat_code
-						if(strcasestr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-							if(rules[l].body.negatedContent[j]){
-								contentMatched[j]=false;
-							}else{
-								contentMatched[j]=true;
-							}
-							break;
-						}else{
-							goto skipRule;
-						}
-					}
+//					//TODO: check if this keyword is present in rules and possibly leave this check away if not
+//					case 4:{//http_stat_msg
+//						if(strcasestr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+//							if(rules[l].body.negatedContent[j]){
+//								contentMatched[j]=false;
+//							}else{
+//								contentMatched[j]=true;
+//							}
+//							break;
+//						}else{
+//							goto skipRule;
+//						}
+//					}
+//					//TODO: check if this keyword is present in rules and possibly leave this check away if not
+//					//TODO:try encoding stat code to int and see if its faster (useless because never used in current ruleset)
+//					case 5:{//http_stat_code
+//						if(strcasestr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+//							if(rules[l].body.negatedContent[j]){
+//								contentMatched[j]=false;
+//							}else{
+//								contentMatched[j]=true;
+//							}
+//							break;
+//						}else{
+//							goto skipRule;
+//						}
+//					}
 					default:{
 						THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp (or not yet implemented)");
 					}
@@ -387,19 +389,19 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 							goto skipRule;
 						}
 					}
-					//TODO:try encoding stat code to int and see if its faster (useless because almost never used in rules)
-					case 5:{//http_stat_code
-						if(strstr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-							if(rules[l].body.negatedContent[j]){
-								contentMatched[j]=false;
-							}else{
-								contentMatched[j]=true;
-							}
-							break;
-						}else{
-							goto skipRule;
-						}
-					}
+//					//TODO:try encoding stat code to int and see if its faster (useless because almost never used in rules)
+//					case 5:{//http_stat_code
+//						if(strstr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+//							if(rules[l].body.negatedContent[j]){
+//								contentMatched[j]=false;
+//							}else{
+//								contentMatched[j]=true;
+//							}
+//							break;
+//						}else{
+//							goto skipRule;
+//						}
+//					}
 					default:{
 						THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp (or not yet implemented)");
 					}

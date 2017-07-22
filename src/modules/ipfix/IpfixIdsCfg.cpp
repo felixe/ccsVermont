@@ -42,6 +42,7 @@ IpfixIdsCfg::IpfixIdsCfg(XMLElement* elem)
         }else if (e->matches("rulesfile")) {
 			rulesFileString = e->getFirstText();
         }else if (e->matches("httpports")) {
+        	THROWEXCEPTION("IpfixIdsCfg: httpports not supported in this version"); //just remove this message and uncomment stuff in IpfixIds.cpp
         	httpPorts = e->getFirstText();
         }else if (e->matches("printparsedrules")) {
 			if(e->getFirstText()=="1\0"){
