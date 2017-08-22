@@ -2143,7 +2143,7 @@ static int sctp_reconnect(ipfix_exporter *exporter , int i){
 	An easy but DIRTY FIX is to hardcode SCTP_ESTABLISHED to 3 (instead of 4) here
 	See also: https://stackoverflow.com/questions/25501554/sctp-uapi-mismatch-with-kernel
 	*/
-	if (ss.sstat_state != 3) { //3=SCTP_ESTABLISHED, 
+	if (ss.sstat_state != SCTP_ESTABLISHED) { //3=SCTP_ESTABLISHED, 
 	    msg(MSG_ERROR, "SCTP socket not in state ESTABLISHED");
 	    close(exporter->collector_arr[i].data_socket);
 	    exporter->collector_arr[i].data_socket = -1;
