@@ -459,8 +459,10 @@ void parseContentModifier(std::string* line, int* linecounter, SnortRuleParser::
             }else if(temp=="http_raw_uri"){
             	tempRule->body.contentModifierHTTP.push_back(3);
             }else if(temp=="http_stat_msg"){
+            	THROWEXCEPTION("SnortRuleparser: content modifier http_stat_msg not supported in this version"); //just uncomment lines to support it
             	tempRule->body.contentModifierHTTP.push_back(4);
             }else if(temp=="http_stat_code"){
+            	THROWEXCEPTION("SnortRuleparser: content modifier http_stat_code not supported in this version"); //just uncomment lines to support it
             	tempRule->body.contentModifierHTTP.push_back(5);
             }
         }
