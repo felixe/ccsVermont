@@ -283,7 +283,14 @@ void PrintHelpers::printFieldData(InformationElement::IeInfo type, IpfixRecord::
 					return;
 			}
 			break;
-
+			case IPFIX_PEN_NTOP:
+				switch (type.id) {
+				case ETYPEID_ntopHttpUri:
+				case ETYPEID_ntopHttpMethod:
+					printFrontPayload(type, pattern, false);
+					return;
+				}
+				break;
 		case IPFIX_PEN_reverse:
 			switch (type.id) {
 				case IPFIX_TYPEID_flowStartNanoSeconds:

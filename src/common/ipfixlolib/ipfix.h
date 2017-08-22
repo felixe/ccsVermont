@@ -178,6 +178,11 @@ extern "C" {
 // (i.e., ids in the range 513 to 1023 represent the reverse direction of ids 1 to 511)
 #define IPFIX_ETYPE_reverse_bit			    0x00000200
 */
+//Private enterprise number of ntop, the company responsible for the nProbe network probe (and pf_ring), necessary to read their ipfix fields
+#define IPFIX_PEN_NTOP				35632
+//enterprise specific IEs of ntops nprobe that we are currently interested in
+#define ETYPEID_ntopHttpUri			180
+#define ETYPEID_ntopHttpMethod			360
 
 // not registered at IANA
 // within Vermont, we combine this PEN with IPFIX_PEN_reverse

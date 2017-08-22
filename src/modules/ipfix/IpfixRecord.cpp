@@ -143,7 +143,7 @@ namespace InformationElement {
 						return Packet::IPProtocolType(Packet::UDP|Packet::TCP);
 				}
 			}
-		}
+		} 
 		THROWEXCEPTION("received unknown field type %s", toString().c_str());
 		return Packet::NONE;
 	}
@@ -164,6 +164,9 @@ namespace InformationElement {
 		else
 			snprintf(buffer, ARRAY_SIZE(buffer), "%s (id=%hu, pen=%u, length=%hu)",
 				ipfixid ? ipfixid->name : "unknown", id, enterprise, length);
+		if (enterprise==IPFIX_PEN_NTOP)
+			snprintf(buffer, ARRAY_SIZE(buffer), "%s (id=%hu, length=%hu)",
+				ipfixid ? ipfixid->name : "ntop specific IE", id, length);
 		return buffer;
 	}
 
