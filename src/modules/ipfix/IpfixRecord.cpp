@@ -161,12 +161,13 @@ namespace InformationElement {
 		else if (enterprise == IPFIX_PEN_vermont)
 			snprintf(buffer, ARRAY_SIZE(buffer), "%s (id=%hu, pen=%u [vermont], length=%hu)",
 				ipfixid ? ipfixid->name : "unknown", id, enterprise, length);
+		else if (enterprise==IPFIX_PEN_ntop)
+			snprintf(buffer, ARRAY_SIZE(buffer), "%s (id=%hu, length=%hu)",
+				ipfixid ? ipfixid->name : "ntop specific IE", id, length);	
 		else
 			snprintf(buffer, ARRAY_SIZE(buffer), "%s (id=%hu, pen=%u, length=%hu)",
 				ipfixid ? ipfixid->name : "unknown", id, enterprise, length);
-		if (enterprise==IPFIX_PEN_NTOP)
-			snprintf(buffer, ARRAY_SIZE(buffer), "%s (id=%hu, length=%hu)",
-				ipfixid ? ipfixid->name : "ntop specific IE", id, length);
+		
 		return buffer;
 	}
 

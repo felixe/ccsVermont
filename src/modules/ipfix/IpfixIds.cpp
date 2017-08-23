@@ -179,11 +179,11 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 
     //go through ipfix record IE fields and save pointers to interesting fields
     for (uint32_t i = 0; i < record->templateInfo->fieldCount; i++) {
-        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_httpRequestMethod, 0)) {
+        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_ETYPEID_ntopHttpMethod, IPFIX_PEN_ntop, 0)) {
 			 methodString= std::string((const char*)(record->data + record->templateInfo->fieldInfo[i].offset));
 			 methodType=record->templateInfo->fieldInfo[i].type;
-        }
-        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_httpRequestTarget, 0)) {
+	}
+        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_ETYPEID_ntopHttpUri, IPFIX_PEN_ntop, 0)) {
 			uriString = std::string((const char*)(record->data + record->templateInfo->fieldInfo[i].offset));
 			uriType=record->templateInfo->fieldInfo[i].type;
         }

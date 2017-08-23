@@ -283,10 +283,10 @@ void PrintHelpers::printFieldData(InformationElement::IeInfo type, IpfixRecord::
 					return;
 			}
 			break;
-			case IPFIX_PEN_NTOP:
+			case IPFIX_PEN_ntop:
 				switch (type.id) {
-				case ETYPEID_ntopHttpUri:
-				case ETYPEID_ntopHttpMethod:
+				case IPFIX_ETYPEID_ntopHttpUri:
+				case IPFIX_ETYPEID_ntopHttpMethod:
 					printFrontPayload(type, pattern, false);
 					return;
 				}

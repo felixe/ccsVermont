@@ -148,6 +148,11 @@ struct ipfix_identifier ipfixids[] = {
  { IPFIX_ETYPEID_httpStatusPhrase, IPFIX_ELENGTH_httpStatusPhrase, IPFIX_PEN_vermont, "httpStatusPhrase" },
  { IPFIX_ETYPEID_httpRespMessageVersion, IPFIX_LENGTH_httpMessageVersion, IPFIX_PEN_vermont, "httpRespMessageVersion" },
  { IPFIX_ETYPEID_flowAnnotation, IPFIX_LENGTH_unsigned32, IPFIX_PEN_vermont, "flowAnnotation" },
+
+/*ntop PEN*/
+ { IPFIX_ETYPEID_ntopHttpUri, 0, IPFIX_PEN_ntop, "ntopHttpUri"},
+ { IPFIX_ETYPEID_ntopHttpMethod, 0, IPFIX_PEN_ntop, "ntopHttpMethod"}
+
 };
 
 
