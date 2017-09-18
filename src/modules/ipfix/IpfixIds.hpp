@@ -37,7 +37,7 @@
 class IpfixIds : public Module, public IpfixRecordDestination, public Source<IpfixRecord*>
 {
 	public:
-		IpfixIds(string alertFS,string rulesFSg, string httpP,bool printParsedRules);
+		IpfixIds(string alertFS,string rulesFSg, string httpP,bool printParsedRules,bool useNtopIEs);
 		~IpfixIds();
 
 		virtual void onDataRecord(IpfixDataRecord* record);
@@ -51,6 +51,10 @@ class IpfixIds : public Module, public IpfixRecordDestination, public Source<Ipf
 		std::vector<long> httpPorts;
         std::vector<SnortRuleParser::snortRule> rules;
 		bool printParsedRules;
+		bool useNtopIEs;
+		//to be able to choose between IANA and ntop method type
+		InformationElement::IeInfo methodTypeChoice;
+		InformationElement::IeInfo uriTypeChoice;
 
 	private:
 		PrintHelpers printer;

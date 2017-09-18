@@ -46,6 +46,7 @@ private:
 	string rulesFileString;
 	string httpPorts;
 	bool printParsedRules;
+	bool useNtopIEs;
 };
 
 #endif /*IPFIXIDSCFG_H*/

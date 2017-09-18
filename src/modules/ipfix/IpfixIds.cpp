@@ -37,7 +37,7 @@ bool httpPortsGiven;
  * Do not forget to call @c startIpfixIds() to begin printing
  * @return handle to use when calling @c destroyIpfixIds()
  */
-IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParsedRules)
+IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParsedRules, bool useNtopIEs)
 {
 	alertCounter=0;
     lastTemplate = 0;
@@ -45,6 +45,10 @@ IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParse
 	alertFile = stdout;
 	string line;
 	httpPortsGiven=false;
+
+	//default type to do intrusion detection on is the IANA type
+	methodTypeChoice=InformationElement::IeInfo(IPFIX_TYPEID_httpRequestMethod, 0);
+	uriTypeChoice= InformationElement::IeInfo(IPFIX_TYPEID_httpRequestTarget, 0);
 
     SnortRuleParser ruleParser;
 
@@ -88,10 +92,20 @@ IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParse
 		}
 	}
 
+	if(useNtopIEs){
+		methodTypeChoice=InformationElement::IeInfo(IPFIX_ETYPEID_ntopHttpMethod, IPFIX_PEN_ntop, 0);
+		uriTypeChoice= InformationElement::IeInfo(IPFIX_ETYPEID_ntopHttpUri, IPFIX_PEN_ntop, 0);
+	}
+
     //be nice and tell people what the configuration is
     msg(MSG_INFO, "IpfixIds: started with following parameters:");
     msg(MSG_INFO, "  - Alertfile = %s", alertFS.c_str());
     msg(MSG_INFO, "  - Rulesfile = %s", rulesFS.c_str());
+    if(useNtopIEs){
+    	msg(MSG_INFO, "  - Configured to do intrusion detection on Ntops enterprise specific IEs");
+    }else{
+    	msg(MSG_INFO, "  - Configured to do intrusion detection on IANA IEs");
+    }
     msg(MSG_INFO, "IpfixIds: starting to parse rulesfile");
     rules=ruleParser.parseMe(rulesFS.c_str());
     if(rules.size()>0){
@@ -143,27 +157,28 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 	bool writeAlertBool;
 	bool portMatched;
 	long portRule;
-//	long flowSrcPort;
-//	long flowDstPort;
+	long flowSrcPort;
+	long flowDstPort;
 	//end pointer for strtol operations
 	char* end;
 
 	string methodString;
 	string uriString;
 	string statusMsgString;
-//	string statusCodeString;
+	string statusCodeString;
 
 	IpfixRecord::Data* sourceIPData;
 	IpfixRecord::Data* destinationIPData;
 	IpfixRecord::Data* sourcePortData;
 	IpfixRecord::Data* destinationPortData;
 	IpfixRecord::Data* startData;
+	IpfixRecord::Data* hostData;
 
 	InformationElement::IeInfo uriType;
 	InformationElement::IeInfo hostType;
 	InformationElement::IeInfo methodType;
-//	InformationElement::IeInfo statusMsgType;
-//	InformationElement::IeInfo statusCodeType;
+	InformationElement::IeInfo statusMsgType;
+	InformationElement::IeInfo statusCodeType;
 	InformationElement::IeInfo sourceIPType;
 	InformationElement::IeInfo destinationIPType;
 	InformationElement::IeInfo sourcePortType;
@@ -179,26 +194,26 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 
     //go through ipfix record IE fields and save pointers to interesting fields
     for (uint32_t i = 0; i < record->templateInfo->fieldCount; i++) {
-        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_ETYPEID_ntopHttpMethod, IPFIX_PEN_ntop, 0)) {
+        if (record->templateInfo->fieldInfo[i].type == methodTypeChoice) {
 			 methodString= std::string((const char*)(record->data + record->templateInfo->fieldInfo[i].offset));
 			 methodType=record->templateInfo->fieldInfo[i].type;
 	}
-        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_ETYPEID_ntopHttpUri, IPFIX_PEN_ntop, 0)) {
+        if (record->templateInfo->fieldInfo[i].type == uriTypeChoice) {
 			uriString = std::string((const char*)(record->data + record->templateInfo->fieldInfo[i].offset));
 			uriType=record->templateInfo->fieldInfo[i].type;
         }
-//        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_httpStatusCode, 0)) {
-//			statusCodeString = std::string((const char*)(record->data + record->templateInfo->fieldInfo[i].offset));
-//			statusCodeType=record->templateInfo->fieldInfo[i].type;
-//        }
-//        //TODO convert also this type to IANA registered type
-//        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_ETYPEID_httpStatusPhrase, 0)) {
-//            statusMsgString = std::string((const char*)record->data + record->templateInfo->fieldInfo[i].offset);
-//            statusMsgType=record->templateInfo->fieldInfo[i].type;
-//        }
+        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_httpStatusCode, 0)) {
+			statusCodeString = std::string((const char*)(record->data + record->templateInfo->fieldInfo[i].offset));
+			statusCodeType=record->templateInfo->fieldInfo[i].type;
+        }
+        //TODO convert also this type to IANA registered type
+        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_ETYPEID_httpStatusPhrase, 0)) {
+            statusMsgString = std::string((const char*)record->data + record->templateInfo->fieldInfo[i].offset);
+            statusMsgType=record->templateInfo->fieldInfo[i].type;
+        }
 //        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_httpRequestHost, 0)) {
-//                        hostData = (record->data + record->templateInfo->fieldInfo[i].offset);
-//                        hostRecordType=record->templateInfo->fieldInfo[i].type;
+//		   hostData = (record->data + record->templateInfo->fieldInfo[i].offset);
+//		   hostType=record->templateInfo->fieldInfo[i].type;
 //        }
 
         //stuff that we need for a meaningful alert
@@ -317,33 +332,33 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 							goto skipRule;
 						}
 					}
-//					//TODO: check if this keyword is present in rules and possibly leave this check away if not
-//					case 4:{//http_stat_msg
-//						if(strcasestr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-//							if(rules[l].body.negatedContent[j]){
-//								contentMatched[j]=false;
-//							}else{
-//								contentMatched[j]=true;
-//							}
-//							break;
-//						}else{
-//							goto skipRule;
-//						}
-//					}
-//					//TODO: check if this keyword is present in rules and possibly leave this check away if not
-//					//TODO:try encoding stat code to int and see if its faster (useless because never used in current ruleset)
-//					case 5:{//http_stat_code
-//						if(strcasestr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-//							if(rules[l].body.negatedContent[j]){
-//								contentMatched[j]=false;
-//							}else{
-//								contentMatched[j]=true;
-//							}
-//							break;
-//						}else{
-//							goto skipRule;
-//						}
-//					}
+					//TODO: check if this keyword is present in rules and possibly leave this check away if not
+					case 4:{//http_stat_msg
+						if(strcasestr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+							if(rules[l].body.negatedContent[j]){
+								contentMatched[j]=false;
+							}else{
+								contentMatched[j]=true;
+							}
+							break;
+						}else{
+							goto skipRule;
+						}
+					}
+					//TODO: check if this keyword is present in rules and possibly leave this check away if not
+					//TODO:try encoding stat code to int and see if its faster (useless because never used in current ruleset)
+					case 5:{//http_stat_code
+						if(strcasestr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+							if(rules[l].body.negatedContent[j]){
+								contentMatched[j]=false;
+							}else{
+								contentMatched[j]=true;
+							}
+							break;
+						}else{
+							goto skipRule;
+						}
+					}
 					default:{
 						THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp (or not yet implemented)");
 					}
@@ -389,19 +404,19 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 							goto skipRule;
 						}
 					}
-//					//TODO:try encoding stat code to int and see if its faster (useless because almost never used in rules)
-//					case 5:{//http_stat_code
-//						if(strstr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-//							if(rules[l].body.negatedContent[j]){
-//								contentMatched[j]=false;
-//							}else{
-//								contentMatched[j]=true;
-//							}
-//							break;
-//						}else{
-//							goto skipRule;
-//						}
-//					}
+					//TODO:try encoding stat code to int and see if its faster (useless because almost never used in rules)
+					case 5:{//http_stat_code
+						if(strstr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+							if(rules[l].body.negatedContent[j]){
+								contentMatched[j]=false;
+							}else{
+								contentMatched[j]=true;
+							}
+							break;
+						}else{
+							goto skipRule;
+						}
+					}
 					default:{
 						THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp (or not yet implemented)");
 					}
