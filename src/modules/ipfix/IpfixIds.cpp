@@ -29,9 +29,11 @@
 
 int alertCounter;
 bool httpPortsGiven;
-
-
-
+//to be able to choose between IANA and ntop method type
+static InformationElement::IeInfo methodTypeChoice;
+static InformationElement::IeInfo uriTypeChoice;
+//the printer does not like ntops time IE
+bool printTime;
 /**
  * Creates a new IpfixIds.
  * Do not forget to call @c startIpfixIds() to begin printing
@@ -45,6 +47,7 @@ IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParse
 	alertFile = stdout;
 	string line;
 	httpPortsGiven=false;
+	printTime=true;
 
 	//default type to do intrusion detection on is the IANA type
 	methodTypeChoice=InformationElement::IeInfo(IPFIX_TYPEID_httpRequestMethod, 0);
@@ -93,6 +96,7 @@ IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParse
 	}
 
 	if(useNtopIEs){
+		printTime=false;
 		methodTypeChoice=InformationElement::IeInfo(IPFIX_ETYPEID_ntopHttpMethod, IPFIX_PEN_ntop, 0);
 		uriTypeChoice= InformationElement::IeInfo(IPFIX_ETYPEID_ntopHttpUri, IPFIX_PEN_ntop, 0);
 	}
@@ -473,7 +477,11 @@ void IpfixIds::writeAlert(string* sid, string* msg, IpfixRecord::Data* srcIPData
     fprintf(alertFile,":");
     printer.printPort(dstPortType,dstPortData);
     fprintf(alertFile,"\nflow start:\t");
+    if(printTime){
 	printTimeSeconds(startData);
+	}else{
+	fprintf(alertFile,"cannot handle Ntops time format\t");
+	}
     fprintf(alertFile,"\n\n");
 
 }
