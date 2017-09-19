@@ -1,6 +1,5 @@
 This is VERMONT - VERsatile MONitoring Tool.
 Released under GPL2
-Project website: http://vermont.berlios.de 
 
 ------------
 REQUIREMENTS
@@ -27,9 +26,6 @@ The following packages are optional:
     ==> cmake option SUPPORT_MYSQL
  - libgsl-dev (for connection-based sampling with Bloom filters)
     ==> cmake option USE_GSL
-
-For DTLS support, OpenSSL 1.0.0 or higher is required. It is recommended 
-to build OpenSSL based on the latest CVS revision. See DTLS instructions below.
 
 
 -------------------------
@@ -83,7 +79,7 @@ you can get from
 
 http://openssl.org/source/ 
 
-At the time of writing (July 2010), the latest version is 1.0.0a.
+At the time of writing of the DTLS part (July 2010), the latest version is 1.0.0a.
 
 $ wget http://openssl.org/source/openssl-1.0.0a.tar.gz
 $ tar xzf openssl-1.0.0a.tar.gz
