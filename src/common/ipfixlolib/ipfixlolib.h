@@ -24,7 +24,7 @@
  jan@petranek.de
  */
 
-/*! \mainpage ipfixlolib documentation
+/*! ipfixlolib documentation
 
 ipfixlolib is a library that implements an IPFIX Exporter as defined in RFC 5101. It supports the following transport protocols
 
