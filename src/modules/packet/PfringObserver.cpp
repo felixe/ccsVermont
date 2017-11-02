@@ -14,16 +14,6 @@
 
 #include "PfringObserver.h"
 
-#include "common/msg.h"
-#include "common/Thread.h"
-#include "common/defs.h"
-
-#include <pcap.h>
-#include <unistd.h>
-#include <iostream>
-#include <sstream>
-#include <math.h>
-
 /* Code adopted from tcpreplay: */
 /* subtract uvp from tvp and store in vvp */
 #ifndef timersub
@@ -80,16 +70,20 @@
 using namespace std;
 
 int PfringObserver::noInstances;
+//this buffer should be able to hold all packets coming in case of a packet burst
+pfring_zc_pkt_buff *buffers[BURST_LEN];
 
 PfringObserver::PfringObserver(const std::string& interface, bool offline, uint64_t maxpackets, int instances = 0) : thread(PfringObserver::PfringObserverThread), allDevices(NULL),
 	captureDevice(NULL), capturelen(PCAP_DEFAULT_CAPTURE_LENGTH), pcap_timeout(PCAP_TIMEOUT),
-	pcap_promisc(1), maxPackets(maxpackets), ready(false), filter_exp(0), observationDomainID(0), // FIXME: this must be configured!
+	pcap_promisc(1), maxPackets(maxpackets), ready(false), observationDomainID(0), // FIXME: this must be configured!
 	receivedBytes(0), lastReceivedBytes(0), processedPackets(0),
 	lastProcessedPackets(0),
 	captureInterface(NULL), fileName(NULL), replaceTimestampsFromFile(false),
 	stretchTimeInt(1), stretchTime(1.0), autoExit(true), slowMessageShown(false),
 	statTotalLostPackets(0), statTotalRecvPackets(0)
 {
+	cluster_id = DEFAULT_CLUSTER_ID;
+	bind_core=-1;
 	if(offline) {
 		readFromFile = true;
 		fileName = (char*)malloc(interface.size() + 1);
@@ -107,7 +101,7 @@ PfringObserver::PfringObserver(const std::string& interface, bool offline, uint6
 				"adjust compile-time parameter PCAP_MAX_CAPTURE_LENGTH!", capturelen, PCAP_DEFAULT_CAPTURE_LENGTH);
 
 	}
-
+	int cluster_id = DEFAULT_CLUSTER_ID;
 	// initialize the InstanceManager
     noInstances = instances;
 	getPacketManager();
@@ -140,22 +134,28 @@ PfringObserver::~PfringObserver()
 	}
 
 	free(captureInterface);
-	delete[] filter_exp;
+	//delete[] filter_exp;
 	if (fileName) { free(fileName); fileName = NULL; }
 	msg(MSG_DEBUG, "successful shutdown");
 }
+
 /*
- This is the main PfringObserver loop. It graps packets from libpcap and
- dispatches them to the registered receivers.
+ This is the main PfringObserver loop. I uses pfring zero copy to fetch packets from the NIC. It is a thread started in performStart().
  */
 void *PfringObserver::PfringObserverThread(void *arg)
 {
+
 	/* first we need to get the instance back from the void *arg */
 	PfringObserver *obs=(PfringObserver *)arg;
 	InstanceManager<Packet>& packetManager = getPacketManager();
 
 	Packet *p = NULL;
+	//ist eigentlich u_char:
+	char *pkt_data;
 	const unsigned char *pcapData;
+	//header for packets captured with pfring_zc
+	struct pfring_pkthdr pfringHdr;
+	//standard libpcap packetHeader, needed if pcap data is read from file
 	struct pcap_pkthdr packetHeader;
 	bool have_send = false;
 	obs->registerCurrentThread();
@@ -165,7 +165,7 @@ void *PfringObserver::PfringObserverThread(void *arg)
 	msg(MSG_INFO, "  - readFromFile=%d", obs->readFromFile);
 	if (obs->fileName) msg(MSG_INFO, "  - fileName=%s", obs->fileName);
 	if (obs->captureInterface) msg(MSG_INFO, "  - captureInterface=%s", obs->captureInterface);
-	msg(MSG_INFO, "  - filterString='%s'", (obs->filter_exp ? obs->filter_exp : "none"));
+	//msg(MSG_INFO, "  - filterString='%s'", (obs->filter_exp ? obs->filter_exp : "none"));
 	msg(MSG_INFO, "  - maxPackets=%u", obs->maxPackets);
 	msg(MSG_INFO, "  - capturelen=%d", obs->capturelen);
 	msg(MSG_INFO, " - dataLinkType=%d", obs->dataLinkType);
@@ -180,67 +180,45 @@ void *PfringObserver::PfringObserverThread(void *arg)
 
 
 	if(!obs->readFromFile) {
-		while(!obs->exitFlag && (obs->maxPackets==0 || obs->processedPackets<obs->maxPackets)) {
-			// wait until data can be read from pcap file descriptor
-			fd_set fd_wait;
-			FD_ZERO(&fd_wait);
-			FD_SET(pcap_fileno(obs->captureDevice), &fd_wait);
-			struct timeval st;
-			st.tv_sec = 1;
-			st.tv_usec = 0;
-			int result = select(FD_SETSIZE, &fd_wait, NULL, NULL, &st);
-			if (result == -1) {
-				if (errno==EINTR) continue; // just continue on interrupted system call
-				msg(MSG_FATAL, "select() on pcap file descriptor returned -1, error: %s", strerror(errno));
-				msg(MSG_FATAL, "shutting down PfringObserver");
-				break;
-			}
-			if (result == 0) {
-				continue;
-			}
-
-			/*
-			 get next packet (no zero-copy possible *sigh*)
-			 NOTICE: potential bottleneck, if pcap_next() is calling gettimeofday() at a high rate;
-			 there is partially caching function described in an Sun or IBM (Developerworks) article
-			 that can act as a via LD_PRELOAD used overlay function.
-			 unfortunately I don't have an URL ready -Freek
-			 */
+		while(!obs->exitFlag&& (obs->maxPackets==0 || obs->processedPackets<obs->maxPackets)){
 			DPRINTFL(MSG_VDEBUG, "trying to get packet from pcap");
-			pcapData = pcap_next(obs->captureDevice, &packetHeader);
-			if(!pcapData)
-			/* no packet data was available */
-			continue;
-			DPRINTFL(MSG_VDEBUG, "got new packet!");
+			//third parameter is "wait for packet"
+			if(pfring_zc_recv_pkt(obs->zq, &buffers[0], 1) > 0) {
+						DPRINTFL(MSG_VDEBUG, "got new packet!");
+						p = packetManager.getNewInstance();
+						printf("###getting pointer to packet\n");
+						//pfring_zc_pkt_buff_data returns a pointer to the actual packet data
+						pkt_data=(char*)pfring_zc_pkt_buff_data(buffers[0], obs->zq);
 
-			// show current packet as c-structure on stdout
-			//for (unsigned int i=0; i<packetHeader.caplen; i++) {
-			//printf("0x%02hhX, ", ((unsigned char*)pcapData)[i]);
-			//}
-			//printf("\n");
+						  memset(&pfringHdr, 0, sizeof(pfringHdr));
+						  pfringHdr.len = buffers[0]->len, pfringHdr.caplen = buffers[0]->len;
+						  printf("###parsing packet\n");
+						  pfring_parse_pkt((u_char *) pkt_data, &pfringHdr, 5, 0, 1);
 
-			// initialize packet structure (init copies packet data)
-			p = packetManager.getNewInstance();
-			p->init((char*)pcapData, packetHeader.caplen, packetHeader.ts, obs->observationDomainID, packetHeader.len, obs->dataLinkType);
+						/*initialize packet structure (init copies packet data).*/
+						//With hardcoded dataLinkType, not super pretty but works!
+						p->init(pkt_data, pfringHdr.caplen, pfringHdr.ts, obs->observationDomainID, pfringHdr.len, DLT_EN10MB);
+						DPRINTFL(MSG_VDEBUG,"received packet at %u. %04u, len=%d",
+								(unsigned)p->timestamp.tv_sec,
+								(unsigned)p->timestamp.tv_usec / 1000,
+								pfringHdr.caplen
+						);
 
-			DPRINTF("received packet at %u.%04u, len=%d",
-					(unsigned)p->timestamp.tv_sec,
-					(unsigned)p->timestamp.tv_usec / 1000,
-					packetHeader.caplen
-			);
+						// update statistics
+						obs->receivedBytes += pfringHdr.caplen;
+						obs->processedPackets++;
 
-			// update statistics
-			obs->receivedBytes += packetHeader.caplen;
-			obs->processedPackets++;
+						while (!obs->exitFlag) {
+							DPRINTFL(MSG_VDEBUG, "trying to push packet to queue");
+							if ((have_send = obs->send(p))) {
+								DPRINTFL(MSG_VDEBUG, "packet pushed");
+								break;
+							}
+						}
+			}//if recv_pkt
+		}//while
 
-			while (!obs->exitFlag) {
-				DPRINTFL(MSG_VDEBUG, "trying to push packet to queue");
-				if ((have_send = obs->send(p))) {
-					DPRINTFL(MSG_VDEBUG, "packet pushed");
-					break;
-				}
-			}
-		}
+	//read packets from pcap file
 	} else {
 		// file handle
 		FILE* fh = pcap_file(obs->captureDevice);
@@ -357,101 +335,48 @@ void *PfringObserver::PfringObserverThread(void *arg)
  error checking on pcap here, because it can't be done in the constructor
  and it may be too late, if done in the thread
  */
-bool PfringObserver::prepare(const std::string& filter)
+bool PfringObserver::prepare()
 {
-	struct in_addr i_netmask, i_network;
-
-	// we need to store the filter expression, because pcap needs
-	// a char* and doesn't accept a const char* ... nasty pcap-devs!!!
-	if (!filter.empty()) {
-		filter_exp = new char[filter.size() + 1];
-		strcpy(filter_exp, filter.c_str());
-		usedBytes += filter.size()+1;
-	}
-
+	//TODO: not needed?!:
+	//struct in_addr i_netmask, i_network;
 	if (!readFromFile) {
-		// query all available capture devices
-		msg(MSG_INFO, "Finding devices");
-		if(pcap_findalldevs(&allDevices, errorBuffer) == -1) {
-			msg(MSG_FATAL, "error getting list of interfaces: %s", errorBuffer);
-			goto out;
-		}
+		zc = pfring_zc_create_cluster(cluster_id, capturelen,0,MAX_CARD_SLOTS + BURST_LEN,pfring_zc_numa_get_cpu_node(bind_core),NULL /* auto hugetlb mountpoint */);
 
-		for(pcap_if_t *dev = allDevices; dev != NULL; dev=dev->next) {
-			msg(MSG_DEBUG, "PCAP: name=%s, desc=%s", dev->name, dev->description);
-		}
+		if(zc == NULL) {
+			msg(MSG_FATAL, "PfringObserver: pfring_zc_create_cluster error. Please check that pf_ring.ko is loaded and hugetlb fs is mounted\n");
+			return false;
+			}
 
-		msg(MSG_INFO,
-		    "pcap opening interface=%s, promisc=%d, snaplen=%d, timeout=%d",
-		    captureInterface, pcap_promisc, capturelen, pcap_timeout
-		   );
-		captureDevice=pcap_open_live(captureInterface, capturelen, pcap_promisc, pcap_timeout, errorBuffer);
-		// check for errors
-		if(!captureDevice) {
-			msg(MSG_FATAL, "Error initializing pcap interface: %s", errorBuffer);
-			goto out1;
-		}
+		zq = pfring_zc_open_device(zc, captureInterface, rx_only, 0);
 
-		// make reads non-blocking
-		if(pcap_setnonblock(captureDevice, 1, errorBuffer) == -1) {
-			msg(MSG_FATAL, "Error setting pcap interface to non-blocking: %s", errorBuffer);
-			goto out2;
-		}
+		if(zq == NULL) {
+			msg(MSG_FATAL, "PfringObserver:pfring_zc_open_device error. Please check that given network device is up and not already used\n");
+			return false;
+			}
 
-		/* we need the netmask for the pcap_compile */
-		if(pcap_lookupnet(captureInterface, &network, &netmask, errorBuffer) == -1) {
-			msg(MSG_ERROR, "unable to determine netmask/network: %s", errorBuffer);
-			network=0;
-			netmask=0;
-		}
-		i_network.s_addr=network;
-		i_netmask.s_addr=netmask;
-		msg(MSG_DEBUG, "pcap seems to run on network %s", inet_ntoa(i_network));
-		msg(MSG_INFO, "pcap seems to run on netmask %s", inet_ntoa(i_netmask));
+	  	for (int i = 0; i < BURST_LEN; i++) {
+			buffers[i] = pfring_zc_get_packet_handle(zc);
+			if (buffers[i] == NULL) {
+				msg(MSG_FATAL, "pfring_zc_get_packet_handle error\n");
+				return false;
+	    		}
+	  	}
+
+
 	} else {
 		captureDevice=pcap_open_offline(fileName, errorBuffer);
-		// check for errors
-		if(!captureDevice) {
-			msg(MSG_FATAL, "Error opening pcap file %s: %s", fileName, errorBuffer);
-			goto out1;
-		}
+				// check for errors
+				if(!captureDevice) {
+					msg(MSG_FATAL, "Error opening pcap file %s: %s", fileName, errorBuffer);
+					return false;
+				}
 
-		netmask=0;
-	}
-
-	dataLinkType = pcap_datalink(captureDevice);
-
-	if (filter_exp) {
-		msg(MSG_DEBUG, "compiling pcap filter code from: %s", filter_exp);
-		if(pcap_compile(captureDevice, &pcap_filter, filter_exp, 1, netmask) == -1) {
-			msg(MSG_FATAL, "unable to validate+compile pcap filter");
-			goto out2;
-		}
-
-		if(pcap_setfilter(captureDevice, &pcap_filter) == -1) {
-			msg(MSG_FATAL, "unable to attach filter to pcap: %s", pcap_geterr(captureDevice));
-			goto out3;
-		}
-		/* you may free an attached code, see man-page */
-		pcap_freecode(&pcap_filter);
-	} else {
-		msg(MSG_DEBUG, "using no pcap filter");
+				netmask=0;
 	}
 
 	ready=true;
-
 	return true;
 
-out3:
-	pcap_freecode(&pcap_filter);
-out2:
-	pcap_close(captureDevice);
-	captureDevice=NULL;
-out1:
-	pcap_freealldevs(allDevices);
-	allDevices=NULL;
-out:
-	return false;
 }
 
 

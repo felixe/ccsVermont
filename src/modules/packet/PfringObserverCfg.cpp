@@ -44,7 +44,7 @@ PfringObserverCfg* PfringObserverCfg::create(XMLElement* e)
 PfringObserverCfg::PfringObserverCfg(XMLElement* elem)
 	: CfgHelper<PfringObserver, PfringObserverCfg>(elem, "pfringObserver"),
 	interface(),
-	pcap_filter(),
+	//pcap_filter(),
 	capture_len(PCAP_DEFAULT_CAPTURE_LENGTH),
 	offline(false),
 	replaceOfflineTimestamps(false),
@@ -63,8 +63,8 @@ PfringObserverCfg::PfringObserverCfg(XMLElement* elem)
 
 		if (e->matches("interface")) {
 			interface = e->getFirstText();
-		} else if (e->matches("pcap_filter")) {
-			pcap_filter = e->getFirstText();
+		//} else if (e->matches("pcap_filter")) {
+		//	pcap_filter = e->getFirstText();
 		} else if (e->matches("filename")) {
 			interface = e->getFirstText();
 			offline = true;
@@ -107,7 +107,7 @@ PfringObserver* PfringObserverCfg::createInstance()
 		}
 	}
 
-	if (!instance->prepare(pcap_filter.c_str())) {
+	if (!instance->prepare()) {
 		msg(MSG_FATAL, "PfringObserver: preparing failed");
 		THROWEXCEPTION("PfringObserver setup failed!");
 	}
@@ -121,8 +121,8 @@ bool PfringObserverCfg::deriveFrom(PfringObserverCfg* old)
 		return false;
 	if (capture_len != old->capture_len)
 		return false;
-	if (pcap_filter != old->pcap_filter)
-		return false;
+	//if (pcap_filter != old->pcap_filter)
+	//	return false;
 
 	return true;
 }

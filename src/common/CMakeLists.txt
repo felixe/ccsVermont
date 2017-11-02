@@ -36,10 +36,11 @@ ADD_LIBRARY(common
 	openssl/SSLCTXWrapper.cpp
 	SnortRuleParser.h
 	SnortRuleParser.cpp
+	pfring/pfring_utils.c
 )
 
 SUBDIRS(
 	anon
-	ipfixlolib	
+	ipfixlolib
 )
 

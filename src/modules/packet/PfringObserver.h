@@ -24,18 +24,27 @@
  Maybe this should be runtime-configurable.
  */
 #define PCAP_TIMEOUT 100
-
+//pfring zerocopy stuff
+#define DEFAULT_CLUSTER_ID          99
+#define MAX_CARD_SLOTS      32768
+//TODO: make this user definable?
+#define BURST_LEN   32
 
 #include "Packet.h"
 
 #include "common/msg.h"
 #include "common/Thread.h"
 #include "common/ConcurrentQueue.h"
+#include "common/defs.h"
 
 #include "core/InstanceManager.h"
 #include "core/Source.h"
 #include "core/Module.h"
 
+#include <unistd.h>
+#include <iostream>
+#include <sstream>
+#include <math.h>
 #include <vector>
 #include <string>
 #include <sys/socket.h>
@@ -43,8 +52,13 @@
 #include <arpa/inet.h>
 #include <pcap.h>
 
+#include "common/pfring/pfring_utils.h"
 #include "pfring.h"
 #include "pfring_zc.h"
+
+
+
+
 
 class PfringObserver : public Module, public Source<Packet*>, public Destination<NullEmitable*>
 {
@@ -62,13 +76,11 @@ public:
 	void replaceOfflineTimestamps();
 	void setOfflineSpeed(float m);
 	int getPcapStats(struct pcap_stat *out);
-	bool prepare(const std::string& filter);
+	//bool prepare(const std::string& filter);
+	bool prepare();
 	static void doLogging(void *arg);
 	virtual std::string getStatisticsXML(double interval);
 	static InstanceManager<Packet>& getPacketManager();
-
-	pfring_zc_cluster *zc;
-	pfring_zc_queue *zq;
 
 protected:
 	Thread thread;
@@ -83,7 +95,7 @@ protected:
 	uint32_t netmask, network;
 
 	// holding the pcap filter program
-	struct bpf_program pcap_filter;
+	//struct bpf_program pcap_filter;
 
 	// pcap reports error nicely, this is the used buffer
 	char errorBuffer[PCAP_ERRBUF_SIZE];
@@ -105,7 +117,7 @@ protected:
 	bool ready;
 
 	// save the given filter expression
-	char* filter_exp;
+	//char* filter_exp;
 
 	uint32_t observationDomainID;
 
@@ -142,6 +154,12 @@ protected:
 	int dataLinkType; // contains the datalink type of the capturing device
 
     static int noInstances; // defines the number of packet instances which should be preallocated by the instance manager
+
+	//pfring zeroCopy specific stuff:
+	int cluster_id;
+	int bind_core;
+	pfring_zc_cluster *zc;
+	pfring_zc_queue *zq;
 };
 
 #endif /*PFRINGOBSERVER_H*/
