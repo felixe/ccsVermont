@@ -186,14 +186,15 @@ void *PfringObserver::PfringObserverThread(void *arg)
 			if(pfring_zc_recv_pkt(obs->zq, &buffers[0], 1) > 0) {
 						DPRINTFL(MSG_VDEBUG, "got new packet!");
 						p = packetManager.getNewInstance();
-						printf("###getting pointer to packet\n");
 						//pfring_zc_pkt_buff_data returns a pointer to the actual packet data
 						pkt_data=(char*)pfring_zc_pkt_buff_data(buffers[0], obs->zq);
 
-						  memset(&pfringHdr, 0, sizeof(pfringHdr));
-						  pfringHdr.len = buffers[0]->len, pfringHdr.caplen = buffers[0]->len;
-						  printf("###parsing packet\n");
-						  pfring_parse_pkt((u_char *) pkt_data, &pfringHdr, 5, 0, 1);
+						memset(&pfringHdr, 0, sizeof(pfringHdr));
+						pfringHdr.len = buffers[0]->len, pfringHdr.caplen = buffers[0]->len;
+
+						//arguments 5,1,1 --> layer 5, add_timestamp =1, add_hash=1
+						//TODO: do we need to parse lower layers too?
+						pfring_parse_pkt((u_char *) pkt_data, &pfringHdr, 5, 1, 1);
 
 						/*initialize packet structure (init copies packet data).*/
 						//With hardcoded dataLinkType, not super pretty but works!

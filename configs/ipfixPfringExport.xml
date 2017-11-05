@@ -1,0 +1,131 @@
+<ipfixConfig xmlns="urn:ietf:params:xml:ns:ipfix-config">
+	<sensorManager id="99">
+		<checkinterval>1</checkinterval>
+		<outputfile>sensor_output.xml</outputfile>
+	</sensorManager>
+	<pfringObserver id="1">
+		<interface>zc:eth0</interface>
+		<instances>10000</instances>
+		<offlineAutoExit>1</offlineAutoExit>
+		<offlineSpeed>0</offlineSpeed>
+		<captureLength>1500</captureLength>
+		<next>2</next>
+	</pfringObserver>
+	
+	<packetQueue id="2">
+		<maxSize>1000</maxSize>
+		<next>3</next>
+	</packetQueue>
+	
+	<packetAggregator id="3">
+		<rule>
+			<templateId>999</templateId>
+            <httpAggregation>0</httpAggregation>
+            <httpSkipHeader>0</httpSkipHeader>
+            <httpMsgBufferSize>102400</httpMsgBufferSize>
+            <tcpMonitor>
+                <attemptedConnectionTimeout unit="sec">20</attemptedConnectionTimeout>
+                <establishedConnectionTimeout unit="sec">600</establishedConnectionTimeout>
+                <closedConnectionTimeout unit="sec">20</closedConnectionTimeout>
+                <connectionBufferSize>104857600</connectionBufferSize>
+                <usePCAPTimestamps>true</usePCAPTimestamps>
+            </tcpMonitor>
+			<flowKey>
+				<ieName>sourceIPv4Address</ieName>
+			</flowKey>
+			<flowKey>
+				<ieName>destinationIPv4Address</ieName>
+			</flowKey>
+			<flowKey>
+				<ieName>protocolIdentifier</ieName>
+			</flowKey>
+			<flowKey>
+				<ieName>sourceTransportPort</ieName>
+			</flowKey>
+			<flowKey>
+				<ieName>destinationTransportPort</ieName>
+			</flowKey>
+			<nonFlowKey>
+				<ieName>flowStartNanoSeconds</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>flowEndNanoSeconds</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>octetDeltaCount</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>packetDeltaCount</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>tcpControlBits</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>frontPayload</ieName>
+				<ieLength>2048</ieLength>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>frontPayloadLen</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>revflowStartNanoSeconds</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>revflowEndNanoSeconds</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>revoctetDeltaCount</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>revpacketDeltaCount</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>revtcpControlBits</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>revFrontPayload</ieName>
+				<ieLength>2048</ieLength>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>revFrontPayloadLen</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>dpaForcedExport</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>dpaFlowCount</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>dpaReverseStart</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>transportOctetDeltaCount</ieName>
+			</nonFlowKey>
+			<nonFlowKey>
+				<ieName>revTransportOctetDeltaCount</ieName>
+			</nonFlowKey>
+		</rule>
+		<expiration>
+			<inactiveTimeout unit="sec">60</inactiveTimeout>
+			<activeTimeout unit="sec">300</activeTimeout>
+		</expiration>
+		<pollInterval unit="msec">100</pollInterval>
+		<next>4</next>
+	</packetAggregator>
+
+	<ipfixQueue id="4">
+		<entries>1000</entries>
+		<next>5</next>
+		<next>6</next>
+	</ipfixQueue>
+         <ipfixPrinter id="5">
+                 <!-- <outputType>table</outputType> -->
+                 <outputType>tree</outputType>
+                 <filename>flows.dat</filename>
+         </ipfixPrinter>
+
+	<fpaPcapExporter id="6">
+		<filename>pcap.dump</filename>
+		<snaplen>5000</snaplen>
+	</fpaPcapExporter>
+</ipfixConfig>
