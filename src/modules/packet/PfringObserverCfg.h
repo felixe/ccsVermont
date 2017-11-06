@@ -59,12 +59,7 @@ protected:
 private:
 	// config variables
 	std::string interface;	// also used for filename in offline mode
-	//std::string pcap_filter;
 	unsigned int capture_len;
-	bool offline;
-	bool replaceOfflineTimestamps;
-	bool offlineAutoExit;
-	float offlineSpeed;
 	uint64_t maxPackets;
 	int noInstances; // defines the number of instances which should be preallocated by the instance manager
 };

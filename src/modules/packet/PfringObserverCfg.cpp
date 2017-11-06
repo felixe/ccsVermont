@@ -44,12 +44,7 @@ PfringObserverCfg* PfringObserverCfg::create(XMLElement* e)
 PfringObserverCfg::PfringObserverCfg(XMLElement* elem)
 	: CfgHelper<PfringObserver, PfringObserverCfg>(elem, "pfringObserver"),
 	interface(),
-	//pcap_filter(),
 	capture_len(PCAP_DEFAULT_CAPTURE_LENGTH),
-	offline(false),
-	replaceOfflineTimestamps(false),
-	offlineAutoExit(true),
-	offlineSpeed(1.0),
 	maxPackets(0),
 	noInstances(0)
 {
@@ -63,17 +58,6 @@ PfringObserverCfg::PfringObserverCfg(XMLElement* elem)
 
 		if (e->matches("interface")) {
 			interface = e->getFirstText();
-		//} else if (e->matches("pcap_filter")) {
-		//	pcap_filter = e->getFirstText();
-		} else if (e->matches("filename")) {
-			interface = e->getFirstText();
-			offline = true;
-		} else if (e->matches("replaceTimestamps")) {
-			replaceOfflineTimestamps = getBool("replaceTimestamps", replaceOfflineTimestamps);
-		} else if (e->matches("offlineSpeed")) {
-			offlineSpeed = getDouble("offlineSpeed");
-		} else if (e->matches("offlineAutoExit")) {
-			offlineAutoExit = getBool("offlineAutoExit", offlineAutoExit);
 		} else if (e->matches("captureLength")) {
 			capture_len = getInt("captureLength");
 		} else if (e->matches("maxPackets")) {
@@ -83,6 +67,7 @@ PfringObserverCfg::PfringObserverCfg(XMLElement* elem)
 		} else if (e->matches("next")) { // ignore next
 		} else {
 			msg(MSG_FATAL, "Unknown PfringObserver config statement %s\n", e->getName().c_str());
+			THROWEXCEPTION("Unknown PfringObserver config statement %s. Please fix config and retry.\n", e->getName().c_str());
 			continue;
 		}
 	}
@@ -95,10 +80,7 @@ PfringObserverCfg::~PfringObserverCfg()
 
 PfringObserver* PfringObserverCfg::createInstance()
 {
-	instance = new PfringObserver(interface, offline, maxPackets, noInstances);
-	instance->setOfflineSpeed(offlineSpeed);
-	instance->setOfflineAutoExit(offlineAutoExit);
-	if (replaceOfflineTimestamps) instance->replaceOfflineTimestamps();
+	instance = new PfringObserver(interface, maxPackets, noInstances);
 
 	if (capture_len) {
 		if(!instance->setCaptureLen(capture_len)) {
@@ -121,8 +103,6 @@ bool PfringObserverCfg::deriveFrom(PfringObserverCfg* old)
 		return false;
 	if (capture_len != old->capture_len)
 		return false;
-	//if (pcap_filter != old->pcap_filter)
-	//	return false;
 
 	return true;
 }

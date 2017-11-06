@@ -3,14 +3,14 @@
 		<checkinterval>1</checkinterval>
 		<outputfile>sensor_output.xml</outputfile>
 	</sensorManager>
-	<pfringObserver id="1">
-		<interface>zc:eth0</interface>
+	<observer id="1">
+		<interface>eth0</interface>
 		<instances>10000</instances>
-		<bla>asdf</bla>
+		<offlineAutoExit>1</offlineAutoExit>
+		<offlineSpeed>0</offlineSpeed>
 		<captureLength>1500</captureLength>
-		<maxPackets>200</maxPackets>
 		<next>2</next>
-	</pfringObserver>
+	</observer>
 	
 	<packetQueue id="2">
 		<maxSize>1000</maxSize>

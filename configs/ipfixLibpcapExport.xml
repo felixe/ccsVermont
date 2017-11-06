@@ -3,12 +3,12 @@
 		<checkinterval>1</checkinterval>
 		<outputfile>sensor_output.xml</outputfile>
 	</sensorManager>
-	<pfringObserver id="1">
-		<interface>zc:eth0</interface>
+	<observer id="1">
+		<interface>eth0</interface>
 		<instances>10000</instances>
 		<captureLength>1500</captureLength>
 		<next>2</next>
-	</pfringObserver>
+	</observer>
 	
 	<packetQueue id="2">
 		<maxSize>1000</maxSize>

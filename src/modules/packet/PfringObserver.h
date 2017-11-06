@@ -63,20 +63,14 @@
 class PfringObserver : public Module, public Source<Packet*>, public Destination<NullEmitable*>
 {
 public:
-	PfringObserver(const std::string& interface, bool offline, uint64_t maxpackets, int instances);
+	PfringObserver(const std::string& interface, uint64_t maxpackets, int instances);
 	~PfringObserver();
 
 	virtual void performStart();
 	virtual void performShutdown();
 	bool setCaptureLen(int x);
-	void setOfflineAutoExit(bool autoexit);
 	int getCaptureLen();
-	bool setPacketTimeout(int ms);
-	int getPacketTimeout();
-	void replaceOfflineTimestamps();
-	void setOfflineSpeed(float m);
 	int getPcapStats(struct pcap_stat *out);
-	//bool prepare(const std::string& filter);
 	bool prepare();
 	static void doLogging(void *arg);
 	virtual std::string getStatisticsXML(double interval);
@@ -94,20 +88,11 @@ protected:
 	// IPv4 netmask + network bitmasks the interface is on
 	uint32_t netmask, network;
 
-	// holding the pcap filter program
-	//struct bpf_program pcap_filter;
-
 	// pcap reports error nicely, this is the used buffer
 	char errorBuffer[PCAP_ERRBUF_SIZE];
 
 	// also called snaplen; only sniff this much bytes from each packet
 	uint32_t capturelen;
-
-	// wait this much ms until pcap_read() returns and get ALL packets received
-	int pcap_timeout;
-
-	// capture packets in promiscous mode or not
-	int pcap_promisc;
 
 	// maximum number of packets to capture, then stop processing
 	// 0 == do not stop
@@ -115,9 +100,6 @@ protected:
 
 	// set to true if prepare() was successful
 	bool ready;
-
-	// save the given filter expression
-	//char* filter_exp;
 
 	uint32_t observationDomainID;
 
@@ -133,16 +115,6 @@ protected:
 
 	// interface we capture traffic on - string
 	char *captureInterface;
-
-	// pcap file we read traffic from - string
-	char *fileName;
-
-	// offline mode parameters
-	bool readFromFile;
-	bool replaceTimestampsFromFile;
-	uint16_t stretchTimeInt; // 1 means no timing change, 0 means that stretchTimes (float) is used
-	float stretchTime;
-	bool autoExit;
 
 	bool slowMessageShown;	// true if message was shown that vermont is too slow to read file in time
 
