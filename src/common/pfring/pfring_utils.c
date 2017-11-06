@@ -923,29 +923,5 @@ int32_t gmt_to_local(time_t t) {
   return (dt);
 }
 
-/* **************************************************** */
-
-void pfring_thirdparty_lib_init(const char* thirdparty_lib_name, struct thirdparty_func thirdparty_function_ptr[]) {
-  void *thirdparty_handle;
-  int i;
-
-  if ((thirdparty_handle = dlopen(thirdparty_lib_name, RTLD_LAZY)) == NULL) {
-    //printf("Unable to load library %s: is installed properly?\n",
-    //	   thirdparty_lib_name);
-    return;
-  }
-
-  for (i = 0; thirdparty_function_ptr[i].name != NULL; i++) {
-    if (thirdparty_function_ptr[i].ptr == NULL) {
-      thirdparty_function_ptr[i].ptr = dlsym(thirdparty_handle, thirdparty_function_ptr[i].name);
-#ifdef RING_DEBUG
-      if (thirdparty_function_ptr[i].ptr != NULL)
-        printf("Loaded function %s from %s\n", thirdparty_function_ptr[i].name, thirdparty_lib_name);
-#endif
-    }
-  }
-
-  /* Don't dlclose(thirdparty_handle) as otherwise symbols will disappead */
-}
 
 #endif /*pfringZC*/

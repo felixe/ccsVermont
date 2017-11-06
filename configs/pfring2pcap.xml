@@ -6,7 +6,6 @@
 	<pfringObserver id="1">
 		<interface>zc:eth0</interface>
 		<instances>10000</instances>
-		<bla>asdf</bla>
 		<captureLength>1500</captureLength>
 		<maxPackets>200</maxPackets>
 		<next>2</next>
