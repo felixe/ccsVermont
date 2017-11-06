@@ -241,22 +241,6 @@ bool PfringObserver::prepare()
 
 }
 
-
-/*
- this function is called by the logger timer thread and should dump
- some nice info using msg_stat
- */
-void PfringObserver::doLogging(void *arg)
-{
-	PfringObserver *obs=(PfringObserver *)arg;
-	struct pcap_stat stats;
-
-	 //pcap_stats() will set the stats to -1 if something goes wrong
-	 //so it is okay if we dont check the return code
-	obs->getPcapStats(&stats);
-	msg_stat("%6d recv, %6d drop, %6d ifdrop", stats.ps_recv, stats.ps_drop, stats.ps_ifdrop);
-}
-
 /*
    call to get the main capture thread running
    open() has to be called before
@@ -324,35 +308,43 @@ InstanceManager<Packet>& PfringObserver::getPacketManager() {
     return *packetManager;
 }
 
+/*
+ this function is called by the logger timer thread and should dump
+ some nice info using msg_stat
+ */
+void PfringObserver::doLogging(void *arg)
+{
+	PfringObserver *obs=(PfringObserver *)arg;
+	pfring_zc_stat stats;
+	// update statistics
+	if (pfring_zc_stats(obs->zq, &stats) == 0){
+		msg_stat("%u recv, %u drop", stats.recv, stats.drop);
+	}else{
+		msg(MSG_INFO,"doLogging: Currently no stats available");
+	}
+
+}
+
 /**
  * statistics function called by StatisticsManager
  */
 std::string PfringObserver::getStatisticsXML(double interval)
 {
+	pfring_zc_stat stats;
 	ostringstream oss;
-	pcap_stat pstats;
-	if (captureDevice && pcap_stats(captureDevice, &pstats)==0) {
-		unsigned int recv = pstats.ps_recv;
-		unsigned int dropped = pstats.ps_drop;
+	// update statistics
+	if (pfring_zc_stats(this->zq, &stats) == 0){
 
-		oss << "<pcap>";
-		oss << "<received type=\"packets\">" << (uint32_t)((double)(recv-statTotalRecvPackets)/interval) << "</received>";
-		oss << "<dropped type=\"packets\">" << (uint32_t)((double)(dropped-statTotalLostPackets)/interval) << "</dropped>";
-		oss << "<totalReceived type=\"packets\">" << statTotalRecvPackets << "</totalReceived>";
-		oss << "<totalDropped type=\"packets\">" << statTotalLostPackets << "</totalDropped>";
-		oss << "</pcap>";
-		statTotalLostPackets = dropped;
-		statTotalRecvPackets = recv;
+	}else{
+		msg(MSG_INFO,"Currently no new stats available, retry in %d", interval);
 	}
-	uint64_t diff = receivedBytes-lastReceivedBytes;
-	lastReceivedBytes += diff;
-	oss << "<PfringObserver>";
-	oss << "<processed type=\"bytes\">" << (uint32_t)((double)diff/interval) << "</processed>";
-	diff = processedPackets-lastProcessedPackets;
-	lastProcessedPackets += diff;
-	oss << "<processed type=\"packets\">" << (uint32_t)((double)diff/interval) << "</processed>";
-	oss << "<totalProcessed type=\"packets\">" << processedPackets << "</totalProcessed>";
-	oss << "</PfringObserver>";
+
+		oss << "<pfringObserver>";
+		oss << "<totalReceived type=\"packets\">" << stats.recv << "</totalReceived>";
+		oss << "<totalReceived type=\"bytes\">" << this->receivedBytes << "</totalReceived>";
+		oss << "<totalDropped type=\"packets\">" << stats.drop << "</totalDropped>";
+		oss << "</pfringObserver>";
+
 	return oss.str();
 }
 #endif /*pfringZC*/
