@@ -4,7 +4,7 @@
 		<outputfile>sensor_output.xml</outputfile>
 	</sensorManager>
 	<pfringObserver id="1">
-		<interface>zc:eth0</interface>
+		<interface>zc:enp3s0f0</interface>
 		<instances>10000</instances>
 		<captureLength>1500</captureLength>
 		<next>2</next>
@@ -102,6 +102,29 @@
 			<nonFlowKey>
 				<ieName>revTransportOctetDeltaCount</ieName>
 			</nonFlowKey>
+			<nonFlowKey>
+                                <ieName>httpRequestMethod</ieName>
+                        </nonFlowKey>
+                        <nonFlowKey>
+                                <ieName>httpRequestTarget</ieName>
+                                <ieLength>150</ieLength>
+                        </nonFlowKey>
+                        <nonFlowKey>
+                                <ieName>httpMessageVersion</ieName>
+                        </nonFlowKey>
+                        <nonFlowKey>
+                                <ieName>httpRequestHost</ieName>
+                                <ieLength>50</ieLength>
+                        </nonFlowKey>
+                        <nonFlowKey>
+                                <ieName>httpRespMessageVersion</ieName>
+                        </nonFlowKey>
+                        <nonFlowKey>
+                                <ieName>httpStatusCode</ieName>
+                        </nonFlowKey>
+                        <nonFlowKey>
+                                <ieName>httpStatusPhrase</ieName>
+                        </nonFlowKey>
 		</rule>
 		<expiration>
 			<inactiveTimeout unit="sec">60</inactiveTimeout>
@@ -118,7 +141,7 @@
         <ipfixPrinter id="5">
                 <!-- <outputType>table</outputType> -->
                 <outputType>tree</outputType>
-                <filename>flows.dat</filename>
+                <filename>/dev/null</filename>
         </ipfixPrinter>
 
 </ipfixConfig>

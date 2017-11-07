@@ -4,10 +4,8 @@
 		<outputfile>sensor_output.xml</outputfile>
 	</sensorManager>
 	<observer id="1">
-		<interface>eth0</interface>
+		<interface>enp3s0f0</interface>
 		<instances>10000</instances>
-		<offlineAutoExit>1</offlineAutoExit>
-		<offlineSpeed>0</offlineSpeed>
 		<captureLength>1500</captureLength>
 		<next>2</next>
 	</observer>
@@ -18,6 +16,6 @@
 	</packetQueue>
 	
 	<pcapExporterFile id="3">
-		<filename>output.pcap</filename>
+		<filename>/dev/null</filename>
 	</pcapExporterFile>
 </ipfixConfig>
