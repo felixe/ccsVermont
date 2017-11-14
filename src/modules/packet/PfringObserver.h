@@ -28,7 +28,7 @@
 #define DEFAULT_CLUSTER_ID          99
 #define MAX_CARD_SLOTS      32768
 //TODO: make this user definable?
-#define BURST_LEN   32
+#define ZC_BUFFER_LEN     9000
 
 #include "Packet.h"
 
@@ -128,10 +128,9 @@ protected:
     static int noInstances; // defines the number of packet instances which should be preallocated by the instance manager
 
 	//pfring zeroCopy specific stuff:
-	int cluster_id;
-	int bind_core;
-	pfring_zc_cluster *zc;
-	pfring_zc_queue *zq;
+    pfring  *ring;
+	u_int8_t pfring_get_num_rx_channels(pfring *ring);
+	int bindthread2core(pthread_t thread_id, u_int core_id);
 };
 
 #endif /*PFRINGOBSERVER_H*/

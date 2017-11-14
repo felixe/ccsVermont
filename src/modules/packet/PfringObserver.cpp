@@ -70,8 +70,12 @@
 using namespace std;
 
 int PfringObserver::noInstances;
-//this buffer should be able to hold all packets coming in case of a packet burst
-pfring_zc_pkt_buff *buffers[BURST_LEN];
+//for the moment this seems the right thing to do:
+//TODO: maybe make user definable in future?!?
+int num_threads = 1;
+u_int8_t wait_for_packet = 1;
+//zc only supports rx, for everything else rx_and_tx_direction would be ok
+packet_direction direction = rx_only_direction;
 
 PfringObserver::PfringObserver(const std::string& interface, uint64_t maxpackets, int instances = 0) : thread(PfringObserver::PfringObserverThread), allDevices(NULL),
 	captureDevice(NULL), capturelen(PCAP_DEFAULT_CAPTURE_LENGTH),
@@ -82,8 +86,6 @@ PfringObserver::PfringObserver(const std::string& interface, uint64_t maxpackets
 	slowMessageShown(false),
 	statTotalLostPackets(0), statTotalRecvPackets(0)
 {
-	cluster_id = DEFAULT_CLUSTER_ID;
-	bind_core=-1;
 	captureInterface = (char*)malloc(interface.size() + 1);
 	strcpy(captureInterface, interface.c_str());
 	usedBytes += sizeof(PfringObserver)+interface.size()+1;
@@ -101,23 +103,24 @@ PfringObserver::PfringObserver(const std::string& interface, uint64_t maxpackets
 
 PfringObserver::~PfringObserver()
 {
+	pfring_stat pfringStat;
 	msg(MSG_DEBUG, "PfringObserver: destructor called");
 
 	// to make sure that exitFlag is set and performShutdown() is called
 	shutdown(false);
 
-	/* collect and output statistics */
-	pcap_stat pstats;
-	if (captureDevice && pcap_stats(captureDevice, &pstats)==0) {
-		msg(MSG_DIALOG, "PCAP statistics (INFO: if statistics were activated, this information does not contain correct data!):");
-		msg(MSG_DIALOG, "Number of packets received on interface: %u", pstats.ps_recv);
-		msg(MSG_DIALOG, "Number of packets dropped by PCAP: %u", pstats.ps_drop);
+	msg(MSG_DIALOG, "PfringObserver: PCAP statistics (INFO: if statistics were activated, this information does not contain correct data!):");
+	msg(MSG_DIALOG, "PfringObserver: Number of processed packets: %u", this->processedPackets);
+	msg(MSG_DIALOG, "PfringObserver: Number of processed bytes: %u", this->receivedBytes);
+	if(pfring_stats(this->ring, &pfringStat)){
+		msg(MSG_DIALOG, "PfringObserver: Number of packets dropped by PCAP: %u", pfringStat.drop);
 	}
 
-	msg(MSG_DEBUG, "freeing pcap/devices");
+	msg(MSG_DEBUG, "PfringObserver: freeing pcap/devices");
 	if(captureDevice) {
 		pcap_close(captureDevice);
 	}
+	pfring_close(this->ring);
 
 	/* no pcap_freecode here, is already done after attaching the filter */
 
@@ -126,79 +129,80 @@ PfringObserver::~PfringObserver()
 	}
 
 	free(captureInterface);
-	msg(MSG_DEBUG, "successful shutdown");
+	msg(MSG_DEBUG, "PfringObserver: successful shutdown");
 }
 
 /*
- This is the main PfringObserver loop. I uses pfring zero copy to fetch packets from the NIC. It is a thread started in performStart().
+ This is the main PfringObserver loop. It uses pfring zero copy to fetch packets from the NIC. It is a thread started in performStart().
  */
 void *PfringObserver::PfringObserverThread(void *arg)
 {
-
 	/* first we need to get the instance back from the void *arg */
 	PfringObserver *obs=(PfringObserver *)arg;
 	InstanceManager<Packet>& packetManager = getPacketManager();
-
+	u_int numCPU = sysconf( _SC_NPROCESSORS_ONLN );
+	u_char buffer[ZC_BUFFER_LEN];
+	u_char *bufferPointer = buffer;
+	int rc;
 	Packet *p = NULL;
-	//ist eigentlich u_char:
-	char *pkt_data;
 	//header for packets captured with pfring_zc
-	struct pfring_pkthdr pfringHdr;;
+	struct pfring_pkthdr pfringHdr;
 	bool have_send = false;
 	obs->registerCurrentThread();
 	bool file_eof = false;
 
+	//TODO: until now num_threads is hardcoded to 1. Ev. implement else branch and think about making core id user definable
+	if(num_threads <= 1) {
+		//2. arg is core id,
+		if((rc = obs->bindthread2core(pthread_self(), 0)) !=0){
+			msg(MSG_FATAL, "PfringObserver: bindthread2core returned %d", rc);
+		}
+	}
+
+	memset(&pfringHdr, 0, sizeof(pfring_pkthdr));
+	memset(&pfringHdr.extended_hdr.parsed_pkt, 0, sizeof(struct pkt_parsing_info));
+
+	obs->ring->break_recv_loop = 0;
+
 	msg(MSG_INFO, "PfringObserver started with following parameters:");
 	if (obs->captureInterface) msg(MSG_INFO, "  - captureInterface=%s", obs->captureInterface);
-	//msg(MSG_INFO, "  - filterString='%s'", (obs->filter_exp ? obs->filter_exp : "none"));
 	msg(MSG_INFO, "  - maxPackets=%u", obs->maxPackets);
 	msg(MSG_INFO, "  - capturelen=%d", obs->capturelen);
 	msg(MSG_INFO, " - dataLinkType=%d", obs->dataLinkType);
 
 	// start capturing packets
-	msg(MSG_INFO, "now running capturing thread for device %s", obs->captureInterface);
+	msg(MSG_INFO, "PfringObserver: now running capturing thread for device %s", obs->captureInterface);
 
 
-	while(!obs->exitFlag&& (obs->maxPackets==0 || obs->processedPackets<obs->maxPackets)){
-		DPRINTFL(MSG_VDEBUG, "trying to get packet from pcap");
-		//third parameter is "wait for packet"
-		if(pfring_zc_recv_pkt(obs->zq, &buffers[0], 1) > 0) {
-					DPRINTFL(MSG_VDEBUG, "got new packet!");
-					p = packetManager.getNewInstance();
-					//pfring_zc_pkt_buff_data returns a pointer to the actual packet data
-					pkt_data=(char*)pfring_zc_pkt_buff_data(buffers[0], obs->zq);
 
-					memset(&pfringHdr, 0, sizeof(pfringHdr));
-					pfringHdr.len = buffers[0]->len, pfringHdr.caplen = buffers[0]->len;
+	while(!obs->exitFlag&& (obs->maxPackets==0 || obs->processedPackets<obs->maxPackets && !obs->ring->break_recv_loop)){
+		DPRINTFL(MSG_VDEBUG, "PfringObserver: trying to get packet from pfring");
+	    if((rc = pfring_recv(obs->ring, &bufferPointer, ZC_BUFFER_LEN, &pfringHdr, wait_for_packet)) > 0) {
+			p = packetManager.getNewInstance();
+			/*initialize packet structure (init copies packet data).*/
+			//With hardcoded dataLinkType, not super pretty but works!
+			p->init((char*)bufferPointer, pfringHdr.caplen, pfringHdr.ts, obs->observationDomainID, pfringHdr.len, DLT_EN10MB);
+			DPRINTFL(MSG_VDEBUG,"PfringObserver: received packet at %u. %04u, len=%d",
+					(unsigned)p->timestamp.tv_sec,
+					(unsigned)p->timestamp.tv_usec / 1000,
+					pfringHdr.caplen
+			);
 
-					//arguments 5,1,1 --> layer 5, add_timestamp =1, add_hash=1
-					//TODO: do we need to parse lower layers too?
-					pfring_parse_pkt((u_char *) pkt_data, &pfringHdr, 5, 1, 1);
+			// update statistics
+			obs->receivedBytes += pfringHdr.caplen;
+			obs->processedPackets++;
 
-					/*initialize packet structure (init copies packet data).*/
-					//With hardcoded dataLinkType, not super pretty but works!
-					p->init(pkt_data, pfringHdr.caplen, pfringHdr.ts, obs->observationDomainID, pfringHdr.len, DLT_EN10MB);
-					DPRINTFL(MSG_VDEBUG,"received packet at %u. %04u, len=%d",
-							(unsigned)p->timestamp.tv_sec,
-							(unsigned)p->timestamp.tv_usec / 1000,
-							pfringHdr.caplen
-					);
-
-					// update statistics
-					obs->receivedBytes += pfringHdr.caplen;
-					obs->processedPackets++;
-
-					while (!obs->exitFlag) {
-						DPRINTFL(MSG_VDEBUG, "trying to push packet to queue");
-						if ((have_send = obs->send(p))) {
-							DPRINTFL(MSG_VDEBUG, "packet pushed");
-							break;
-						}
-					}
-		}//if recv_pkt
+			while (!obs->exitFlag) {
+				DPRINTFL(MSG_VDEBUG, "PfringObserver: trying to push packet to queue");
+				if ((have_send = obs->send(p))) {
+					DPRINTFL(MSG_VDEBUG, "PfringObserver: packet pushed");
+					break;
+				}
+			}
+	    }
 	}//while
 
-	msg(MSG_DEBUG, "exiting PfringObserver thread");
+	msg(MSG_DEBUG, "PfringObserver: exiting PfringObserver thread");
 	obs->unregisterCurrentThread();
 	pthread_exit((void *)1);
 }
@@ -211,29 +215,67 @@ void *PfringObserver::PfringObserverThread(void *arg)
  */
 bool PfringObserver::prepare()
 {
-	//TODO: not needed?!:
-	//struct in_addr i_netmask, i_network;
+	int rc;
+	u_int32_t flags = 0;
+    int ifindex = -1;
+	flags |= PF_RING_PROMISC;
+	flags |= PF_RING_ZC_SYMMETRIC_RSS;  /* Note that symmetric RSS is ignored by non-ZC drivers */
 
-	zc = pfring_zc_create_cluster(cluster_id, capturelen,0,MAX_CARD_SLOTS + BURST_LEN,pfring_zc_numa_get_cpu_node(bind_core),NULL /* auto hugetlb mountpoint */);
+//THESE ARE ALL OTHER POSSIBLE FLAGS
+//	if(num_threads > 1)         flags |= PF_RING_REENTRANT;
+//	  if(use_extended_pkt_header) flags |= PF_RING_LONG_HEADER;
+//	  if(enable_hw_timestamp)     flags |= PF_RING_HW_TIMESTAMP;
+//	  if(!dont_strip_timestamps)  flags |= PF_RING_STRIP_HW_TIMESTAMP;
+//	  if(chunk_mode)              flags |= PF_RING_CHUNK_MODE;
+//	  if(enable_ixia_timestamp)   flags |= PF_RING_IXIA_TIMESTAMP;
 
-	if(zc == NULL) {
-		msg(MSG_FATAL, "PfringObserver: pfring_zc_create_cluster error. Please check that pf_ring.ko is loaded and hugetlb fs is mounted\n");
+	ring = pfring_open(captureInterface, capturelen, flags);
+
+	if(ring == NULL) {
+	  msg(MSG_FATAL, "PfringObserver: pfring_open error [%s] (pf_ring not loaded or interface %s is down ?)",
+		strerror(errno), captureInterface);
+	  return false;
+	} else {
+	u_int32_t version;
+	pfring_set_application_name(ring, "Vermont");
+	pfring_version(ring, &version);
+
+	msg(MSG_INFO, "PfringObserver: Using PF_RING v.%d.%d.%d",
+			 (version & 0xFFFF0000) >> 16,
+			 (version & 0x0000FF00) >> 8,
+			 version & 0x000000FF);
+	}
+
+    //msg(MSG_INFO, "Capturing from %s", device);
+	msg(MSG_INFO, "PfringObserver: Device RX channels: %d", pfring_get_num_rx_channels(ring));
+	msg(MSG_INFO, "PfringObserver: Polling threads:    %d", num_threads);
+
+	if((rc = pfring_set_direction(ring, direction)) != 0){
+	  msg(MSG_FATAL, "PfringObserver: pfring_set_direction returned %d (perhaps you use a direction other than rx only with ZC?)", rc);
+	  return false;
+	}
+
+	switch(direction){
+		case rx_and_tx_direction:
+			msg(MSG_INFO, "PfringObserver: pfring capture direction is rx and tx");
+			break;
+		case rx_only_direction:
+			msg(MSG_INFO, "PfringObserver: pfring capture direction is rx only");
+			break;
+		case tx_only_direction:
+			msg(MSG_INFO, "PfringObserver: pfring capture direction is tx only");
+			break;
+	}
+
+	if((rc = pfring_set_socket_mode(ring, recv_only_mode)) != 0){
+	  msg(MSG_FATAL, "PfringObserver: pfring_set_socket mode returned %d", rc);
+	  return false;
+	}
+
+	if (pfring_enable_ring(ring) != 0) {
+		msg(MSG_FATAL, "PfringObserver: Unable to enable pfring ring");
+		pfring_close(ring);
 		return false;
-		}
-
-	zq = pfring_zc_open_device(zc, captureInterface, rx_only, 0);
-
-	if(zq == NULL) {
-		msg(MSG_FATAL, "PfringObserver:pfring_zc_open_device error. Please check that given network device is up and not already used\n");
-		return false;
-		}
-
-	for (int i = 0; i < BURST_LEN; i++) {
-		buffers[i] = pfring_zc_get_packet_handle(zc);
-		if (buffers[i] == NULL) {
-			msg(MSG_FATAL, "pfring_zc_get_packet_handle error\n");
-			return false;
-			}
 	}
 
 	ready=true;
@@ -248,19 +290,19 @@ bool PfringObserver::prepare()
 void PfringObserver::performStart()
 {
 	if(!ready)
-		THROWEXCEPTION("Can't start capturing, PfringObserver is not ready");
+		THROWEXCEPTION("PfringObserver: Can't start capturing, PfringObserver is not ready");
 
-	msg(MSG_DEBUG, "now starting capturing thread");
+	msg(MSG_DEBUG, "PfringObserver: now starting capturing thread");
 	thread.run(this);
 };
 
 void PfringObserver::performShutdown()
 {
 	/* be sure the thread is ending */
-	msg(MSG_DEBUG, "joining the PfringObserverThread, may take a while (until next pcap data is received)");
+	msg(MSG_DEBUG, "PfringObserver: joining the PfringObserverThread, may take a while (until next pcap data is received)");
 	connected.shutdown();
 	thread.join();
-	msg(MSG_DEBUG, "PfringObserverThread joined");
+	msg(MSG_DEBUG, "PfringObserver: PfringObserverThread joined");
 }
 
 
@@ -273,7 +315,7 @@ bool PfringObserver::setCaptureLen(int x)
 		THROWEXCEPTION("changing capture len on-the-fly is not supported by pcap");
 	}
 	if (x>PCAP_MAX_CAPTURE_LENGTH) {
-		THROWEXCEPTION("maximum capture length is limited by constant PCAP_MAX_CAPTURE_LENGTH (%d), "
+		THROWEXCEPTION("PfringObserver: maximum capture length is limited by constant PCAP_MAX_CAPTURE_LENGTH (%d), "
 				"given value %d is too big", PCAP_MAX_CAPTURE_LENGTH, x);
 	}
 	capturelen=x;
@@ -315,14 +357,13 @@ InstanceManager<Packet>& PfringObserver::getPacketManager() {
 void PfringObserver::doLogging(void *arg)
 {
 	PfringObserver *obs=(PfringObserver *)arg;
-	pfring_zc_stat stats;
-	// update statistics
-	if (pfring_zc_stats(obs->zq, &stats) == 0){
-		msg_stat("%u recv, %u drop", stats.recv, stats.drop);
-	}else{
-		msg(MSG_INFO,"doLogging: Currently no stats available");
-	}
+	pfring_stat pfringStat;
 
+	if(pfring_stats(obs->ring, &pfringStat)){
+		msg_stat("%u pkts recv, %u B recv", obs->processedPackets, obs->receivedBytes);
+	}else{
+		msg_stat("%u pkts recv, %u B recv, %u pkts dropped", obs->processedPackets, obs->receivedBytes, pfringStat.drop);
+	}
 }
 
 /**
@@ -330,21 +371,51 @@ void PfringObserver::doLogging(void *arg)
  */
 std::string PfringObserver::getStatisticsXML(double interval)
 {
-	pfring_zc_stat stats;
+	pfring_stat pfringStat;
 	ostringstream oss;
 	// update statistics
-	if (pfring_zc_stats(this->zq, &stats) == 0){
+	if(pfring_stats(this->ring, &pfringStat)){
 
 	}else{
-		msg(MSG_INFO,"Currently no new stats available, retry in %d", interval);
+		msg(MSG_INFO,"Currently no new stats available, retrying in %d", interval);
 	}
 
-		oss << "<pfringObserver>";
-		oss << "<totalReceived type=\"packets\">" << stats.recv << "</totalReceived>";
-		oss << "<totalReceived type=\"bytes\">" << this->receivedBytes << "</totalReceived>";
-		oss << "<totalDropped type=\"packets\">" << stats.drop << "</totalDropped>";
-		oss << "</pfringObserver>";
+	oss << "<pfringObserver>";
+	oss << "<totalReceived type=\"packets\">" << this->processedPackets << "</totalReceived>";
+	oss << "<totalReceived type=\"bytes\">" << this->receivedBytes << "</totalReceived>";
+	oss << "<totalReceivedPfring type=\"packets\">" << pfringStat.recv<< "</totalDropped>";
+	oss << "<totalDroppedPfring type=\"packets\">" << pfringStat.drop << "</totalDropped>";
+	oss << "<totalShuntPfring type=\"packets\">" << pfringStat.shunt << "</totalDropped>";
+	oss << "</pfringObserver>";
 
 	return oss.str();
+}
+
+u_int8_t PfringObserver::pfring_get_num_rx_channels(pfring *ring) {
+  if(ring && ring->get_num_rx_channels)
+    return ring->get_num_rx_channels(ring);
+
+  return 1;
+}
+
+/* Bind this thread to a specific core */
+
+int PfringObserver::bindthread2core(pthread_t thread_id, u_int core_id) {
+#ifdef HAVE_PTHREAD_SETAFFINITY_NP
+  cpu_set_t cpuset;
+  int s;
+
+  CPU_ZERO(&cpuset);
+  CPU_SET(core_id, &cpuset);
+  if((s = pthread_setaffinity_np(thread_id, sizeof(cpu_set_t), &cpuset)) != 0) {
+    msg(MSG_FATAL, "Error while binding to core %u: errno=%i", core_id, s);
+    return(-1);
+  } else {
+    return(0);
+  }
+#else
+  msg(MSG_DIALOG, "WARNING: your system lacks of pthread_setaffinity_np() (not core binding)");
+  return(0);
+#endif
 }
 #endif /*pfringZC*/

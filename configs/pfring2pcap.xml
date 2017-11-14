@@ -16,6 +16,6 @@
 	</packetQueue>
 	
 	<pcapExporterFile id="3">
-		<filename>/dev/null</filename>
+		<filename>packets.pcap</filename>
 	</pcapExporterFile>
 </ipfixConfig>
