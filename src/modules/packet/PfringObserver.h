@@ -52,7 +52,6 @@
 #include <arpa/inet.h>
 #include <pcap.h>
 
-#include "common/pfring/pfring_utils.h"
 #include "pfring.h"
 #include "pfring_zc.h"
 
@@ -130,7 +129,7 @@ protected:
 	//pfring zeroCopy specific stuff:
     pfring  *ring;
 	u_int8_t pfring_get_num_rx_channels(pfring *ring);
-	int bindthread2core(pthread_t thread_id, u_int core_id);
+	//int bindthread2core(pthread_t thread_id, u_int core_id);
 };
 
 #endif /*PFRINGOBSERVER_H*/

@@ -151,13 +151,14 @@ void *PfringObserver::PfringObserverThread(void *arg)
 	obs->registerCurrentThread();
 	bool file_eof = false;
 
-	//TODO: until now num_threads is hardcoded to 1. Ev. implement else branch and think about making core id user definable
-	if(num_threads <= 1) {
-		//2. arg is core id,
-		if((rc = obs->bindthread2core(pthread_self(), 0)) !=0){
-			msg(MSG_FATAL, "PfringObserver: bindthread2core returned %d", rc);
-		}
-	}
+	/*This does not work this way on tested machines*/
+//	//TODO: until now num_threads is hardcoded to 1. Ev. implement else branch and think about making core id user definable
+//	if(num_threads <= 1) {
+//		//2. arg is core id,
+//		if((rc = obs->bindthread2core(pthread_self(), 0)) !=0){
+//			msg(MSG_FATAL, "PfringObserver: bindthread2core returned %d", rc);
+//		}
+//	}
 
 	memset(&pfringHdr, 0, sizeof(pfring_pkthdr));
 	memset(&pfringHdr.extended_hdr.parsed_pkt, 0, sizeof(struct pkt_parsing_info));
@@ -398,24 +399,24 @@ u_int8_t PfringObserver::pfring_get_num_rx_channels(pfring *ring) {
   return 1;
 }
 
-/* Bind this thread to a specific core */
+///* Bind this thread to a specific core */
+//int PfringObserver::bindthread2core(pthread_t thread_id, u_int core_id) {
+//#ifdef HAVE_PTHREAD_SETAFFINITY_NP
+//  cpu_set_t cpuset;
+//  int s;
+//
+//  CPU_ZERO(&cpuset);
+//  CPU_SET(core_id, &cpuset);
+//  if((s = pthread_setaffinity_np(thread_id, sizeof(cpu_set_t), &cpuset)) != 0) {
+//    msg(MSG_FATAL, "Error while binding to core %u: errno=%i", core_id, s);
+//    return(-1);
+//  } else {
+//    return(0);
+//  }
+//#else
+//  msg(MSG_DIALOG, "WARNING: your system lacks of pthread_setaffinity_np() (not core binding)");
+//  return(0);
+//#endif
+//}
 
-int PfringObserver::bindthread2core(pthread_t thread_id, u_int core_id) {
-#ifdef HAVE_PTHREAD_SETAFFINITY_NP
-  cpu_set_t cpuset;
-  int s;
-
-  CPU_ZERO(&cpuset);
-  CPU_SET(core_id, &cpuset);
-  if((s = pthread_setaffinity_np(thread_id, sizeof(cpu_set_t), &cpuset)) != 0) {
-    msg(MSG_FATAL, "Error while binding to core %u: errno=%i", core_id, s);
-    return(-1);
-  } else {
-    return(0);
-  }
-#else
-  msg(MSG_DIALOG, "WARNING: your system lacks of pthread_setaffinity_np() (not core binding)");
-  return(0);
-#endif
-}
 #endif /*pfringZC*/
