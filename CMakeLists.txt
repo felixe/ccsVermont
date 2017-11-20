@@ -23,7 +23,7 @@ PROJECT(VERMONT)
 ### CMake configuration
 
 # allow building with old CMake. Use some bundled modules as a fallback
-CMAKE_MINIMUM_REQUIRED(VERSION 2.3.5)
+CMAKE_MINIMUM_REQUIRED(VERSION 3.0.2)
 SET(CMAKE_MODULE_PATH ${CMAKE_ROOT}/Modules ${CMAKE_SOURCE_DIR}/cmake/modules)
 
 # move some config clutter to the advanced section
@@ -518,6 +518,6 @@ IF (USE_PFRING_ZC)
 	IF (NOT PFRING_ZC_PATH)
 		MESSAGE(FATAL_ERROR "pfring ZC path not found!")
 	ENDIF (NOT PFRING_ZC_PATH)
-	INCLUDE_DIRECTORIES(${PFRING_ZC_PATH}/kernel  ${PFRING_ZC_PATH}/userland/lib ${PFRING_ZC_PATH}/userland/libpcap ${PFRING_ZC_PATH}/userland/examples/third-party -lpcap)
+	INCLUDE_DIRECTORIES(${PFRING_ZC_PATH}/kernel  ${PFRING_ZC_PATH}/userland/lib ${PFRING_ZC_PATH}/userland/libpcap ${PFRING_ZC_PATH}/userland/examples/third-party)
 	TARGET_LINK_LIBRARIES(vermont ${PFRING_ZC_PATH}/userland/libpcap/libpcap.a ${PFRING_ZC_PATH}/userland/lib/libpfring.a ${PFRING_ZC_PATH}/userland/libpcap/libpcap.a ${PFRING_ZC_PATH}/userland/lib/libpfring.a -lpthread -lrt -ldl)
 ENDIF (USE_PFRING_ZC)
