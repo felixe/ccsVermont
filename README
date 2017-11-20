@@ -71,14 +71,9 @@ PF_RING Zero Copy is a driver and library suite that allows for very fast packet
 https://www.ntop.org/products/packet-capture/pf_ring/
 https://github.com/ntop/PF_RING
 
-If the option "USE_PFRING_ZC" is enabled in cmake the building process requires corresponding libraries and an approriate NIC driver at runtime. The easiest and hassle-free way to install the required components is to download the above mention github PF_RING repository and follow the follwoing steps:
--cd into the repo
--checkout the latest stable branch (at time of writing 7.0.0-stable)
--compile everything with the following command #: make
--install the kernel modules #: cd kernel; sudo make install
--install the libraries: #: cd ../userland/lib; sudo make install
--Then install the driver for you NIC with the following commands #: cd ../../drivers/intel/<YOURDRIVER>/src/; sudo ./load_driver.sh
-
+If the option "USE_PFRING_ZC" is enabled in cmake the building process requires corresponding libraries and an approriate NIC driver at runtime. The easiest and hassle-free way to provide the required components is to download the above mention github PF_RING repository and follow these steps:
+cd into the repo, checkout the latest stable branch (at time of writing 7.0.0-stable), compile everything with #: make, then install the driver for you NIC with the following commands #: cd ../../drivers/intel/<YOURDRIVER>/src/; sudo ./load_driver.sh
+In cmake enable the option USE_PFRING_ZC and provide the path to the PF_RING git repo in PFRING_ZC_PATH.
 Now Vermont is ready to use PF_RING. If you want Vermont to use PF_RING Zero Copy (direct acces to the NIC memory from the userland application) prepend a zc: to the network device in the vermont configuration (e.g.: zc:eth0). At the moment there is a 5 min restriction if you want to use Zero Copy without a license. Ntop.org offers free academic licenses or commercial licenses at fair prices.
 
 -----------------------------------
