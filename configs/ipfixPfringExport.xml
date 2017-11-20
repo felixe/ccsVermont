@@ -4,7 +4,7 @@
 		<outputfile>sensor_output.xml</outputfile>
 	</sensorManager>
 	<pfringObserver id="1">
-		<interface>zc:enp3s0f0</interface>
+		<interface>zc:enp2s0f0</interface>
 		<instances>10000</instances>
 		<captureLength>1500</captureLength>
 		<next>2</next>

@@ -378,15 +378,15 @@ std::string PfringObserver::getStatisticsXML(double interval)
 	if(pfring_stats(this->ring, &pfringStat)){
 
 	}else{
-		msg(MSG_INFO,"Currently no new stats available, retrying in %d", interval);
+		msg(MSG_INFO,"Currently no new stats available", interval);
 	}
 
 	oss << "<pfringObserver>";
 	oss << "<totalReceived type=\"packets\">" << this->processedPackets << "</totalReceived>";
 	oss << "<totalReceived type=\"bytes\">" << this->receivedBytes << "</totalReceived>";
-	oss << "<totalReceivedPfring type=\"packets\">" << pfringStat.recv<< "</totalDropped>";
-	oss << "<totalDroppedPfring type=\"packets\">" << pfringStat.drop << "</totalDropped>";
-	oss << "<totalShuntPfring type=\"packets\">" << pfringStat.shunt << "</totalDropped>";
+	oss << "<totalReceivedPfring type=\"packets\">" << pfringStat.recv<< "</totalReceivedPfring>";
+	oss << "<totalDroppedPfring type=\"packets\">" << pfringStat.drop << "</totalDroppedPfring>";
+	oss << "<totalShuntPfring type=\"packets\">" << pfringStat.shunt << "</totalShuntPfring>";
 	oss << "</pfringObserver>";
 
 	return oss.str();
