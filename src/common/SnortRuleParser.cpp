@@ -23,7 +23,7 @@
  * REMARKS:
  * -If hex chars are encountered (everything between two '|' signs) it is converted to ascii, but only if part of the first 128 ascii chars and only if printable
  * -Whitespace in content patterns with http_uri modifier is generally converted to the + sign, if you want %20 as whitespacethan change it in the rule.
- *
+ * -flowbits, distance,within,offset,depth keywords are ignored for now without further notice. FIXIT!
  */
 
 #include "SnortRuleParser.h"
@@ -102,6 +102,7 @@ void SnortRuleParser::printSnortRule(SnortRuleParser::snortRule* rule){
         	case 3: modifierHttp="http_raw_uri"; break;
         	case 4: modifierHttp="http_stat_msg"; break;
         	case 5: modifierHttp="http_stat_code"; break;
+		case 6: modifierHttp="http_header"; break;
         	default: THROWEXCEPTION("IpfixIds: Wrong content modifier HTTP encoding. Aborting!");
         }
         fprintf(stdout,"ContentModifierHttp:\t\t%s\n",modifierHttp.c_str());
@@ -459,11 +460,14 @@ void parseContentModifier(std::string* line, int* linecounter, SnortRuleParser::
             }else if(temp=="http_raw_uri"){
             	tempRule->body.contentModifierHTTP.push_back(3);
             }else if(temp=="http_stat_msg"){
-            	THROWEXCEPTION("SnortRuleparser: content modifier http_stat_msg not supported in this version"); //just uncomment lines to support it
+            	//THROWEXCEPTION("SnortRuleparser: content modifier http_stat_msg not supported in this version"); //just uncomment lines to support it
             	tempRule->body.contentModifierHTTP.push_back(4);
             }else if(temp=="http_stat_code"){
-            	THROWEXCEPTION("SnortRuleparser: content modifier http_stat_code not supported in this version"); //just uncomment lines to support it
+            	//THROWEXCEPTION("SnortRuleparser: content modifier http_status_code not supported in this version"); //just uncomment lines to support it
             	tempRule->body.contentModifierHTTP.push_back(5);
+            }else if(temp=="http_header"){
+            	//THROWEXCEPTION("SnortRuleparser: content modifier http_header not supported in this version"); //just uncomment lines to support it
+            	tempRule->body.contentModifierHTTP.push_back(6);
             }
         }
 
@@ -482,7 +486,8 @@ void parseContentModifier(std::string* line, int* linecounter, SnortRuleParser::
 
 /**
 * parses pcre patterns in given line and writes it to given tempRule class in the corresponding vector
-* TODO:at the moment pcre patterns are ignored during detection.
+* TODO: needs to be improved: does pcre allow content modifiers? at the moment none are parsed, but there are vector length checks that expect a modifier for each pcre
+* TODO: at the moment unused
 */
 void parsePcre(std::string* line, int* linecounter, SnortRuleParser::snortRule* tempRule){
     std::size_t startPosition;
@@ -559,13 +564,14 @@ std::vector<SnortRuleParser::snortRule> SnortRuleParser::parseMe(const char* fil
     std::size_t contentPosition;
     std::size_t pcrePosition;
     std::ifstream ruleFile(fileName);
+    bool pushRule=true;
 
     if (ruleFile.is_open())
     {
         while(getline(ruleFile,line) )
         {
             SnortRuleParser::snortRule tempRule;
-
+            pushRule=true;
             tempRule.body.content.reserve(VECTORRESERVE);
             tempRule.body.contentOriginal.reserve(VECTORRESERVE);
             tempRule.body.containsHex.reserve(VECTORRESERVE);
@@ -580,21 +586,49 @@ std::vector<SnortRuleParser::snortRule> SnortRuleParser::parseMe(const char* fil
                 alertPosition=line.substr(0,6).find("alert");
                 contentPosition=line.find("content:");
                 pcrePosition=line.find("pcre:");
-                if(alertPosition==std::string::npos||(contentPosition==std::string::npos&&pcrePosition==std::string::npos)){
-                    msg(MSG_DEBUG, "SnortRuleParser: Rule in line number %d, does not contain alert or content/pcre keyword. Continuing with next line.",linecounter);
-                }else{
+                //sort out rules that we are not interested in
+                if(alertPosition==std::string::npos){
+                	msg(MSG_DIALOG,"SnortRuleParser: Rule in line number %d, does not contain alert keyword. Ignored",linecounter);
+                }else if(contentPosition==std::string::npos){
+                	msg(MSG_DIALOG,"SnortRuleParser: Rule in line number %d, does not contain content keyword. Ignored",linecounter);
+                }else if(pcrePosition!=std::string::npos){
+                	msg(MSG_DIALOG,"SnortRuleParser: Rule in line number %d, contains pcre keyword which is not supported (yet). Ignoren",linecounter);
+            	}else if(line.find("http_")==std::string::npos){
+            		msg(MSG_DIALOG,"SnortRuleParser: Rule in line number %d, does not contain an http_ content modifier. Ignored",linecounter);
+            	}else if(line.find("http_header")!=std::string::npos){ //but parsing is already implemented
+            		msg(MSG_DIALOG,"SnortRuleParser: Rule in line number %d, contains an http_header content modifier which is not supported (yet). Ignored",linecounter);
+            	}else if(line.find("http_client_body")!=std::string::npos){
+            		msg(MSG_DIALOG,"SnortRuleParser: Rule in line number %d, contains an http_client_body content modifier which is not supported (yet). Ignored",linecounter);
+            	}else if(line.find("http_cookie")!=std::string::npos){
+            		msg(MSG_DIALOG,"SnortRuleParser: Rule in line number %d, contains an http_cookie content modifier which is not supported (yet). Ignored",linecounter);
+            	}else if(line.find("http_raw_header")!=std::string::npos){
+            		msg(MSG_DIALOG,"SnortRuleParser: Rule in line number %d, contains an http_raw_header content modifier which is not supported (yet). Ignored",linecounter);
+            	}else{
                     parseHeader(&line,&linecounter,&tempRule);
                     parseMsg(&line,&linecounter,&tempRule);
+                    //it might contain no content (just pcre), than skip parseContent
                     if(contentPosition!=std::string::npos){
                         parseContent(&line, &linecounter,&tempRule);
                         parseContentModifier(&line, &linecounter,&tempRule);
                     }
-                    if(pcrePosition!=std::string::npos){
-                        parsePcre(&line, &linecounter,&tempRule);
-                    }
+                    //TODO: ev. uncomment if pcre's are supported again
+                    //no pcre?
+                    //if(pcrePosition!=std::string::npos){
+                    //    parsePcre(&line, &linecounter,&tempRule);
+                    //}
                     parseSid(&line, &linecounter,&tempRule);
                     //printSnortRule(&tempRule);
-                    rulesFromFile.push_back(tempRule);
+                    //do not allow rules which have no content modifier
+					for (unsigned long i = 0; i < tempRule.body.content.size();i++) {
+						if (tempRule.body.contentModifierHTTP.at(i) == 0) {
+							pushRule = false;
+							msg(MSG_DIALOG,"WARNING: Rule in line number %d, contains at least one content without http_* content modifier. Ignored",linecounter);
+						}
+					}
+					if (pushRule) {
+						rulesFromFile.push_back(tempRule);
+					}
+
                 }
             }
     }

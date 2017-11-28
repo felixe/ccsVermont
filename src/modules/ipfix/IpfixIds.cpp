@@ -118,7 +118,7 @@ IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParse
         THROWEXCEPTION("IpfixIds: 0 rules parsed from rulesfile %s. Does this file contain properly formatted Snort rules?",rulesFS.c_str());
     }
 
-    //do basic plausability test, if this fails than there is a bug in the parser
+    //do basic plausibility test, if this fails than there is a fault in the parser
     for(unsigned long i=0;i<rules.size();i++){
             ruleParser.compareVectorSizes(&rules[i]);
     }
@@ -364,7 +364,7 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 						}
 					}
 					default:{
-						THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp (or not yet implemented)");
+						THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp: %s (or not yet implemented) in rule: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
 					}
         		}
         	}else{//case sensitive search
