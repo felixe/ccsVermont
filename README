@@ -3,7 +3,7 @@ Released under GPL2
 
 Vermont (VERsatile MONitoring Toolkit) is an open-source software toolkit for the creation and processing of network flow data, based on monitored Internet packet data. The IETF standard IPFIX (IP Flow Information eXport) defines the formats and procedures for handling these flows. Furthermore, the Netflow.v9 and the PSAMP (Packet Sampling) standards are supported. Vermont runs on Linux and derivatives of BSD. It can receive and process raw packets via PCAP (up to 10 GBit/s) as well as IPFIX/Netflow.v9 flow data.
 
-This is a fork of Vermont that focuses on the aggregation of HTTP related information into IPFIX in high-speed networks. The used HTTP related IE are standardized and registered with IANA.
+This is a fork of Vermont that focuses on the aggregation of HTTP related information into IPFIX in high-speed networks. The used HTTP related IE are standardized and registered with IANA. The new IpfixIDS (aka FIXIDS) module uses these IEs for intrusion detection.
 
 For more information see also the wiki at https://github.com/felixe/ccsVermont/wiki.
 
