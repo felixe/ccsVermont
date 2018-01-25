@@ -54,6 +54,7 @@ public:
         //5:http_stat_code
         std::vector<std::string> pcre;
         std::vector<bool> negatedPcre;
+        std::vector<bool> pcreNocase;
         std::string sid;
         std::string rev;
     };

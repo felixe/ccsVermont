@@ -303,7 +303,7 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 //    	}
 
     	//
-    	//This is the performance hungry loop. Any improvements here have massive impact on performance
+    	//This is the performance hungry loop. Any improvements here have massive impact on throughput performance
     	//
         for(j=0;j<rules[l].body.content.size();j++){
         //contentModifier vector MUST have same size than content vector
