@@ -155,9 +155,7 @@ IpfixIds::~IpfixIds()
 void IpfixIds::onDataRecord(IpfixDataRecord* record)
 {
 
-	unsigned long j;
-	unsigned long k;
-	unsigned long l;
+	unsigned long j,k,l,m;
 	bool writeAlertBool;
 	bool portMatched;
 	long portRule;
@@ -165,6 +163,7 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 	long flowDstPort;
 	//end pointer for strtol operations
 	char* end;
+	regex ruleRegex;
 
 	string methodString;
 	string uriString;
@@ -246,7 +245,7 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
     //check against rules:
     //BEWARE: there are gotos that break this loop
     for(l=0;l<rules.size();l++){
-    	bool contentMatched[rules[l].body.content.size()]={0};
+    	bool contentMatched[rules[l].body.contentModifierHTTP.size()]={0};
     	//check ports if necessary, source direction
         //TODO: implement address direction checks
 //    	if(httpPortsGiven){
@@ -309,7 +308,6 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
         //contentModifier vector MUST have same size than content vector
         	if(rules[l].body.contentNocase[j]){//case insensitive search
         		switch(rules[l].body.contentModifierHTTP[j]){
-        			//TODO: its probably faster to encode method to something like int to avoid string comparison
 					case 1:{//http_method
 						if(strcasestr(methodString.c_str(),rules[l].body.content[j].c_str())!=NULL){
 							if(rules[l].body.negatedContent[j]){
@@ -364,7 +362,7 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 						}
 					}
 					default:{
-						THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp: %s (or not yet implemented) in rule: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
+						THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp: %s (or not yet implemented) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
 					}
         		}
         	}else{//case sensitive search
@@ -408,7 +406,7 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 							goto skipRule;
 						}
 					}
-					//TODO:try encoding stat code to int and see if its faster (useless because almost never used in rules)
+					//TODO:try encoding stat code to int and see if its faster (-->useless because almost never used in rules)
 					case 5:{//http_stat_code
 						if(strstr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
 							if(rules[l].body.negatedContent[j]){
@@ -422,14 +420,64 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 						}
 					}
 					default:{
-						THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp (or not yet implemented)");
+						THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp: %s (or not yet implemented) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
 					}
 				}
         	}
         }
+
+        //PCRE loop: Is skipped by the goto statements above if any of the above content patterns does not match.
+        //As pcres are almost always the last statement in a rule this part should be reached very seldomly.
+        for(m=0;m<rules[l].body.pcre.size();m++){
+        	//TODO: implement pcre nocase
+        	//TODO: implement pcre negated content, although almost never used in snort rules
+
+        	ruleRegex=rules[l].body.pcre.at(m);
+        	switch(rules[l].body.contentModifierHTTP[m+(rules[l].body.content.size())]){
+        		case 1:{//http_method
+        			if(regex_match(methodString,ruleRegex)){
+        				contentMatched[m+(rules[l].body.content.size())]=true;
+        				//printf("###%s matched %s\n",methodString.c_str(),rules[l].body.pcre.at(m).c_str());
+        			}else{
+        				contentMatched[m+(rules[l].body.content.size())]=false;
+        			}
+					break;
+				}
+				case 2:	//http_uri
+				case 3:{//http_raw_uri
+        			if(regex_match(uriString,ruleRegex)){
+        				//printf("###%s matched %s\n",uriString.c_str(),rules[l].body.pcre.at(m).c_str());
+        				contentMatched[m+(rules[l].body.content.size())]=true;
+        			}else{
+        				contentMatched[m+(rules[l].body.content.size())]=false;
+        			}
+					break;
+				}
+				case 4:{//http_stat_msg
+        			if(regex_match(statusMsgString,ruleRegex)){
+        				contentMatched[m+(rules[l].body.content.size())]=true;
+        			}else{
+        				contentMatched[m+(rules[l].body.content.size())]=false;
+        			}
+					break;
+				}
+				case 5:{//http_stat_code
+        			if(regex_match(statusCodeString,ruleRegex)){
+        				contentMatched[m+(rules[l].body.content.size())]=true;
+        			}else{
+        				contentMatched[m+(rules[l].body.content.size())]=false;
+        			}
+					break;
+				}
+				default:{
+					THROWEXCEPTION("IpfixIds: Unknown or unexpected (HTTP) modifier for PCRE: %s (or not yet implemented) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
+				}
+        	}
+        }
         //if all contents match for this rule, write alert
+        //to check if everything BUT pcre stuff matched, simply only check the first |content.size()| number of elements.
         writeAlertBool=true;
-        for(k=0;k<rules[l].body.content.size();k++){
+        for(k=0;k<rules[l].body.contentModifierHTTP.size();k++){
         	if(contentMatched[k]==false){
         		writeAlertBool=false;
         		break;
@@ -445,7 +493,7 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 			 startData,startType
             );
         }
-        //jump here if a content match was false, so we save the time to do other content matches
+        //jump here if a content match was false, so we save the time to do other (useless) content matches
         skipRule:;
     }//for loop through rules vector
 

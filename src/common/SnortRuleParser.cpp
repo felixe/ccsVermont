@@ -662,8 +662,6 @@ std::vector<SnortRuleParser::snortRule> SnortRuleParser::parseMe(const char* fil
                 	msg(MSG_DIALOG,"SnortRuleParser: Rule in line number %d, does not contain alert keyword. Ignored",linecounter);
                 }else if(contentPosition==std::string::npos&&pcrePosition==std::string::npos){
                 	msg(MSG_DIALOG,"SnortRuleParser: Rule in line number %d, does not contain content keyword nor pcre keyword. Ignored",linecounter);
-            	}else if(line.find("http_")==std::string::npos){
-            		msg(MSG_DIALOG,"SnortRuleParser: Rule in line number %d, does not contain an http_ content modifier. Ignored",linecounter);
             	}else if(line.find("http_header")!=std::string::npos){ //but parsing is already implemented
             		msg(MSG_DIALOG,"SnortRuleParser: Rule in line number %d, contains an http_header content modifier which is not supported (yet). Ignored",linecounter);
             	}else if(line.find("http_client_body")!=std::string::npos){
@@ -678,7 +676,8 @@ std::vector<SnortRuleParser::snortRule> SnortRuleParser::parseMe(const char* fil
                     //it might contain no content (just pcre), than skip parseContent
 					if(contentPosition!=std::string::npos){
 					    if(line.find("http_")==std::string::npos){
-					    	msg(MSG_DIALOG,"WARNING: Rule in line number %d contains content keyword but no http_ content modifier. Content part ignored\n", linecounter);
+					    	msg(MSG_DIALOG,"WARNING: Rule in line number %d contains content keyword but no http_ content modifier. Ignored\n", linecounter);
+					    	pushRule=false;
 					    }else{
 					    	parseContent(&line, &linecounter,&tempRule);
 					    	parseContentModifier(&line, &linecounter,&tempRule);
@@ -689,18 +688,13 @@ std::vector<SnortRuleParser::snortRule> SnortRuleParser::parseMe(const char* fil
                     }
                     parseSid(&line, &linecounter,&tempRule);
                     //printSnortRule(&tempRule);
-                    //do not allow rules which have no content modifier
-					for (unsigned long i = 0; i < tempRule.body.content.size();i++) {
-						if (tempRule.body.contentModifierHTTP.at(i) == 0) {
-							pushRule = false;
-							msg(MSG_DIALOG,"WARNING: Rule in line number %d, contains at least one content without http_* content modifier. Ignored",linecounter);
-						}
-					}
+
 					if (pushRule) {
 						rulesFromFile.push_back(tempRule);
+					    //plausability checks:
+					    SnortRuleParser::compareVectorSizes(&tempRule);
 					}
-				    //plausability checks:
-				    SnortRuleParser::compareVectorSizes(&tempRule);
+
 
                 }
             }
