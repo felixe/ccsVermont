@@ -5,7 +5,7 @@
 	</sensorManager>
 	<observer id="1">
 		<!--<interface>eth0</interface>-->
-		<filename>/media/felix/4ccc093d-41d6-4fda-b95a-b70cc109ef8d/Daten/arbeit/dumps/http/fxProxyPimped+500.pcap</filename>
+		<filename>/home/felix/notes/SnortEventTrafficGenerator/additionalStuff/alleRules.pcapng</filename>
 		<pcap_filter>ip and tcp</pcap_filter>
 		<instances>10000</instances>
 		<offlineAutoExit>1</offlineAutoExit>
@@ -121,8 +121,8 @@
 	
 	<ipfixIds id="5">
 		<alertfile>alert.txt</alertfile>
-		<rulesfile>/home/felix/flowIDStests/snortRules/httpMethStatUriRules</rulesfile>
-		<printparsedrules>0</printparsedrules>
+		<rulesfile>/home/felix/notes/snortRules/httpMethStatUricontPCRE.rules</rulesfile>
+	<printparsedrules>0</printparsedrules>
 		<usentopies>0</usentopies>
 		<next>6</next>
 	</ipfixIds> 

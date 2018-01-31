@@ -49,6 +49,9 @@ void parsingError(int line, std::string parsingPart){
 * compares the vector sizes of the vectors in the given rule, if sizes do not match than there is a bug in the parser
 */
 void SnortRuleParser::compareVectorSizes(SnortRuleParser::snortRule* rule){
+	if(rule->body.content.size()==0){
+		THROWEXCEPTION("SnortRuleParser: There was an error in rule parsing: After parsing, rule with sid %s does not contain any content or pcre to check for. This should not have happened. Aborting!",rule->body.sid.c_str());
+	}
 	if(rule->body.content.size()!=rule->body.contentOriginal.size()
 		    ||rule->body.content.size()!=rule->body.negatedContent.size()
 		    ||rule->body.content.size()!=rule->body.containsHex.size()
@@ -282,7 +285,8 @@ void parseHeader(std::string* line, int* linecounter, SnortRuleParser::snortRule
 
 /**
 * parses rule content (also multiple contents) from given line and writes it to given tempRule class in the corresponding vector of contents,
-* it also converts hex characters to ascii characters, if possible, if not it omits them in the output content
+* it also converts hex characters to ascii characters, if possible, if not it omits them in the output content.
+* Takes also care of the uricontent: keyword, basically treats it like content: with http_uri (snort applies uricontent: on normalized uris)
 */
 void parseContent(std::string* line, int* linecounter, SnortRuleParser::snortRule* tempRule){
     std::size_t startPosition;
@@ -296,7 +300,7 @@ void parseContent(std::string* line, int* linecounter, SnortRuleParser::snortRul
     std::string byte;
     //we have to copy the line because we are messing around with it
     std::string lineCopy=*line;
-    //this string is the same as line copy, only quotet text is replaces by X. length is the same!
+    //this string is the same as line copy, only quoted text is replaces by X. length is the same!
     std::string lineCopySearch=replaceQuotedText(&lineCopy);
     char tempChar;
     std::size_t tempPosition;
@@ -323,6 +327,8 @@ void parseContent(std::string* line, int* linecounter, SnortRuleParser::snortRul
         }else{
             tempRule->body.negatedContent.push_back(false);
         }
+
+        //we dont have to check for uricontent here because we can take care the same way we do for content. we have to take special care in parseContentModifier
 
         contentOrig=lineCopy.substr(startPosition,(endPosition-startPosition));
         //cut away quotes
@@ -382,8 +388,10 @@ void parseContent(std::string* line, int* linecounter, SnortRuleParser::snortRul
                 contentHexFree=contentHexFree+contentOrig.substr(hexEndPosition+1,contentOrig.size()-hexEndPosition+1);
             }
         }//while hex loop
+
         //add the summed up content to the rule class
         tempRule->body.content.push_back(contentHexFree);
+
         //erase content keyword, so that loop can find next content keyword or break
         lineCopy.erase(startPosition-8,8);
         //to keep same length do the same for search string
@@ -399,6 +407,7 @@ void parseContent(std::string* line, int* linecounter, SnortRuleParser::snortRul
 * Only nocase and http_content modifier are supported. rawbytes, depth, offset, distance, within, fast_pattern are ignored by the parser.
 */
 void parseContentModifier(std::string* line, int* linecounter, SnortRuleParser::snortRule* tempRule){
+	bool uricontent=false;
     std::size_t startPosition;
     std::size_t endPosition;
     std::size_t contentEndPosition;
@@ -408,7 +417,7 @@ void parseContentModifier(std::string* line, int* linecounter, SnortRuleParser::
     std::string allModifiers;
     //we have to copy the line because we are messing around with it
     std::string lineCopy=*line;
-    //this string is the same as lineCopy, only quotet text is replaces by X. length is the same. this way, searches dont trigger falsely on content found in quotes
+    //this string is the same as lineCopy, only quoted text is replaces by X. length is the same. this way, searches dont trigger falsely on content found in quotes
     std::string lineCopySearch=replaceQuotedText(&lineCopy);
 
     //on the first check there should definitively be at least one content
@@ -432,6 +441,12 @@ void parseContentModifier(std::string* line, int* linecounter, SnortRuleParser::
         if(startPosition==(std::string::npos+8)||endPosition==std::string::npos){
             parsingError(*linecounter,"content (modifier), content string end position");
         }
+
+        //check if its the uricontent keyword:
+        if(lineCopy.substr(startPosition-11,3)=="uri"){
+        	uricontent=true;
+        }
+
         //erase content keyword and content pattern
         allModifiers.erase(0,contentEndPosition+1);
 
@@ -441,49 +456,52 @@ void parseContentModifier(std::string* line, int* linecounter, SnortRuleParser::
         }else{
             tempRule->body.contentNocase.push_back(true);
             //if yes, than also transform the corresponding content to lowercase, for case insensitive comparison, so we dont have to do that during "flow check runtime"
-          //  std::transform(tempRule->body.contentmaketempRule->body.contentNocase.size()-1].begin(),
-          //  tempRule->body.content[tempRule->body.contentNocase.size()-1].end(),	tempRule->body.content[tempRule->body.contentNocase.size()-1].begin(), ::tolower);
+            //  std::transform(tempRule->body.contentmaketempRule->body.contentNocase.size()-1].begin(),
+            //  tempRule->body.content[tempRule->body.contentNocase.size()-1].end(),	tempRule->body.content[tempRule->body.contentNocase.size()-1].begin(), ::tolower);
         }
 
-        //find http content modifier:
-        httpModifierStartPosition=allModifiers.find("http_");
-        if(httpModifierStartPosition==std::string::npos){
-            tempRule->body.contentModifierHTTP.push_back(0);
+        if(uricontent){
+        	tempRule->body.contentModifierHTTP.push_back(2);
         }else{
-            httpModifierEndPosition=allModifiers.find(";",httpModifierStartPosition);
-            if(httpModifierEndPosition==std::string::npos){
-                parsingError(*linecounter,"content (modifier), content httpModifier end position");
-            }
-            temp=allModifiers.substr(httpModifierStartPosition,(httpModifierEndPosition-httpModifierStartPosition));
-            if(temp=="http_method"){
-            	tempRule->body.contentModifierHTTP.push_back(1);
-            }else if(temp=="http_uri"){
-            	tempRule->body.contentModifierHTTP.push_back(2);
-            	//replace whitespaces in content patterns for http uris
-            	//printf("uri detected, replacing:\n");
-            	//temp=tempRule->body.content[tempRule->body.contentModifierHTTP.size()-1];
-            	//printf("uri detected, replacing:\n");
-                for(int i = 0; i < tempRule->body.content.at(tempRule->body.contentModifierHTTP.size()-1).length(); i++)
-                {
-                    if(tempRule->body.content.at(tempRule->body.contentModifierHTTP.size()-1).at(i)== ' '){
-                    	tempRule->body.content.at(tempRule->body.contentModifierHTTP.size()-1).at(i) = '+';
-                    }
-                }
-                //tempRule->body.content.at(tempRule->body.contentModifierHTTP.size()-1)=temp;
-            }else if(temp=="http_raw_uri"){
-            	tempRule->body.contentModifierHTTP.push_back(3);
-            }else if(temp=="http_stat_msg"){
-            	tempRule->body.contentModifierHTTP.push_back(4);
-            }else if(temp=="http_stat_code"){
-            	tempRule->body.contentModifierHTTP.push_back(5);
-            }else if(temp=="http_header"){
-            	tempRule->body.contentModifierHTTP.push_back(6);
-            }
-        }
-
-        //erase content keyword and content string, so that next content can be found
-        lineCopy.erase(startPosition-8,+8);
-        lineCopySearch.erase(startPosition-8,+8);
+			//find http content modifier:
+			httpModifierStartPosition=allModifiers.find("http_");
+			if(httpModifierStartPosition==std::string::npos){
+				tempRule->body.contentModifierHTTP.push_back(0);
+			}else{
+				httpModifierEndPosition=allModifiers.find(";",httpModifierStartPosition);
+				if(httpModifierEndPosition==std::string::npos){
+					parsingError(*linecounter,"content (modifier), content httpModifier end position");
+				}
+				temp=allModifiers.substr(httpModifierStartPosition,(httpModifierEndPosition-httpModifierStartPosition));
+				if(temp=="http_method"){
+					tempRule->body.contentModifierHTTP.push_back(1);
+				}else if(temp=="http_uri"){
+					tempRule->body.contentModifierHTTP.push_back(2);
+					//replace whitespaces in content patterns for http uris
+					//printf("uri detected, replacing:\n");
+					//temp=tempRule->body.content[tempRule->body.contentModifierHTTP.size()-1];
+					//printf("uri detected, replacing:\n");
+					for(int i = 0; i < tempRule->body.content.at(tempRule->body.contentModifierHTTP.size()-1).length(); i++)
+					{
+						if(tempRule->body.content.at(tempRule->body.contentModifierHTTP.size()-1).at(i)== ' '){
+							tempRule->body.content.at(tempRule->body.contentModifierHTTP.size()-1).at(i) = '+';
+						}
+					}
+					//tempRule->body.content.at(tempRule->body.contentModifierHTTP.size()-1)=temp;
+				}else if(temp=="http_raw_uri"){
+					tempRule->body.contentModifierHTTP.push_back(3);
+				}else if(temp=="http_stat_msg"){
+					tempRule->body.contentModifierHTTP.push_back(4);
+				}else if(temp=="http_stat_code"){
+					tempRule->body.contentModifierHTTP.push_back(5);
+				}else if(temp=="http_header"){
+					tempRule->body.contentModifierHTTP.push_back(6);
+				}
+			}
+        }//if uricontent
+		//erase content keyword and content string, so that next content can be found
+		lineCopy.erase(startPosition-8,+8);
+		lineCopySearch.erase(startPosition-8,+8);
 
         startPosition=lineCopySearch.find("content:",bodyStartPosition)+8;
         endPosition=lineCopySearch.find("content:",startPosition);
@@ -670,18 +688,25 @@ std::vector<SnortRuleParser::snortRule> SnortRuleParser::parseMe(const char* fil
             		msg(MSG_DIALOG,"SnortRuleParser: Rule in line number %d, contains an http_cookie content modifier which is not supported (yet). Ignored",linecounter);
             	}else if(line.find("http_raw_header")!=std::string::npos){
             		msg(MSG_DIALOG,"SnortRuleParser: Rule in line number %d, contains an http_raw_header content modifier which is not supported (yet). Ignored",linecounter);
-            	}else{
+            	}else if(line.find("flowbits:")!=std::string::npos||line.find("distance:")!=std::string::npos||line.find("within:")!=std::string::npos||line.find("offset:")!=std::string::npos||line.find("depth:")!=std::string::npos){
+            	    msg(MSG_DIALOG,"SnortRuleParser: Rule in line number %d, contains keyword for byte ranges (flowbits,distance,within,depth,offset) which is not supported (yet). Ignored",linecounter);
+            	}else if(line.find("dce_")!=std::string::npos||line.find("threshold:")!=std::string::npos||line.find("urilen:")!=std::string::npos){
+            		msg(MSG_DIALOG,"SnortRuleParser: Rule in line number %d, contains one of the following not supported keywords: dce_\*, threshold:, urilen. Ignored",linecounter);
+				}else{
                     parseHeader(&line,&linecounter,&tempRule);
                     parseMsg(&line,&linecounter,&tempRule);
-                    //it might contain no content (just pcre), than skip parseContent
+                    //it might contain no content (just pcre), than skip parseContent, beware that this also finds uricontent: keyword --> this is intended and handled in the parseContent function
 					if(contentPosition!=std::string::npos){
-					    if(line.find("http_")==std::string::npos){
-					    	msg(MSG_DIALOG,"WARNING: Rule in line number %d contains content keyword but no http_ content modifier. Ignored\n", linecounter);
-					    	pushRule=false;
-					    }else{
-					    	parseContent(&line, &linecounter,&tempRule);
-					    	parseContentModifier(&line, &linecounter,&tempRule);
-					    }
+						//if uricontent, skip next test because no http_ is intended
+						if(line.substr(contentPosition-3,3)!="uri"){
+					    	if(line.find("http_")==std::string::npos){
+					    		msg(MSG_DIALOG,"WARNING: Rule in line number %d contains content keyword but no http_ content modifier. Ignored\n", linecounter);
+					    		pushRule=false;
+					    	}
+						}
+						parseContent(&line, &linecounter,&tempRule);
+						parseContentModifier(&line, &linecounter,&tempRule);
+
 					}
                     if(pcrePosition!=std::string::npos){
                         parsePcre(&line, &linecounter,&tempRule);
