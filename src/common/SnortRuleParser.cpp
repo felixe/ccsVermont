@@ -49,7 +49,7 @@ void parsingError(int line, std::string parsingPart){
 * compares the vector sizes of the vectors in the given rule, if sizes do not match than there is a bug in the parser
 */
 void SnortRuleParser::compareVectorSizes(SnortRuleParser::snortRule* rule){
-	if(rule->body.content.size()==0){
+	if(rule->body.content.size()==0&&rule->body.pcre.size()==0){
 		THROWEXCEPTION("SnortRuleParser: There was an error in rule parsing: After parsing, rule with sid %s does not contain any content or pcre to check for. This should not have happened. Aborting!",rule->body.sid.c_str());
 	}
 	if(rule->body.content.size()!=rule->body.contentOriginal.size()
@@ -135,6 +135,11 @@ void SnortRuleParser::printSnortRule(SnortRuleParser::snortRule* rule){
                         	default: fprintf(stderr,"IpfixIds: Wrong internal content modifier HTTP encoding. Aborting!\n"); exit(0);
                         }
                 fprintf(stdout,"pcreModifierHttp:\t\t%s\n",modifierHttp.c_str());
+        		if(rule->body.pcreNocase[j]==true){
+        					fprintf(stdout,"NocasePcre:\t\t\ttrue\n");
+        				}else{
+        					fprintf(stdout,"NocasePcre:\t\t\tfalse\n");
+        				}
     }
 
     fprintf(stdout,"Sid:\t\t\t\t%s\n",rule->body.sid.c_str());

@@ -163,7 +163,6 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 	long flowDstPort;
 	//end pointer for strtol operations
 	char* end;
-	regex ruleRegex;
 
 	string methodString;
 	string uriString;
@@ -429,51 +428,100 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
         //PCRE loop: Is skipped by the goto statements above if any of the above content patterns does not match.
         //As pcres are almost always the last statement in a rule this part should be reached very seldomly.
         for(m=0;m<rules[l].body.pcre.size();m++){
-        	//TODO: implement pcre nocase
-        	//TODO: implement pcre negated content, although almost never used in snort rules
-
-        	ruleRegex=rules[l].body.pcre.at(m);
-        	switch(rules[l].body.contentModifierHTTP[m+(rules[l].body.content.size())]){
-        		case 1:{//http_method
-        			if(regex_match(methodString,ruleRegex)){
-        				contentMatched[m+(rules[l].body.content.size())]=true;
-        				//printf("###%s matched %s\n",methodString.c_str(),rules[l].body.pcre.at(m).c_str());
-        			}else{
-        				contentMatched[m+(rules[l].body.content.size())]=false;
-        			}
-					break;
-				}
-				case 2:	//http_uri
-				case 3:{//http_raw_uri
-        			if(regex_match(uriString,ruleRegex)){
-        				//printf("###%s matched %s\n",uriString.c_str(),rules[l].body.pcre.at(m).c_str());
-        				contentMatched[m+(rules[l].body.content.size())]=true;
-        			}else{
-        				contentMatched[m+(rules[l].body.content.size())]=false;
-        			}
-					break;
-				}
-				case 4:{//http_stat_msg
-        			if(regex_match(statusMsgString,ruleRegex)){
-        				contentMatched[m+(rules[l].body.content.size())]=true;
-        			}else{
-        				contentMatched[m+(rules[l].body.content.size())]=false;
-        			}
-					break;
-				}
-				case 5:{//http_stat_code
-        			if(regex_match(statusCodeString,ruleRegex)){
-        				contentMatched[m+(rules[l].body.content.size())]=true;
-        			}else{
-        				contentMatched[m+(rules[l].body.content.size())]=false;
-        			}
-					break;
-				}
-				default:{
-					THROWEXCEPTION("IpfixIds: Unknown or unexpected (HTTP) modifier for PCRE: %s (or not yet implemented) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
-				}
+        	//TODO: implement pcre negated content, although almost never used in snort rules. Problem is this also inverts meaning of modifiers, thus not applicable solely to http anymore.
+        	if(rules[l].body.negatedPcre.at(m)==true){
+        		THROWEXCEPTION("IpfixIds: Rule with sid: %s contains a negated pcre. This is not implemented and is foolishly inexpensive, such a rule should not be used\n",rules[l].body.sid.c_str());
         	}
-        }
+
+        	if(rules[l].body.pcreNocase[j]){
+        		//regex_match is case sensitive by default, icase switches to case insensitive.
+        		std::regex ruleRegex(rules[l].body.pcre.at(m),regex_constants::icase);
+				switch(rules[l].body.contentModifierHTTP[m+(rules[l].body.content.size())]){
+					case 1:{//http_method
+						if(regex_match(methodString,ruleRegex)){
+							contentMatched[m+(rules[l].body.content.size())]=true;
+							//printf("###%s matched %s\n",methodString.c_str(),rules[l].body.pcre.at(m).c_str());
+						}else{
+							contentMatched[m+(rules[l].body.content.size())]=false;
+						}
+						break;
+					}
+					case 2:	//http_uri
+					case 3:{//http_raw_uri
+						if(regex_match(uriString,ruleRegex)){
+							//printf("###%s matched %s\n",uriString.c_str(),rules[l].body.pcre.at(m).c_str());
+							contentMatched[m+(rules[l].body.content.size())]=true;
+						}else{
+							contentMatched[m+(rules[l].body.content.size())]=false;
+						}
+						break;
+					}
+					case 4:{//http_stat_msg
+						if(regex_match(statusMsgString,ruleRegex)){
+							contentMatched[m+(rules[l].body.content.size())]=true;
+						}else{
+							contentMatched[m+(rules[l].body.content.size())]=false;
+						}
+						break;
+					}
+					case 5:{//http_stat_code
+						if(regex_match(statusCodeString,ruleRegex)){
+							contentMatched[m+(rules[l].body.content.size())]=true;
+						}else{
+							contentMatched[m+(rules[l].body.content.size())]=false;
+						}
+						break;
+					}
+					default:{
+						THROWEXCEPTION("IpfixIds: Unknown or unexpected (HTTP) modifier for PCRE: %s (or not yet implemented) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
+					}
+				}
+			}else{//case sensitive pcre search
+				//regex_match is case sensitive by default, icase switches to case insensitive.
+				std::regex ruleRegex(rules[l].body.pcre.at(m));
+				switch(rules[l].body.contentModifierHTTP[m+(rules[l].body.content.size())]){
+					case 1:{//http_method
+						if(regex_match(methodString,ruleRegex)){
+							contentMatched[m+(rules[l].body.content.size())]=true;
+							//printf("###%s matched %s\n",methodString.c_str(),rules[l].body.pcre.at(m).c_str());
+						}else{
+							contentMatched[m+(rules[l].body.content.size())]=false;
+						}
+						break;
+					}
+					case 2:	//http_uri
+					case 3:{//http_raw_uri
+						if(regex_match(uriString,ruleRegex)){
+							//printf("###%s matched %s\n",uriString.c_str(),rules[l].body.pcre.at(m).c_str());
+							contentMatched[m+(rules[l].body.content.size())]=true;
+						}else{
+							contentMatched[m+(rules[l].body.content.size())]=false;
+						}
+						break;
+					}
+					case 4:{//http_stat_msg
+						if(regex_match(statusMsgString,ruleRegex)){
+							contentMatched[m+(rules[l].body.content.size())]=true;
+						}else{
+							contentMatched[m+(rules[l].body.content.size())]=false;
+						}
+						break;
+					}
+					case 5:{//http_stat_code
+						if(regex_match(statusCodeString,ruleRegex)){
+							contentMatched[m+(rules[l].body.content.size())]=true;
+						}else{
+							contentMatched[m+(rules[l].body.content.size())]=false;
+						}
+						break;
+					}
+					default:{
+						THROWEXCEPTION("IpfixIds: Unknown or unexpected (HTTP) modifier for PCRE: %s (or not yet implemented) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
+					}
+				}
+			}
+
+        }//for loop
         //if all contents match for this rule, write alert
         //to check if everything BUT pcre stuff matched, simply only check the first |content.size()| number of elements.
         writeAlertBool=true;
