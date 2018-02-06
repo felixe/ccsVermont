@@ -433,92 +433,106 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
         		THROWEXCEPTION("IpfixIds: Rule with sid: %s contains a negated pcre. This is not implemented and is foolishly inexpensive, such a rule should not be used\n",rules[l].body.sid.c_str());
         	}
 
-        	if(rules[l].body.pcreNocase[j]){
-        		//regex_match is case sensitive by default, icase switches to case insensitive.
-        		std::regex ruleRegex(rules[l].body.pcre.at(m),regex_constants::icase);
-				switch(rules[l].body.contentModifierHTTP[m+(rules[l].body.content.size())]){
-					case 1:{//http_method
-						if(regex_match(methodString,ruleRegex)){
-							contentMatched[m+(rules[l].body.content.size())]=true;
-							//printf("###%s matched %s\n",methodString.c_str(),rules[l].body.pcre.at(m).c_str());
-						}else{
-							contentMatched[m+(rules[l].body.content.size())]=false;
+
+            try {//try to catch regex errors
+				if(rules[l].body.pcreNocase[j]){//---> case insensitive regex search
+					//regex_match is case sensitive by default, icase switches to case insensitive.
+					std::regex ruleRegex(rules[l].body.pcre.at(m),regex_constants::icase);
+					//printf("###case ins. regex search. uri %s,regex %s\n",uriString.c_str(),rules[l].body.pcre.at(m).c_str());
+					switch(rules[l].body.contentModifierHTTP[m+(rules[l].body.content.size())]){
+						case 1:{//http_method
+							if(regex_search(methodString,ruleRegex)){
+								contentMatched[m+(rules[l].body.content.size())]=true;
+								//printf("###%s matched %s\n",methodString.c_str(),rules[l].body.pcre.at(m).c_str());
+							}else{
+								contentMatched[m+(rules[l].body.content.size())]=false;
+							}
+							break;
 						}
-						break;
-					}
-					case 2:	//http_uri
-					case 3:{//http_raw_uri
-						if(regex_match(uriString,ruleRegex)){
-							//printf("###%s matched %s\n",uriString.c_str(),rules[l].body.pcre.at(m).c_str());
-							contentMatched[m+(rules[l].body.content.size())]=true;
-						}else{
-							contentMatched[m+(rules[l].body.content.size())]=false;
+						case 2:	//http_uri
+						case 3:{//http_raw_uri
+							if(regex_search(uriString,ruleRegex)){
+								contentMatched[m+(rules[l].body.content.size())]=true;
+							}else{
+								contentMatched[m+(rules[l].body.content.size())]=false;
+							}
+							break;
 						}
-						break;
-					}
-					case 4:{//http_stat_msg
-						if(regex_match(statusMsgString,ruleRegex)){
-							contentMatched[m+(rules[l].body.content.size())]=true;
-						}else{
-							contentMatched[m+(rules[l].body.content.size())]=false;
+						case 4:{//http_stat_msg
+							if(regex_search(statusMsgString,ruleRegex)){
+								contentMatched[m+(rules[l].body.content.size())]=true;
+							}else{
+								contentMatched[m+(rules[l].body.content.size())]=false;
+							}
+							break;
 						}
-						break;
-					}
-					case 5:{//http_stat_code
-						if(regex_match(statusCodeString,ruleRegex)){
-							contentMatched[m+(rules[l].body.content.size())]=true;
-						}else{
-							contentMatched[m+(rules[l].body.content.size())]=false;
+						case 5:{//http_stat_code
+							if(regex_search(statusCodeString,ruleRegex)){
+								contentMatched[m+(rules[l].body.content.size())]=true;
+							}else{
+								contentMatched[m+(rules[l].body.content.size())]=false;
+							}
+							break;
 						}
-						break;
+						default:{
+							THROWEXCEPTION("IpfixIds: Unknown or unexpected (HTTP) modifier for PCRE: %s (or not yet implemented) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
+						}
 					}
-					default:{
-						THROWEXCEPTION("IpfixIds: Unknown or unexpected (HTTP) modifier for PCRE: %s (or not yet implemented) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
+				}else{//case sensitive pcre search
+					//regex_search is case sensitive by default, icase switches to case insensitive.
+					std::regex ruleRegex(rules[l].body.pcre.at(m));
+					//printf("###case sens. regex search. uri %s,regex %s\n",uriString.c_str(),rules[l].body.pcre.at(m).c_str());
+
+					switch(rules[l].body.contentModifierHTTP[m+(rules[l].body.content.size())]){
+						case 1:{//http_method
+							if(regex_search(methodString,ruleRegex)){
+								contentMatched[m+(rules[l].body.content.size())]=true;
+								//printf("###%s matched %s\n",methodString.c_str(),rules[l].body.pcre.at(m).c_str());
+							}else{
+								contentMatched[m+(rules[l].body.content.size())]=false;
+							}
+							break;
+						}
+						case 2:	//http_uri
+						case 3:{//http_raw_uri
+							if(regex_search(uriString,ruleRegex)){
+								//printf("###%s matched %s\n",uriString.c_str(),rules[l].body.pcre.at(m).c_str());
+								contentMatched[m+(rules[l].body.content.size())]=true;
+							}else{
+								contentMatched[m+(rules[l].body.content.size())]=false;
+							}
+							break;
+						}
+						case 4:{//http_stat_msg
+							if(regex_search(statusMsgString,ruleRegex)){
+								contentMatched[m+(rules[l].body.content.size())]=true;
+							}else{
+								contentMatched[m+(rules[l].body.content.size())]=false;
+							}
+							break;
+						}
+						case 5:{//http_stat_code
+							if(regex_search(statusCodeString,ruleRegex)){
+								contentMatched[m+(rules[l].body.content.size())]=true;
+							}else{
+								contentMatched[m+(rules[l].body.content.size())]=false;
+							}
+							break;
+						}
+						default:{
+							THROWEXCEPTION("IpfixIds: Unknown or unexpected (HTTP) modifier for PCRE: %s (or not yet implemented) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
+						}
 					}
 				}
-			}else{//case sensitive pcre search
-				//regex_match is case sensitive by default, icase switches to case insensitive.
-				std::regex ruleRegex(rules[l].body.pcre.at(m));
-				switch(rules[l].body.contentModifierHTTP[m+(rules[l].body.content.size())]){
-					case 1:{//http_method
-						if(regex_match(methodString,ruleRegex)){
-							contentMatched[m+(rules[l].body.content.size())]=true;
-							//printf("###%s matched %s\n",methodString.c_str(),rules[l].body.pcre.at(m).c_str());
-						}else{
-							contentMatched[m+(rules[l].body.content.size())]=false;
-						}
-						break;
-					}
-					case 2:	//http_uri
-					case 3:{//http_raw_uri
-						if(regex_match(uriString,ruleRegex)){
-							//printf("###%s matched %s\n",uriString.c_str(),rules[l].body.pcre.at(m).c_str());
-							contentMatched[m+(rules[l].body.content.size())]=true;
-						}else{
-							contentMatched[m+(rules[l].body.content.size())]=false;
-						}
-						break;
-					}
-					case 4:{//http_stat_msg
-						if(regex_match(statusMsgString,ruleRegex)){
-							contentMatched[m+(rules[l].body.content.size())]=true;
-						}else{
-							contentMatched[m+(rules[l].body.content.size())]=false;
-						}
-						break;
-					}
-					case 5:{//http_stat_code
-						if(regex_match(statusCodeString,ruleRegex)){
-							contentMatched[m+(rules[l].body.content.size())]=true;
-						}else{
-							contentMatched[m+(rules[l].body.content.size())]=false;
-						}
-						break;
-					}
-					default:{
-						THROWEXCEPTION("IpfixIds: Unknown or unexpected (HTTP) modifier for PCRE: %s (or not yet implemented) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
-					}
-				}
+            }catch (const std::regex_error& e) {
+//            	if(e.code()==std::regex_constants::error_paren){
+//            	            		printf("###paren\n");
+//            	            	}
+//            	if(e.code()==std::regex_constants::error_badrepeat){
+//            	            		printf("###badrepeat\n");
+//            	            	}
+            	//e.code returns std::regex_constants
+            	THROWEXCEPTION("IpfixIds: regex_error caught during detection on rule sid:%s, what: %s, code %d\n",rules[l].body.sid.c_str(), e.what(), e.code());
 			}
 
         }//for loop
