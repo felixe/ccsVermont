@@ -108,6 +108,10 @@ void SnortRuleParser::printSnortRule(SnortRuleParser::snortRule* rule){
         	case 4: modifierHttp="http_stat_msg"; break;
         	case 5: modifierHttp="http_stat_code"; break;
 		case 6: modifierHttp="http_header"; break;
+		case 7: modifierHttp="http_raw_header"; break;
+        	case 8: modifierHttp="http_client_body"; break;
+        	case 9: modifierHttp="http_cookie"; break;
+        	case 10: modifierHttp="http_raw_cookie"; break;
         	default: THROWEXCEPTION("IpfixIds: Wrong content modifier HTTP encoding. Aborting!");
         }
         fprintf(stdout,"ContentModifierHttp:\t\t%s\n",modifierHttp.c_str());
@@ -132,7 +136,11 @@ void SnortRuleParser::printSnortRule(SnortRuleParser::snortRule* rule){
                         	case 4: modifierHttp="http_stat_msg"; break;
                         	case 5: modifierHttp="http_stat_code"; break;
                         	case 6: modifierHttp="http_header"; break;
-                        	default: fprintf(stderr,"IpfixIds: Wrong internal content modifier HTTP encoding. Aborting!\n"); exit(0);
+                        	case 7: modifierHttp="http_raw_header"; break;
+                        	case 8: modifierHttp="http_client_body"; break;
+                        	case 9: modifierHttp="http_cookie"; break;
+                        	case 10: modifierHttp="http_raw_cookie"; break;
+                        	default: fprintf(stderr,"IpfixIds: Wrong internal pcre content modifier HTTP encoding. Aborting!\n"); exit(0);
                         }
                 fprintf(stdout,"pcreModifierHttp:\t\t%s\n",modifierHttp.c_str());
         		if(rule->body.pcreNocase[j]==true){
@@ -539,8 +547,6 @@ void parsePcre(std::string* line, int* linecounter, SnortRuleParser::snortRule* 
     //if not throw an error
     if(startPosition==(std::string::npos+5)||endPosition==std::string::npos){
     	parsingError(*linecounter,"pcre");
-    	//next two lines are never reached, but i like em
-        tempRule->body.negatedPcre.push_back(false);
         return;
     }
 

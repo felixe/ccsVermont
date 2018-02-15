@@ -244,9 +244,11 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
     //check against rules:
     //BEWARE: there are gotos that break this loop
     for(l=0;l<rules.size();l++){
-    	bool contentMatched[rules[l].body.contentModifierHTTP.size()]={0};
+    	//contentMatched array must be all true for a rule match, here it is resetted
+    	bool contentMatched[rules[l].body.contentModifierHTTP.size()+rules[l].body.pcre.size()]={0};
     	//check ports if necessary, source direction
         //TODO: implement address direction checks
+    	//TODO: if following port checks are uncommented check if it still fits structure
 //    	if(httpPortsGiven){
 //        	flowSrcPort=getFlowPort(sourcePortType,sourcePortData);
 //        	flowDstPort=getFlowPort(destinationPortType,destinationPortData);
@@ -308,60 +310,87 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
         	if(rules[l].body.contentNocase[j]){//case insensitive search
         		switch(rules[l].body.contentModifierHTTP[j]){
 					case 1:{//http_method
+						//if match
 						if(strcasestr(methodString.c_str(),rules[l].body.content[j].c_str())!=NULL){
 							if(rules[l].body.negatedContent[j]){
-								contentMatched[j]=false;
+								//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+								goto skipRule;
 							}else{
 								contentMatched[j]=true;
 							}
 							break;
+						//if no match
 						}else{
-							//skip the rest of the rule if content search is negative, this avoids expensive useless searches
-							goto skipRule;
+							if(rules[l].body.negatedContent[j]){
+								contentMatched[j]=true;
+							}else{
+								goto skipRule;
+							}
+							break;
 						}
 					}
 					case 2:	//http_uri
 					case 3:{//http_raw_uri
 						if(strcasestr(uriString.c_str(),rules[l].body.content[j].c_str())!=NULL){
 							if(rules[l].body.negatedContent[j]){
-								contentMatched[j]=false;
+								//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+								goto skipRule;
 							}else{
 								contentMatched[j]=true;
 							}
 							break;
+						//if no match
 						}else{
-							goto skipRule;
+							if(rules[l].body.negatedContent[j]){
+								contentMatched[j]=true;
+							}else{
+								goto skipRule;
+							}
+							break;
 						}
 					}
 					//TODO: check if this keyword is present in rules and possibly leave this check away if not
 					case 4:{//http_stat_msg
 						if(strcasestr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
 							if(rules[l].body.negatedContent[j]){
-								contentMatched[j]=false;
+								//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+								goto skipRule;
 							}else{
 								contentMatched[j]=true;
 							}
 							break;
+						//if no match
 						}else{
-							goto skipRule;
+							if(rules[l].body.negatedContent[j]){
+								contentMatched[j]=true;
+							}else{
+								goto skipRule;
+							}
+							break;
 						}
 					}
-					//TODO: check if this keyword is present in rules and possibly leave this check away if not
 					//TODO:try encoding stat code to int and see if its faster (useless because never used in current ruleset)
 					case 5:{//http_stat_code
 						if(strcasestr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
 							if(rules[l].body.negatedContent[j]){
-								contentMatched[j]=false;
+								//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+								goto skipRule;
 							}else{
 								contentMatched[j]=true;
 							}
 							break;
+						//if no match
 						}else{
-							goto skipRule;
+							if(rules[l].body.negatedContent[j]){
+								contentMatched[j]=true;
+							}else{
+								goto skipRule;
+							}
+							break;
 						}
 					}
 					default:{
-						THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp: %s (or not yet implemented) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
+						THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp: %s (or content with no HTTP modifier) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
 					}
         		}
         	}else{//case sensitive search
@@ -370,70 +399,91 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 					case 1:{//http_method
 						if(strstr(methodString.c_str(),rules[l].body.content[j].c_str())!=NULL){
 							if(rules[l].body.negatedContent[j]){
-								contentMatched[j]=false;
+								//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+								goto skipRule;
 							}else{
 								contentMatched[j]=true;
 							}
 							break;
+						//if no match
 						}else{
-							//skip the rest of the rule if content search is negative, this avoids expensive useless searches
-							goto skipRule;
+							if(rules[l].body.negatedContent[j]){
+								contentMatched[j]=true;
+							}else{
+								goto skipRule;
+							}
+							break;
 						}
 					}
 					case 2:	//http_uri
 					case 3:{//http_raw_uri
 						if(strstr(uriString.c_str(),rules[l].body.content[j].c_str())!=NULL){
 							if(rules[l].body.negatedContent[j]){
-								contentMatched[j]=false;
+								//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+								goto skipRule;
 							}else{
 								contentMatched[j]=true;
 							}
 							break;
+						//if no match
 						}else{
-							goto skipRule;
+							if(rules[l].body.negatedContent[j]){
+								contentMatched[j]=true;
+							}else{
+								goto skipRule;
+							}
+							break;
 						}
 					}
 					case 4:{//http_stat_msg
 						if(strstr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
 							if(rules[l].body.negatedContent[j]){
-								contentMatched[j]=false;
+								//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+								goto skipRule;
 							}else{
 								contentMatched[j]=true;
 							}
 							break;
+						//if no match
 						}else{
-							goto skipRule;
+							if(rules[l].body.negatedContent[j]){
+								contentMatched[j]=true;
+							}else{
+								goto skipRule;
+							}
+							break;
 						}
 					}
 					//TODO:try encoding stat code to int and see if its faster (-->useless because almost never used in rules)
 					case 5:{//http_stat_code
 						if(strstr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
 							if(rules[l].body.negatedContent[j]){
-								contentMatched[j]=false;
+								//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+								goto skipRule;
 							}else{
 								contentMatched[j]=true;
 							}
 							break;
+						//if no match
 						}else{
-							goto skipRule;
+							if(rules[l].body.negatedContent[j]){
+								contentMatched[j]=true;
+							}else{
+								goto skipRule;
+							}
+							break;
 						}
 					}
 					default:{
-						THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp: %s (or not yet implemented) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
+						THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp: %s (or pcre with no HTTP modifier) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
 					}
 				}
         	}
         }
 
         //PCRE loop: Is skipped by the goto statements above if any of the above content patterns does not match.
-        //As pcres are almost always the last statement in a rule this part should be reached very seldomly.
+        //As pcres are almost always the last statement in a rule this part should be reached very seldomly and thus have a minor impact on performance.
         for(m=0;m<rules[l].body.pcre.size();m++){
-        	//TODO: implement pcre negated content, although almost never used in snort rules. Problem is this also inverts meaning of modifiers, thus not applicable solely to http anymore.
-        	if(rules[l].body.negatedPcre.at(m)==true){
-        		THROWEXCEPTION("IpfixIds: Rule with sid: %s contains a negated pcre. This is not implemented and is foolishly inexpensive, such a rule should not be used\n",rules[l].body.sid.c_str());
-        	}
-
-
             try {//try to catch regex errors
 				if(rules[l].body.pcreNocase[j]){//---> case insensitive regex search
 					//regex_match is case sensitive by default, icase switches to case insensitive.
@@ -442,35 +492,70 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 					switch(rules[l].body.contentModifierHTTP[m+(rules[l].body.content.size())]){
 						case 1:{//http_method
 							if(regex_search(methodString,ruleRegex)){
-								contentMatched[m+(rules[l].body.content.size())]=true;
-								//printf("###%s matched %s\n",methodString.c_str(),rules[l].body.pcre.at(m).c_str());
+								if(rules[l].body.negatedPcre[m]){
+									//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+									goto skipRule;
+								}else{
+									contentMatched[m+(rules[l].body.content.size())]=true;
+								}
 							}else{
-								contentMatched[m+(rules[l].body.content.size())]=false;
+								if(rules[l].body.negatedPcre[m]){
+									contentMatched[m+(rules[l].body.content.size())]=true;
+								}else{
+									goto skipRule;
+								}
 							}
 							break;
 						}
 						case 2:	//http_uri
 						case 3:{//http_raw_uri
 							if(regex_search(uriString,ruleRegex)){
-								contentMatched[m+(rules[l].body.content.size())]=true;
+								if(rules[l].body.negatedPcre[m]){
+									//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+									goto skipRule;
+								}else{
+									contentMatched[m+(rules[l].body.content.size())]=true;
+								}
 							}else{
-								contentMatched[m+(rules[l].body.content.size())]=false;
+								if(rules[l].body.negatedPcre[m]){
+									contentMatched[m+(rules[l].body.content.size())]=true;
+								}else{
+									goto skipRule;
+								}
 							}
 							break;
 						}
 						case 4:{//http_stat_msg
 							if(regex_search(statusMsgString,ruleRegex)){
-								contentMatched[m+(rules[l].body.content.size())]=true;
+								if(rules[l].body.negatedPcre[m]){
+									//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+									goto skipRule;
+								}else{
+									contentMatched[m+(rules[l].body.content.size())]=true;
+								}
 							}else{
-								contentMatched[m+(rules[l].body.content.size())]=false;
+								if(rules[l].body.negatedPcre[m]){
+									contentMatched[m+(rules[l].body.content.size())]=true;
+								}else{
+									goto skipRule;
+								}
 							}
 							break;
 						}
 						case 5:{//http_stat_code
 							if(regex_search(statusCodeString,ruleRegex)){
-								contentMatched[m+(rules[l].body.content.size())]=true;
+								if(rules[l].body.negatedPcre[m]){
+									//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+									goto skipRule;
+								}else{
+									contentMatched[m+(rules[l].body.content.size())]=true;
+								}
 							}else{
-								contentMatched[m+(rules[l].body.content.size())]=false;
+								if(rules[l].body.negatedPcre[m]){
+									contentMatched[m+(rules[l].body.content.size())]=true;
+								}else{
+									goto skipRule;
+								}
 							}
 							break;
 						}
@@ -482,40 +567,73 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 					//regex_search is case sensitive by default, icase switches to case insensitive.
 					std::regex ruleRegex(rules[l].body.pcre.at(m));
 					//printf("###case sens. regex search. uri %s,regex %s\n",uriString.c_str(),rules[l].body.pcre.at(m).c_str());
-
 					switch(rules[l].body.contentModifierHTTP[m+(rules[l].body.content.size())]){
 						case 1:{//http_method
 							if(regex_search(methodString,ruleRegex)){
-								contentMatched[m+(rules[l].body.content.size())]=true;
-								//printf("###%s matched %s\n",methodString.c_str(),rules[l].body.pcre.at(m).c_str());
+								if(rules[l].body.negatedPcre[m]){
+									//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+									goto skipRule;
+								}else{
+									contentMatched[m+(rules[l].body.content.size())]=true;
+								}
 							}else{
-								contentMatched[m+(rules[l].body.content.size())]=false;
+								if(rules[l].body.negatedPcre[m]){
+									contentMatched[m+(rules[l].body.content.size())]=true;
+								}else{
+									goto skipRule;
+								}
 							}
 							break;
 						}
 						case 2:	//http_uri
 						case 3:{//http_raw_uri
 							if(regex_search(uriString,ruleRegex)){
-								//printf("###%s matched %s\n",uriString.c_str(),rules[l].body.pcre.at(m).c_str());
-								contentMatched[m+(rules[l].body.content.size())]=true;
+								if(rules[l].body.negatedPcre[m]){
+									//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+									goto skipRule;
+								}else{
+									contentMatched[m+(rules[l].body.content.size())]=true;
+								}
 							}else{
-								contentMatched[m+(rules[l].body.content.size())]=false;
+								if(rules[l].body.negatedPcre[m]){
+									contentMatched[m+(rules[l].body.content.size())]=true;
+								}else{
+									goto skipRule;
+								}
 							}
 							break;
 						}
 						case 4:{//http_stat_msg
 							if(regex_search(statusMsgString,ruleRegex)){
-								contentMatched[m+(rules[l].body.content.size())]=true;
+								if(rules[l].body.negatedPcre[m]){
+									//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+									goto skipRule;
+								}else{
+									contentMatched[m+(rules[l].body.content.size())]=true;
+								}
 							}else{
-								contentMatched[m+(rules[l].body.content.size())]=false;
+								if(rules[l].body.negatedPcre[m]){
+									contentMatched[m+(rules[l].body.content.size())]=true;
+								}else{
+									goto skipRule;
+								}
 							}
 							break;
 						}
 						case 5:{//http_stat_code
 							if(regex_search(statusCodeString,ruleRegex)){
-								contentMatched[m+(rules[l].body.content.size())]=true;
+								if(rules[l].body.negatedPcre[m]){
+									//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+									goto skipRule;
+								}else{
+									contentMatched[m+(rules[l].body.content.size())]=true;
+								}
 							}else{
-								contentMatched[m+(rules[l].body.content.size())]=false;
+								if(rules[l].body.negatedPcre[m]){
+									contentMatched[m+(rules[l].body.content.size())]=true;
+								}else{
+									goto skipRule;
+								}
 							}
 							break;
 						}

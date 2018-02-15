@@ -52,6 +52,11 @@ public:
         //3:http_raw_uri
         //4:http_stat_msg
         //5:http_stat_code
+        //6:http_header
+        //7:http_raw_header
+        //8:http_client_body
+        //9:http_cookie
+        //10:http_raw_cookie
         std::vector<std::string> pcre;
         std::vector<bool> negatedPcre;
         std::vector<bool> pcreNocase;
