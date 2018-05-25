@@ -28,8 +28,8 @@
 #include "modules/ipfix/IpfixRecord.hpp"
 #include "modules/ipfix/IpfixRecordDestination.h"
 #include "modules/ipfix/IpfixPrinter.hpp"
-//regex requires c++11, its the same lib as boost::regex
-#include <regex>
+//in contrast to std::regex, boost::regex supports lookbehind.
+#include <boost/regex.hpp>
 
 /**
  * IPFIX Intrusion Detection System Module

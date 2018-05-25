@@ -486,8 +486,8 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
         for(m=0;m<rules[l].body.pcre.size();m++){
             try {//try to catch regex errors
 				if(rules[l].body.pcreNocase[j]){//---> case insensitive regex search
-					//regex_match is case sensitive by default, icase switches to case insensitive.
-					std::regex ruleRegex(rules[l].body.pcre.at(m),regex_constants::icase);
+					//regex_match is case sensitive by default, icase switches to case insensitive. default is perl, just to make sure.
+					boost::regex ruleRegex(rules[l].body.pcre.at(m),boost::regex::perl|boost::regex::icase);
 					//printf("###case ins. regex search. uri %s,regex %s\n",uriString.c_str(),rules[l].body.pcre.at(m).c_str());
 					switch(rules[l].body.contentModifierHTTP[m+(rules[l].body.content.size())]){
 						case 1:{//http_method
@@ -565,8 +565,7 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 					}
 				}else{//case sensitive pcre search
 					//regex_search is case sensitive by default, icase switches to case insensitive.
-					std::regex ruleRegex(rules[l].body.pcre.at(m));
-					//printf("###case sens. regex search. uri %s,regex %s\n",uriString.c_str(),rules[l].body.pcre.at(m).c_str());
+					boost::regex ruleRegex(rules[l].body.pcre.at(m));
 					switch(rules[l].body.contentModifierHTTP[m+(rules[l].body.content.size())]){
 						case 1:{//http_method
 							if(regex_search(methodString,ruleRegex)){
@@ -642,15 +641,52 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 						}
 					}
 				}
-            }catch (const std::regex_error& e) {
-//            	if(e.code()==std::regex_constants::error_paren){
-//            	            		printf("###paren\n");
-//            	            	}
-//            	if(e.code()==std::regex_constants::error_badrepeat){
-//            	            		printf("###badrepeat\n");
-//            	            	}
-            	//e.code returns std::regex_constants
-            	THROWEXCEPTION("IpfixIds: regex_error caught during detection on rule sid:%s, what: %s, code %d\n",rules[l].body.sid.c_str(), e.what(), e.code());
+            }catch (const boost::regex_error& e) {
+            	std::string msg;
+            	if(e.code()==boost::regex_constants::error_collate){
+            	            		msg="The expression contained an invalid collating element name";
+            	            	}
+            	if(e.code()==boost::regex_constants::error_ctype){
+            	            		msg="The expression contained an invalid character class name";
+            	            	}
+            	if(e.code()==boost::regex_constants::error_escape){
+            	            		msg="The expression contained an invalid escaped character, or a trailing escape";
+            	            	}
+            	if(e.code()==boost::regex_constants::error_backref){
+            	            		msg="TThe expression contained an invalid back reference";
+            	            	}
+            	if(e.code()==boost::regex_constants::error_brack){
+            	            		msg="The expression contained mismatched brackets";
+            	            	}
+            	if(e.code()==boost::regex_constants::error_paren){
+            	            		msg="The expression contained mismatched parentheses";
+            	            	}
+            	if(e.code()==boost::regex_constants::error_brace){
+            	            		msg="The expression contained mismatched braces";
+            	            	}
+            	if(e.code()==boost::regex_constants::error_badbrace){
+            	            		msg="The expression contained an invalid range between braces";
+            	            	}
+            	if(e.code()==boost::regex_constants::error_range){
+									msg="The expression contained an invalid character range";
+								}
+            	if(e.code()==boost::regex_constants::error_space){
+									msg="There was insufficient memory to convert the expression info a finite state machine";
+								}
+            	if(e.code()==boost::regex_constants::error_badrepeat){
+            						msg="The expression contained a repeat specifier (one of *?+{) that was not preceded by a valid regular expression";
+            	            	}
+            	if(e.code()==boost::regex_constants::error_complexity){
+            						msg="The complexity of an attempted match against a regular expression exceeded a pre-set level";
+            	            	}
+            	if(e.code()==boost::regex_constants::error_stack){
+            						msg="There was insufficient stack memory to determine whether the regular expression could match the specified character sequence";
+            	            	}
+            	if(e.code()==boost::regex_constants::error_bad_pattern){
+            						msg="Other, unspecified Error";
+            	            	}
+            	//e.code returns boost::regex_constants
+            	THROWEXCEPTION("IpfixIds: regex_error caught during detection on rule sid:%s, what: %s, code %d. Msg: %s\n",rules[l].body.sid.c_str(), e.what(), e.code(), msg.c_str());
 			}
 
         }//for loop
