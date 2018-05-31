@@ -23,7 +23,7 @@ PROJECT(VERMONT)
 ### CMake configuration
 
 # allow building with old CMake. Use some bundled modules as a fallback
-CMAKE_MINIMUM_REQUIRED(VERSION 2.3.5)
+CMAKE_MINIMUM_REQUIRED(VERSION 3.0.2)
 SET(CMAKE_MODULE_PATH ${CMAKE_ROOT}/Modules ${CMAKE_SOURCE_DIR}/cmake/modules)
 
 # move some config clutter to the advanced section
@@ -343,78 +343,6 @@ ELSE (ORACLE_FOUND)
 	REMOVE_DEFINITIONS(-DORACLE_SUPPORT_ENABLED)
 ENDIF (ORACLE_FOUND)
 
-### libpcap-mmap
-
-OPTION(USE_PCAPMMAP "Use libpcap-mmap." OFF)
-MARK_AS_ADVANCED(
-	PCAP_LIBRARY_REGULAR
-	PCAP_LIBRARY_MMAP
-	PCAP_INCLUDE_PATH
-)
-
-OPTION(USE_PFRING "Use pf_ring optimized libpcap." OFF)
-MARK_AS_ADVANCED(
-	PCAP_LIBRARY_PFRING
-	PFRING_LIBRARY
-)
-
-IF (USE_PCAPMMAP)
-
-    IF (USE_PFRING)
-        MESSAGE(FATAL_ERROR "Both USE_PCAPMMAP and USE_PFRING have been selected. At most one of these options may be selected!")
-    ENDIF (USE_PFRING)
-
-    FIND_LIBRARY(PCAP_LIBRARY_MMAP NAMES pcap pcap-mmap PATHS ${VERMONT_SOURCE_DIR} ${VERMONT_SOURCE_DIR}/libpcap-mmap ${VERMONT_SOURCE_DIR}/../libpcap-mmap ${VERMONT_SOURCE_DIR}/../../../trunk/libpcap-mmap NO_DEFAULT_PATH)
-	FIND_PATH(PCAP_INCLUDE_PATH NAMES pcap.h PATHS ${VERMONT_SOURCE_DIR} ${VERMONT_SOURCE_DIR}/libpcap-mmap ${VERMONT_SOURCE_DIR}/../libpcap-mmap ${VERMONT_SOURCE_DIR}/../../../trunk/libpcap-mmap NO_DEFAULT_PATH)
-    SET(PCAP_LIBRARY "${PCAP_LIBRARY_MMAP}")
-    IF (PCAP_LIBRARY_MMAP)
-        SET(PCAP_LIBRARY "${PCAP_LIBRARY_MMAP}")
-		INCLUDE_DIRECTORIES(${PCAP_INCLUDE_PATH})
-    ELSE (PCAP_LIBRARY_MMAP)
-        MESSAGE(FATAL_ERROR "Could not find libpcap-mmap. This script also looks in directory ./libpcap-mmap, so maybe you want to create a symlink to the directory of the library.")
-    ENDIF (PCAP_LIBRARY_MMAP)
-    TARGET_LINK_LIBRARIES(vermont ${PCAP_LIBRARY})
-
-ELSEIF (USE_PFRING)
-
-    FIND_LIBRARY(PCAP_LIBRARY_PFRING NAMES pcap PATHS ${VERMONT_SOURCE_DIR} ${VERMONT_SOURCE_DIR}/PF_RING/userland/libpcap-1.1.1-ring ${VERMONT_SOURCE_DIR}/../PF_RING/userland/libpcap-1.1.1-ring NO_DEFAULT_PATH)
-    IF (NOT PCAP_LIBRARY_PFRING)
-        MESSAGE(FATAL_ERROR "Could not find libpcap-ring. This script looks in directories ${VERMONT_SOURCE_DIR}/PF_RING/userland/libpcap-1.1.1-ring and ${VERMONT_SOURCE_DIR}/../PF_RING/userland/libpcap-1.1.1-ring, so maybe you want to create a symlink to the directory of the library.")
-    ENDIF (NOT PCAP_LIBRARY_PFRING)
-    FIND_LIBRARY(PFRING_LIBRARY NAMES pfring PATHS ${VERMONT_SOURCE_DIR} ${VERMONT_SOURCE_DIR}/PF_RING/userland/lib ${VERMONT_SOURCE_DIR}/../PF_RING/userland/lib NO_DEFAULT_PATH)
-    IF (NOT PFRING_LIBRARY)
-        MESSAGE(FATAL_ERROR "Could not find libpfring. This script looks in directories ${VERMONT_SOURCE_DIR}/PF_RING/userland/lib and ${VERMONT_SOURCE_DIR}/../PF_RING/userland/lib, so maybe you want to create a symlink to the directory of the library.")
-    ENDIF (NOT PFRING_LIBRARY)
-    FIND_PATH(PCAP_INCLUDE_PATH NAMES pcap.h PATHS ${VERMONT_SOURCE_DIR} ${VERMONT_SOURCE_DIR}/PF_RING/userland/libpcap-1.1.1-ring ${VERMONT_SOURCE_DIR}/../PF_RING/userland/libpcap-1.1.1-ring NO_DEFAULT_PATH)
-    ADD_DEFINITIONS(-lnuma -lrt)
-    TARGET_LINK_LIBRARIES(vermont -lnuma -lrt ${PCAP_LIBRARY_PFRING})
-    TARGET_LINK_LIBRARIES(vermont -lnuma -lrt ${PFRING_LIBRARY})
-    INCLUDE_DIRECTORIES(${PCAP_INCLUDE_PATH})
-
-ELSE (USE_PCAPMMAP)
-
-    FIND_LIBRARY(PCAP_LIBRARY_REGULAR NAMES pcap)
-    IF (PCAP_LIBRARY_REGULAR)
-        SET(PCAP_LIBRARY "${PCAP_LIBRARY_REGULAR}")
-    ELSE (PCAP_LIBRARY_REGULAR)
-        MESSAGE(FATAL_ERROR "Could not find libpcap")
-    ENDIF (PCAP_LIBRARY_REGULAR)
-    TARGET_LINK_LIBRARIES(vermont ${PCAP_LIBRARY})
-
-ENDIF (USE_PCAPMMAP)
-
-
-
-IF (USE_PFRING)
-ELSE (USE_PFRING)
-    FIND_LIBRARY(PCAP_LIBRARY_REGULAR NAMES pcap)
-    IF (PCAP_LIBRARY_REGULAR)
-    	TARGET_LINK_LIBRARIES(vermont ${PCAP_LIBRARY_REGULAR})
-    ELSE (PCAP_LIBRARY_REGULAR)
-        MESSAGE(FATAL_ERROR "Could not find libpcap.")
-    ENDIF (PCAP_LIBRARY_REGULAR)
-ENDIF (USE_PFRING)
-
 ### sctp
 OPTION(SUPPORT_SCTP "Support SCTP transport protocol" ON)
 IF (SUPPORT_SCTP)
@@ -429,7 +357,6 @@ ELSE (SUPPORT_SCTP)
 ENDIF (SUPPORT_SCTP)
 
 ### connection filter
-
 OPTION(CONNECTION_FILTER "Enables/disables the connection filter." OFF)
 OPTION(USE_GSL "Enables/disables GSL in connectionflter." ON)
 
@@ -504,7 +431,7 @@ ENDIF (SUPPORT_DTLS_OVER_SCTP)
 
 ### tools
 
-OPTION(WITH_TOOLS "Build misc tools." ON)
+OPTION(WITH_TOOLS "Build misc tools." OFF)
 IF (WITH_TOOLS)
 	SUBDIRS(tools)
 	SUBDIR_DEPENDS(tools src)
@@ -538,7 +465,10 @@ ELSE (IPFIXLOLIB_RAWDIR_SUPPORT)
 	REMOVE_DEFINITIONS(-DIPFIXLOLIB_RAWDIR_SUPPORT)
 ENDIF (IPFIXLOLIB_RAWDIR_SUPPORT)
 
-OPTION(USE_LIBZERO "Enable libzero to capture packets from device" OFF)
+
+### LIBZERO_SUPPORT
+
+OPTION(USE_LIBZERO "(DEPRECATED) Enable libzero to capture packets from device" OFF)
 MARK_AS_ADVANCED(
     LIBRARY_PFRING
     PFRING_INCLUDE_PATH
@@ -568,7 +498,26 @@ IF (USE_LIBZERO)
         MESSAGE(FATAL_ERROR "pfring library not found!")
     ENDIF (NOT LIBRARY_PFRING)
     TARGET_LINK_LIBRARIES(vermont ${LIBRARY_PFRING} -lnuma -lrt)
+
+    SET(LIBZERO_MAX_NUM_INTERFACES 4 CACHE STRING "(Deprecated) Maximum number of LibzeroObservers to be created.")
+    ADD_DEFINITIONS(-DLIBZERO_MAX_NUM_INTERFACES=${LIBZERO_MAX_NUM_INTERFACES})
 ENDIF (USE_LIBZERO)
 
-SET(LIBZERO_MAX_NUM_INTERFACES 4 CACHE STRING "Maximum number of LibzeroObservers to be created.")
-ADD_DEFINITIONS(-DLIBZERO_MAX_NUM_INTERFACES=${LIBZERO_MAX_NUM_INTERFACES})
+### PFRING_ZEROCOPY_SUPPORT
+
+OPTION(USE_PFRING_ZC "Enable pf_ring zero copy support for high-speed packet capturing." OFF)
+MARK_AS_ADVANCED(
+	PFRING_ZC_PATH
+)
+IF (USE_PFRING_ZC)
+	IF (USE_LIBZERO)
+		MESSAGE(FATAL_ERROR "Libzero and Pfring ZC enabled, choose only one.")
+	ENDIF (USE_LIBZERO)
+	ADD_DEFINITIONS(-DPFRING_ZC_ENABLED)
+	FIND_PATH(PFRING_ZC_PATH NAMES ${PFRING_ZC_PATH}/userland/lib/pfring.h)
+	IF (NOT PFRING_ZC_PATH)
+		MESSAGE(FATAL_ERROR "pfring ZC path not found!")
+	ENDIF (NOT PFRING_ZC_PATH)
+	INCLUDE_DIRECTORIES(${PFRING_ZC_PATH}/kernel  ${PFRING_ZC_PATH}/userland/lib ${PFRING_ZC_PATH}/userland/libpcap ${PFRING_ZC_PATH}/userland/examples/third-party)
+	TARGET_LINK_LIBRARIES(vermont ${PFRING_ZC_PATH}/userland/libpcap/libpcap.a ${PFRING_ZC_PATH}/userland/lib/libpfring.a ${PFRING_ZC_PATH}/userland/libpcap/libpcap.a ${PFRING_ZC_PATH}/userland/lib/libpfring.a -lpthread -lrt -ldl)
+ENDIF (USE_PFRING_ZC)

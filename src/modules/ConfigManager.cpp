@@ -28,6 +28,7 @@
 #include "AnonymizerCfg.h"
 #include "modules/packet/ObserverCfg.h"
 #include "modules/packet/LibzeroObserverCfg.h"
+#include "modules/packet/PfringObserverCfg.h"
 #include "modules/packet/PSAMPExporterCfg.h"
 #include "modules/packet/PCAPExporterFileCfg.h"
 #include "modules/packet/PCAPExporterPipeCfg.h"
@@ -73,6 +74,9 @@ Cfg* ConfigManager::configModules[] = {
 	new ObserverCfg(NULL),
 #ifdef LIBZERO_SUPPORT_ENABLED
 	new LibzeroObserverCfg(NULL),
+#endif
+#ifdef PFRING_ZC_ENABLED
+	new PfringObserverCfg(NULL),
 #endif
 	new PacketFilterCfg(NULL),
 	new PacketQueueCfg(NULL),
