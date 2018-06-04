@@ -503,6 +503,12 @@ IF (USE_LIBZERO)
     ADD_DEFINITIONS(-DLIBZERO_MAX_NUM_INTERFACES=${LIBZERO_MAX_NUM_INTERFACES})
 ENDIF (USE_LIBZERO)
 
+### default pcap
+OPTION(USE_DEFAULT_LIBPCAP "Use default libpcap (slower)" ON)
+IF (USE_DEFAULT_LIBPCAP)
+	TARGET_LINK_LIBRARIES(vermont -lpcap)
+ENDIF (USE_DEFAULT_LIBPCAP)
+
 ### PFRING_ZEROCOPY_SUPPORT
 
 OPTION(USE_PFRING_ZC "Enable pf_ring zero copy support for high-speed packet capturing." OFF)
@@ -510,6 +516,9 @@ MARK_AS_ADVANCED(
 	PFRING_ZC_PATH
 )
 IF (USE_PFRING_ZC)
+	IF (USE_DEFAULT_LIBPCAP)
+		MESSAGE(FATAL_ERROR "Default libpcap and Pfring ZC enabled, choose only one.")
+	ENDIF (USE_DEFAULT_LIBPCAP)
 	IF (USE_LIBZERO)
 		MESSAGE(FATAL_ERROR "Libzero and Pfring ZC enabled, choose only one.")
 	ENDIF (USE_LIBZERO)

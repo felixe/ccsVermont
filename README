@@ -15,7 +15,7 @@ The following tools and libraries are needed for Vermont (including header files
 
     gcc (4.9,5.4)
     cmake (and ev. 'cmake-curses-gui')
-    libpcapi-dev
+    libpcap-dev
     libpcre3-dev
     libboost-all-dev (1.55,1.58,1.62)
     libxml2-dev
@@ -64,7 +64,7 @@ copied to the usual install location by running:
 $ make install 
 
 ------------------------------
-BUILING WITH PF_RING_ZC SUPPORT
+BUILDING WITH PF_RING_ZC SUPPORT
 ------------------------------
 
 PF_RING Zero Copy is a driver and library suite that allows for very fast packet capturing. For more info on PF_RING see:
