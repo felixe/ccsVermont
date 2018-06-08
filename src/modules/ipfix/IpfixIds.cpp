@@ -27,7 +27,7 @@
 #include <stdio.h>
 #include <arpa/inet.h>
 
-int alertCounter;
+int   alertCounter;
 bool httpPortsGiven;
 //to be able to choose between IANA and ntop method type
 static InformationElement::IeInfo methodTypeChoice;
@@ -39,32 +39,22 @@ bool printTime;
  * Do not forget to call @c startIpfixIds() to begin printing
  * @return handle to use when calling @c destroyIpfixIds()
  */
-IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParsedRules, bool useNtopIEs)
+IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParsedRules, bool useNtopIEs, string stringThreads)
 {
 	alertCounter=0;
     lastTemplate = 0;
 	string file = "";
-	alertFile = stdout;
 	string line;
 	httpPortsGiven=false;
 	printTime=true;
+	queueNum=0;
+	threadsWork=true;
 
 	//default type to do intrusion detection on is the IANA type
 	methodTypeChoice=InformationElement::IeInfo(IPFIX_TYPEID_httpRequestMethod, 0);
 	uriTypeChoice= InformationElement::IeInfo(IPFIX_TYPEID_httpRequestTarget, 0);
 
     SnortRuleParser ruleParser;
-
-	//open alertfile for writing
-	if (alertFS == "NULL") {
-        THROWEXCEPTION("IpfixIds: no alertfile given, aborting!");
-	}else{
-		alertFile = fopen(alertFS.c_str(), "w");
-		//also tell the printhelper to use alertfile to print and not stdout
-		printer.changeFile(alertFile);
-		if (!alertFile)
-			THROWEXCEPTION("IpfixIds: error opening alertfile '%s': %s (%u)", alertFS.c_str(), strerror(errno), errno);
-	}
 
 	if (rulesFS == "NULL") {
         THROWEXCEPTION("IpfixIds: no rulesfile given, aborting!");
@@ -101,6 +91,51 @@ IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParse
 		uriTypeChoice= InformationElement::IeInfo(IPFIX_ETYPEID_ntopHttpUri, IPFIX_PEN_ntop, 0);
 	}
 
+	if(stringThreads=="NULL"|stringThreads==""){
+		msg(MSG_INFO, "IpfixIds: No number for parallel threads given, using only single thread for pattern matching");
+		threads=1;
+	}else{
+		try
+		{
+			threads=std::stoi(stringThreads);
+		}catch (std::invalid_argument& e){
+			THROWEXCEPTION("IpfixIds: \"%s\" seems to be an invalid argument for the 'threads' config directive ", stringThreads.c_str());
+		}catch (std::out_of_range& e){
+			THROWEXCEPTION("IpfixIds: really? you want %s threads? screw that! ", stringThreads.c_str());
+		}
+	}
+
+	//start patternMatching threads:
+	//threads starten
+	threadsWork=1;
+
+	//loop to fill all thread related vectors
+	for(int i=0; i<threads; i++){
+		threadIsFinished.push_back(false);
+		//default to stdout, is changed below to actual file. Why are we doing this again?
+		alertFile.push_back(stdout);
+		//create corresponding queue
+		//this could actually have an influence on performance, but 10mio pointers should be enough for quite some while
+		std::queue <IpfixDataRecord*> placeHolderQueue;
+		flowQueues.push_back(placeHolderQueue);
+		std::thread placeHolderThread(&IpfixIds::patternMatching,this,i);
+		freds.push_back(move(placeHolderThread));
+		freds.back().detach();
+	}
+
+	//open alertfile for writing
+	if (alertFS == "NULL") {
+        THROWEXCEPTION("IpfixIds: no alertfile given, aborting!");
+	}else{
+		for(int i=0; i<threads; i++){
+			alertFile.at(i) = fopen((alertFS+std::to_string(i)).c_str(), "w");
+			//also tell the printhelper to use alertfile to print and not stdout
+				//is now done in every thread, every time it prints(!!!)
+			if (!alertFile.at(i))
+				THROWEXCEPTION("IpfixIds: error opening alertfile '%s': %s (%u)", alertFS.c_str(), strerror(errno), errno);
+		}
+	}
+
     //be nice and tell people what the configuration is
     msg(MSG_INFO, "IpfixIds: started with following parameters:");
     msg(MSG_INFO, "  - Alertfile = %s", alertFS.c_str());
@@ -110,6 +145,7 @@ IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParse
     }else{
     	msg(MSG_INFO, "  - Configured to do intrusion detection on IANA IEs");
     }
+    msg(MSG_INFO, "  - Configured to use %d threads for pattern matching", threads);
     msg(MSG_INFO, "IpfixIds: starting to parse rulesfile");
     rules=ruleParser.parseMe(rulesFS.c_str());
     if(rules.size()>0){
@@ -124,15 +160,14 @@ IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParse
     }
 
     if(printParsedRules){
-        fprintf(stdout,"------------------------------------------------------\n");
-        fprintf(stdout,"IpfixIds: The following rules have been parsed from rulesfile %s\n", rulesFS.c_str());
-        fprintf(stdout,"------------------------------------------------------\n");
+    	msg(MSG_INFO,"------------------------------------------------------");
+    	msg(MSG_INFO,"IpfixIds: The following rules have been parsed from rulesfile %s", rulesFS.c_str());
+    	msg(MSG_INFO,"------------------------------------------------------");
         for(unsigned long i=0;i<rules.size();i++){
             ruleParser.printSnortRule(&rules[i]);
         }
-        fprintf(stdout,"------------------------------------------------------\n");
+        msg(MSG_INFO,"------------------------------------------------------");
     }
-
 }
 
 /**
@@ -140,22 +175,41 @@ IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParse
  */
 IpfixIds::~IpfixIds()
 {
+	bool finish=false;
+	//we need to tell threads to shutdown
+	threadsWork=false;
+	msg(MSG_INFO, "IpfixIds: Told pattern matching threads to empty queues and finish");
+	//since we detach the threads, they are not joinable anymore
+	//and they should stop if threadsWork is false.
+	//thus, we also need to wait for threads to finish queues
+	while(!finish){
+		usleep(100000);//wait a tenth second
+		finish=true;
+		for(int i=0;i<threads;i++){
+			if(threadIsFinished.at(i)==false){
+				finish=false;
+			}
+		}
+	}
+	msg(MSG_DEBUG, "IpfixIds:Threads finished");
 	msg(MSG_DIALOG,"IpfixIds: %d alerts triggered",alertCounter);
-	//close alertfile before shutdown
-    int ret = fclose(alertFile);
-	if (ret){
-		THROWEXCEPTION("IpfixIds: error closing alert file '%s': %s (%u)", strerror(errno), errno);
-    }
+	//close alertfiles before shutdown
+	for(int i=0; i<threads; i++){
+		int ret = fclose(alertFile.at(i));
+			if (ret){
+				THROWEXCEPTION("IpfixIds: error closing alert file '%s': %s (%u)", strerror(errno), errno);
+		    }
+	}
 }
 
-
 /**
- * called on reception of Ipfix record
+ * This is where all the IDS pattern matching of rules vs. flows takes place.
+ * This function is executed by threads who work on queues of incoming flows.
+ * Every thread has its own queue to avoid locking operations.
+ * threadNum is used to identify the right queue.
  */
-void IpfixIds::onDataRecord(IpfixDataRecord* record)
-{
-
-	unsigned long j,k,l,m;
+void IpfixIds::patternMatching(int threadNum){
+	unsigned long j,k,l,m,flowCounter=0;
 	bool writeAlertBool;
 	bool portMatched;
 	long portRule;
@@ -168,6 +222,7 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 	string uriString;
 	string statusMsgString;
 	string statusCodeString;
+	IpfixDataRecord* record;
 
 	IpfixRecord::Data* sourceIPData;
 	IpfixRecord::Data* destinationIPData;
@@ -187,582 +242,564 @@ void IpfixIds::onDataRecord(IpfixDataRecord* record)
 	InformationElement::IeInfo destinationPortType;
 	InformationElement::IeInfo startType;
 
-    if(record->templateInfo->setId == TemplateInfo::IpfixOptionsTemplate) {
-        THROWEXCEPTION("IpfixOptionsTemplate arrived, implement something to ignore it, and hand over");
-    }
-    if(record->templateInfo->setId == TemplateInfo::IpfixDataTemplate) {
-        THROWEXCEPTION("IpfixDataTemplate arrived, implement something to ignore it, and hand over");
-    }
+    while(true){
+    	//avoid trying to read empty queue (->undefined behavior):
+    	while(flowQueues.at(threadNum).empty()){
+    		//TODO: what sleep time is the best performance-wise?
+    		usleep(50);
+    		//if queue is empty AND threadsWork is set to false we have to stop and goto printCounter
+    		if(!threadsWork){
+    			goto printCounter;
+    		}
+    	}
+    	//FIFO style: insert with push, read front, remove with pop
+    	record=flowQueues.at(threadNum).front();
+		if(record->templateInfo->setId == TemplateInfo::IpfixOptionsTemplate) {
+			THROWEXCEPTION("IpfixOptionsTemplate arrived, implement something to ignore it, and hand over");
+		}
+		if(record->templateInfo->setId == TemplateInfo::IpfixDataTemplate) {
+			THROWEXCEPTION("IpfixDataTemplate arrived, implement something to ignore it, and hand over");
+		}
 
-    //go through ipfix record IE fields and save pointers to interesting fields
-    for (uint32_t i = 0; i < record->templateInfo->fieldCount; i++) {
-        if (record->templateInfo->fieldInfo[i].type == methodTypeChoice) {
-			 methodString= std::string((const char*)(record->data + record->templateInfo->fieldInfo[i].offset));
-			 methodType=record->templateInfo->fieldInfo[i].type;
-	}
-        if (record->templateInfo->fieldInfo[i].type == uriTypeChoice) {
-			uriString = std::string((const char*)(record->data + record->templateInfo->fieldInfo[i].offset));
-			uriType=record->templateInfo->fieldInfo[i].type;
-        }
-        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_httpStatusCode, 0)) {
-			statusCodeString = std::string((const char*)(record->data + record->templateInfo->fieldInfo[i].offset));
-			statusCodeType=record->templateInfo->fieldInfo[i].type;
-        }
-        //TODO convert also this type to IANA registered type
-        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_ETYPEID_httpStatusPhrase, 0)) {
-            statusMsgString = std::string((const char*)record->data + record->templateInfo->fieldInfo[i].offset);
-            statusMsgType=record->templateInfo->fieldInfo[i].type;
-        }
-//        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_httpRequestHost, 0)) {
-//		   hostData = (record->data + record->templateInfo->fieldInfo[i].offset);
-//		   hostType=record->templateInfo->fieldInfo[i].type;
-//        }
+		//go through ipfix record IE fields and save pointers to interesting fields
+		for (uint32_t i = 0; i < record->templateInfo->fieldCount; i++) {
+			if (record->templateInfo->fieldInfo[i].type == methodTypeChoice) {
+				 methodString= std::string((const char*)(record->data + record->templateInfo->fieldInfo[i].offset));
+				 methodType=record->templateInfo->fieldInfo[i].type;
+		}
+			if (record->templateInfo->fieldInfo[i].type == uriTypeChoice) {
+				uriString = std::string((const char*)(record->data + record->templateInfo->fieldInfo[i].offset));
+				uriType=record->templateInfo->fieldInfo[i].type;
+			}
+			if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_httpStatusCode, 0)) {
+				statusCodeString = std::string((const char*)(record->data + record->templateInfo->fieldInfo[i].offset));
+				statusCodeType=record->templateInfo->fieldInfo[i].type;
+			}
+			//TODO convert also this type to IANA registered type
+			if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_ETYPEID_httpStatusPhrase, 0)) {
+				statusMsgString = std::string((const char*)record->data + record->templateInfo->fieldInfo[i].offset);
+				statusMsgType=record->templateInfo->fieldInfo[i].type;
+			}
+	//        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_httpRequestHost, 0)) {
+	//		   hostData = (record->data + record->templateInfo->fieldInfo[i].offset);
+	//		   hostType=record->templateInfo->fieldInfo[i].type;
+	//        }
 
-        //stuff that we need for a meaningful alert
-        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_sourceIPv4Address, 0)) {
-			sourceIPData = (record->data + record->templateInfo->fieldInfo[i].offset);
-			sourceIPType=record->templateInfo->fieldInfo[i].type;
-        }
-        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_destinationIPv4Address, 0)) {
-			destinationIPData = (record->data + record->templateInfo->fieldInfo[i].offset);
-			destinationIPType=record->templateInfo->fieldInfo[i].type;
-        }
-        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_sourceTransportPort, 0)) {
-			sourcePortData = (record->data + record->templateInfo->fieldInfo[i].offset);
-			sourcePortType=record->templateInfo->fieldInfo[i].type;
-        }
-        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_destinationTransportPort, 0)) {
-			destinationPortData = (record->data + record->templateInfo->fieldInfo[i].offset);
-			destinationPortType=record->templateInfo->fieldInfo[i].type;
-        }
-        if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_flowStartNanoSeconds, 0)) {
-			startData = (record->data + record->templateInfo->fieldInfo[i].offset);
-			startType=record->templateInfo->fieldInfo[i].type;
-        }
-    }
+			//stuff that we need for a meaningful alert
+			if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_sourceIPv4Address, 0)) {
+				sourceIPData = (record->data + record->templateInfo->fieldInfo[i].offset);
+				sourceIPType=record->templateInfo->fieldInfo[i].type;
+			}
+			if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_destinationIPv4Address, 0)) {
+				destinationIPData = (record->data + record->templateInfo->fieldInfo[i].offset);
+				destinationIPType=record->templateInfo->fieldInfo[i].type;
+			}
+			if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_sourceTransportPort, 0)) {
+				sourcePortData = (record->data + record->templateInfo->fieldInfo[i].offset);
+				sourcePortType=record->templateInfo->fieldInfo[i].type;
+			}
+			if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_destinationTransportPort, 0)) {
+				destinationPortData = (record->data + record->templateInfo->fieldInfo[i].offset);
+				destinationPortType=record->templateInfo->fieldInfo[i].type;
+			}
+			if (record->templateInfo->fieldInfo[i].type == InformationElement::IeInfo(IPFIX_TYPEID_flowStartNanoSeconds, 0)) {
+				startData = (record->data + record->templateInfo->fieldInfo[i].offset);
+				startType=record->templateInfo->fieldInfo[i].type;
+			}
+		}
 
-    //check against rules:
-    //BEWARE: there are gotos that break this loop
-    for(l=0;l<rules.size();l++){
-    	//contentMatched array must be all true for a rule match, here it is resetted
-    	bool contentMatched[rules[l].body.contentModifierHTTP.size()+rules[l].body.pcre.size()]={0};
-    	//check ports if necessary, source direction
-        //TODO: implement address direction checks
-    	//TODO: if following port checks are uncommented check if it still fits structure
-//    	if(httpPortsGiven){
-//        	flowSrcPort=getFlowPort(sourcePortType,sourcePortData);
-//        	flowDstPort=getFlowPort(destinationPortType,destinationPortData);
-//			if(rules[l].header.fromPort!="any"){
-//				if(rules[l].header.fromPort=="$HTTP_PORTS"){
-//					portMatched=false;
-//					for(int i=0;i<httpPorts.size();i++){
-//						//go through configuration defined httpPorts and compare
-//						if(httpPorts.at(i)==flowSrcPort){
-//							portMatched=true;
-//							break;
-//						}
-//					}
-//					if(!portMatched){
-//						goto skipRule;
-//					}
-//				}else {//port must be a single number
-//					portRule=strtol(rules[l].header.fromPort.c_str(),&end,10);
-//					if(portRule==0){
-//						msg(MSG_INFO,"Invalid rule (%s), it does not contain a valid source port definition (a number, '$HTTP_PORTS' or 'any')",rules[l].body.sid.c_str());
-//						goto skipRule;
-//					}else if(portRule!=flowDstPort){
-//						goto skipRule;
-//					}//if single port number matches, continue with rule
-//				}
-//			}
-//			//same port check for destination direction
-//			if(rules[l].header.toPort!="any"){
-//				if(rules[l].header.toPort=="$HTTP_PORTS"){
-//					portMatched=false;
-//					for(int i=0;i<httpPorts.size();i++){
-//						//go through configuration defined httpPorts and compare
-//						if(httpPorts.at(i)==flowDstPort){
-//							portMatched=true;
-//							break;
-//						}
-//					}
-//					if(!portMatched){
-//						goto skipRule;
-//					}
-//				}else {//port must be a single number
-//					portRule=strtol(rules[l].header.toPort.c_str(),&end,10);
-//					if(portRule==0){
-//						msg(MSG_INFO,"Invalid rule (%s), it does not contain a valid destination port definition (a number, '$HTTP_PORTS' or 'any')",rules[l].body.sid.c_str());
-//						goto skipRule;
-//					}else if(portRule!=flowDstPort){
-//						goto skipRule;
-//					}
-//					//if single port number matches, continue with rule
-//				}
-//			}
-//    	}
+		//check against rules:
+		//BEWARE: there are gotos that break this loop
+		for(l=0;l<rules.size();l++){
+			//contentMatched array must be all true for a rule match, here it is resetted
+			bool contentMatched[rules[l].body.contentModifierHTTP.size()+rules[l].body.pcre.size()]={0};
+			//check ports if necessary, source direction
+			//TODO: implement address direction checks
+			//TODO: if following port checks are uncommented check if it still fits structure
+			//-->http port checks removed, check older commits (prior to 5.6.18)
 
-    	//
-    	//This is the performance hungry loop. Any improvements here have massive impact on throughput performance
-    	//
-        for(j=0;j<rules[l].body.content.size();j++){
-        //contentModifier vector MUST have same size than content vector
-        	if(rules[l].body.contentNocase[j]){//case insensitive search
-        		switch(rules[l].body.contentModifierHTTP[j]){
-					case 1:{//http_method
-						//if match
-						if(strcasestr(methodString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-							if(rules[l].body.negatedContent[j]){
-								//skip the rest of the rule if content search is negative, this avoids expensive useless searches
-								goto skipRule;
-							}else{
-								contentMatched[j]=true;
-							}
-							break;
-						//if no match
-						}else{
-							if(rules[l].body.negatedContent[j]){
-								contentMatched[j]=true;
-							}else{
-								goto skipRule;
-							}
-							break;
-						}
-					}
-					case 2:	//http_uri
-					case 3:{//http_raw_uri
-						if(strcasestr(uriString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-							if(rules[l].body.negatedContent[j]){
-								//skip the rest of the rule if content search is negative, this avoids expensive useless searches
-								goto skipRule;
-							}else{
-								contentMatched[j]=true;
-							}
-							break;
-						//if no match
-						}else{
-							if(rules[l].body.negatedContent[j]){
-								contentMatched[j]=true;
-							}else{
-								goto skipRule;
-							}
-							break;
-						}
-					}
-					//TODO: check if this keyword is present in rules and possibly leave this check away if not
-					case 4:{//http_stat_msg
-						if(strcasestr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-							if(rules[l].body.negatedContent[j]){
-								//skip the rest of the rule if content search is negative, this avoids expensive useless searches
-								goto skipRule;
-							}else{
-								contentMatched[j]=true;
-							}
-							break;
-						//if no match
-						}else{
-							if(rules[l].body.negatedContent[j]){
-								contentMatched[j]=true;
-							}else{
-								goto skipRule;
-							}
-							break;
-						}
-					}
-					//TODO:try encoding stat code to int and see if its faster (useless because never used in current ruleset)
-					case 5:{//http_stat_code
-						if(strcasestr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-							if(rules[l].body.negatedContent[j]){
-								//skip the rest of the rule if content search is negative, this avoids expensive useless searches
-								goto skipRule;
-							}else{
-								contentMatched[j]=true;
-							}
-							break;
-						//if no match
-						}else{
-							if(rules[l].body.negatedContent[j]){
-								contentMatched[j]=true;
-							}else{
-								goto skipRule;
-							}
-							break;
-						}
-					}
-					default:{
-						THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp: %s (or content with no HTTP modifier) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
-					}
-        		}
-        	}else{//case sensitive search
-        		switch(rules[l].body.contentModifierHTTP[j]){
-					//TODO: its probably faster to encode method to something like int to avoid string comparison
-					case 1:{//http_method
-						if(strstr(methodString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-							if(rules[l].body.negatedContent[j]){
-								//skip the rest of the rule if content search is negative, this avoids expensive useless searches
-								goto skipRule;
-							}else{
-								contentMatched[j]=true;
-							}
-							break;
-						//if no match
-						}else{
-							if(rules[l].body.negatedContent[j]){
-								contentMatched[j]=true;
-							}else{
-								goto skipRule;
-							}
-							break;
-						}
-					}
-					case 2:	//http_uri
-					case 3:{//http_raw_uri
-						if(strstr(uriString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-							if(rules[l].body.negatedContent[j]){
-								//skip the rest of the rule if content search is negative, this avoids expensive useless searches
-								goto skipRule;
-							}else{
-								contentMatched[j]=true;
-							}
-							break;
-						//if no match
-						}else{
-							if(rules[l].body.negatedContent[j]){
-								contentMatched[j]=true;
-							}else{
-								goto skipRule;
-							}
-							break;
-						}
-					}
-					case 4:{//http_stat_msg
-						if(strstr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-							if(rules[l].body.negatedContent[j]){
-								//skip the rest of the rule if content search is negative, this avoids expensive useless searches
-								goto skipRule;
-							}else{
-								contentMatched[j]=true;
-							}
-							break;
-						//if no match
-						}else{
-							if(rules[l].body.negatedContent[j]){
-								contentMatched[j]=true;
-							}else{
-								goto skipRule;
-							}
-							break;
-						}
-					}
-					//TODO:try encoding stat code to int and see if its faster (-->useless because almost never used in rules)
-					case 5:{//http_stat_code
-						if(strstr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
-							if(rules[l].body.negatedContent[j]){
-								//skip the rest of the rule if content search is negative, this avoids expensive useless searches
-								goto skipRule;
-							}else{
-								contentMatched[j]=true;
-							}
-							break;
-						//if no match
-						}else{
-							if(rules[l].body.negatedContent[j]){
-								contentMatched[j]=true;
-							}else{
-								goto skipRule;
-							}
-							break;
-						}
-					}
-					default:{
-						THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp: %s (or pcre with no HTTP modifier) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
-					}
-				}
-        	}
-        }
-
-        //PCRE loop: Is skipped by the goto statements above if any of the above content patterns does not match.
-        //As pcres are almost always the last statement in a rule this part should be reached very seldomly and thus have a minor impact on performance.
-        for(m=0;m<rules[l].body.pcre.size();m++){
-            try {//try to catch regex errors
-				if(rules[l].body.pcreNocase[j]){//---> case insensitive regex search
-					//regex_match is case sensitive by default, icase switches to case insensitive. default is perl, just to make sure.
-					boost::regex ruleRegex(rules[l].body.pcre.at(m),boost::regex::perl|boost::regex::icase);
-					//printf("###case ins. regex search. uri %s,regex %s\n",uriString.c_str(),rules[l].body.pcre.at(m).c_str());
-					switch(rules[l].body.contentModifierHTTP[m+(rules[l].body.content.size())]){
+			//This is the performance hungry loop. Any improvements here have massive impact on throughput performance
+			for(j=0;j<rules[l].body.content.size();j++){
+			//contentModifier vector MUST have same size than content vector
+				if(rules[l].body.contentNocase[j]){//case insensitive search
+					switch(rules[l].body.contentModifierHTTP[j]){
 						case 1:{//http_method
-							if(regex_search(methodString,ruleRegex)){
-								if(rules[l].body.negatedPcre[m]){
+							//if match
+							if(strcasestr(methodString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+								if(rules[l].body.negatedContent[j]){
 									//skip the rest of the rule if content search is negative, this avoids expensive useless searches
 									goto skipRule;
 								}else{
-									contentMatched[m+(rules[l].body.content.size())]=true;
+									contentMatched[j]=true;
 								}
+								break;
+							//if no match
 							}else{
-								if(rules[l].body.negatedPcre[m]){
-									contentMatched[m+(rules[l].body.content.size())]=true;
+								if(rules[l].body.negatedContent[j]){
+									contentMatched[j]=true;
 								}else{
 									goto skipRule;
 								}
+								break;
 							}
-							break;
 						}
 						case 2:	//http_uri
 						case 3:{//http_raw_uri
-							if(regex_search(uriString,ruleRegex)){
-								if(rules[l].body.negatedPcre[m]){
+							if(strcasestr(uriString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+								if(rules[l].body.negatedContent[j]){
 									//skip the rest of the rule if content search is negative, this avoids expensive useless searches
 									goto skipRule;
 								}else{
-									contentMatched[m+(rules[l].body.content.size())]=true;
+									contentMatched[j]=true;
 								}
+								break;
+							//if no match
 							}else{
-								if(rules[l].body.negatedPcre[m]){
-									contentMatched[m+(rules[l].body.content.size())]=true;
+								if(rules[l].body.negatedContent[j]){
+									contentMatched[j]=true;
 								}else{
 									goto skipRule;
 								}
+								break;
 							}
-							break;
 						}
+						//TODO: check if this keyword is present in rules and possibly leave this check away if not
 						case 4:{//http_stat_msg
-							if(regex_search(statusMsgString,ruleRegex)){
-								if(rules[l].body.negatedPcre[m]){
+							if(strcasestr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+								if(rules[l].body.negatedContent[j]){
 									//skip the rest of the rule if content search is negative, this avoids expensive useless searches
 									goto skipRule;
 								}else{
-									contentMatched[m+(rules[l].body.content.size())]=true;
+									contentMatched[j]=true;
 								}
+								break;
+							//if no match
 							}else{
-								if(rules[l].body.negatedPcre[m]){
-									contentMatched[m+(rules[l].body.content.size())]=true;
+								if(rules[l].body.negatedContent[j]){
+									contentMatched[j]=true;
 								}else{
 									goto skipRule;
 								}
+								break;
 							}
-							break;
 						}
+						//TODO:try encoding stat code to int and see if its faster (useless because never used in current ruleset)
 						case 5:{//http_stat_code
-							if(regex_search(statusCodeString,ruleRegex)){
-								if(rules[l].body.negatedPcre[m]){
+							if(strcasestr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+								if(rules[l].body.negatedContent[j]){
 									//skip the rest of the rule if content search is negative, this avoids expensive useless searches
 									goto skipRule;
 								}else{
-									contentMatched[m+(rules[l].body.content.size())]=true;
+									contentMatched[j]=true;
 								}
+								break;
+							//if no match
 							}else{
-								if(rules[l].body.negatedPcre[m]){
-									contentMatched[m+(rules[l].body.content.size())]=true;
+								if(rules[l].body.negatedContent[j]){
+									contentMatched[j]=true;
 								}else{
 									goto skipRule;
 								}
+								break;
 							}
-							break;
 						}
 						default:{
-							THROWEXCEPTION("IpfixIds: Unknown or unexpected (HTTP) modifier for PCRE: %s (or not yet implemented) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
+							THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp: %s (or content with no HTTP modifier) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
 						}
 					}
-				}else{//case sensitive pcre search
-					//regex_search is case sensitive by default, icase switches to case insensitive.
-					boost::regex ruleRegex(rules[l].body.pcre.at(m));
-					switch(rules[l].body.contentModifierHTTP[m+(rules[l].body.content.size())]){
+				}else{//case sensitive search
+					switch(rules[l].body.contentModifierHTTP[j]){
 						case 1:{//http_method
-							if(regex_search(methodString,ruleRegex)){
-								if(rules[l].body.negatedPcre[m]){
+							if(strstr(methodString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+								if(rules[l].body.negatedContent[j]){
 									//skip the rest of the rule if content search is negative, this avoids expensive useless searches
 									goto skipRule;
 								}else{
-									contentMatched[m+(rules[l].body.content.size())]=true;
+									contentMatched[j]=true;
 								}
+								break;
+							//if no match
 							}else{
-								if(rules[l].body.negatedPcre[m]){
-									contentMatched[m+(rules[l].body.content.size())]=true;
+								if(rules[l].body.negatedContent[j]){
+									contentMatched[j]=true;
 								}else{
 									goto skipRule;
 								}
+								break;
 							}
-							break;
 						}
 						case 2:	//http_uri
 						case 3:{//http_raw_uri
-							if(regex_search(uriString,ruleRegex)){
-								if(rules[l].body.negatedPcre[m]){
+							if(strstr(uriString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+								if(rules[l].body.negatedContent[j]){
 									//skip the rest of the rule if content search is negative, this avoids expensive useless searches
 									goto skipRule;
 								}else{
-									contentMatched[m+(rules[l].body.content.size())]=true;
+									contentMatched[j]=true;
 								}
+								break;
+							//if no match
 							}else{
-								if(rules[l].body.negatedPcre[m]){
-									contentMatched[m+(rules[l].body.content.size())]=true;
+								if(rules[l].body.negatedContent[j]){
+									contentMatched[j]=true;
 								}else{
 									goto skipRule;
 								}
+								break;
 							}
-							break;
 						}
 						case 4:{//http_stat_msg
-							if(regex_search(statusMsgString,ruleRegex)){
-								if(rules[l].body.negatedPcre[m]){
+							if(strstr(statusMsgString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+								if(rules[l].body.negatedContent[j]){
 									//skip the rest of the rule if content search is negative, this avoids expensive useless searches
 									goto skipRule;
 								}else{
-									contentMatched[m+(rules[l].body.content.size())]=true;
+									contentMatched[j]=true;
 								}
+								break;
+							//if no match
 							}else{
-								if(rules[l].body.negatedPcre[m]){
-									contentMatched[m+(rules[l].body.content.size())]=true;
+								if(rules[l].body.negatedContent[j]){
+									contentMatched[j]=true;
 								}else{
 									goto skipRule;
 								}
+								break;
 							}
-							break;
 						}
+						//TODO:try encoding stat code to int and see if its faster (-->useless because almost never used in rules)
 						case 5:{//http_stat_code
-							if(regex_search(statusCodeString,ruleRegex)){
-								if(rules[l].body.negatedPcre[m]){
+							if(strstr(statusCodeString.c_str(),rules[l].body.content[j].c_str())!=NULL){
+								if(rules[l].body.negatedContent[j]){
 									//skip the rest of the rule if content search is negative, this avoids expensive useless searches
 									goto skipRule;
 								}else{
-									contentMatched[m+(rules[l].body.content.size())]=true;
+									contentMatched[j]=true;
 								}
+								break;
+							//if no match
 							}else{
-								if(rules[l].body.negatedPcre[m]){
-									contentMatched[m+(rules[l].body.content.size())]=true;
+								if(rules[l].body.negatedContent[j]){
+									contentMatched[j]=true;
 								}else{
 									goto skipRule;
 								}
+								break;
 							}
-							break;
 						}
 						default:{
-							THROWEXCEPTION("IpfixIds: Unknown or unexpected (HTTP) modifier for PCRE: %s (or not yet implemented) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
+							THROWEXCEPTION("IpfixIds: Unknown or unexpected contentModifierHttp: %s (or pcre with no HTTP modifier) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
 						}
 					}
 				}
-            }catch (const boost::regex_error& e) {
-            	std::string msg;
-            	if(e.code()==boost::regex_constants::error_collate){
-            	            		msg="The expression contained an invalid collating element name";
-            	            	}
-            	if(e.code()==boost::regex_constants::error_ctype){
-            	            		msg="The expression contained an invalid character class name";
-            	            	}
-            	if(e.code()==boost::regex_constants::error_escape){
-            	            		msg="The expression contained an invalid escaped character, or a trailing escape";
-            	            	}
-            	if(e.code()==boost::regex_constants::error_backref){
-            	            		msg="TThe expression contained an invalid back reference";
-            	            	}
-            	if(e.code()==boost::regex_constants::error_brack){
-            	            		msg="The expression contained mismatched brackets";
-            	            	}
-            	if(e.code()==boost::regex_constants::error_paren){
-            	            		msg="The expression contained mismatched parentheses";
-            	            	}
-            	if(e.code()==boost::regex_constants::error_brace){
-            	            		msg="The expression contained mismatched braces";
-            	            	}
-            	if(e.code()==boost::regex_constants::error_badbrace){
-            	            		msg="The expression contained an invalid range between braces";
-            	            	}
-            	if(e.code()==boost::regex_constants::error_range){
-									msg="The expression contained an invalid character range";
-								}
-            	if(e.code()==boost::regex_constants::error_space){
-									msg="There was insufficient memory to convert the expression info a finite state machine";
-								}
-            	if(e.code()==boost::regex_constants::error_badrepeat){
-            						msg="The expression contained a repeat specifier (one of *?+{) that was not preceded by a valid regular expression";
-            	            	}
-            	if(e.code()==boost::regex_constants::error_complexity){
-            						msg="The complexity of an attempted match against a regular expression exceeded a pre-set level";
-            	            	}
-            	if(e.code()==boost::regex_constants::error_stack){
-            						msg="There was insufficient stack memory to determine whether the regular expression could match the specified character sequence";
-            	            	}
-            	if(e.code()==boost::regex_constants::error_bad_pattern){
-            						msg="Other, unspecified Error";
-            	            	}
-            	//e.code returns boost::regex_constants
-            	THROWEXCEPTION("IpfixIds: regex_error caught during detection on rule sid:%s, what: %s, code %d. Msg: %s\n",rules[l].body.sid.c_str(), e.what(), e.code(), msg.c_str());
 			}
 
-        }//for loop
-        //if all contents match for this rule, write alert
-        //to check if everything BUT pcre stuff matched, simply only check the first |content.size()| number of elements.
-        writeAlertBool=true;
-        for(k=0;k<rules[l].body.contentModifierHTTP.size();k++){
-        	if(contentMatched[k]==false){
-        		writeAlertBool=false;
-        		break;
-        	}
-        }
+			//PCRE loop: Is skipped by the goto statements above if any of the above content patterns does not match.
+			//As pcres are almost always the last statement in a rule this part should be reached very seldomly and thus have a minor impact on performance.
+			for(m=0;m<rules[l].body.pcre.size();m++){
+				try {//try to catch regex errors
+					if(rules[l].body.pcreNocase[j]){//---> case insensitive regex search
+						//regex_match is case sensitive by default, icase switches to case insensitive. default is perl, just to make sure.
+						boost::regex ruleRegex(rules[l].body.pcre.at(m),boost::regex::perl|boost::regex::icase);
+						//printf("###case ins. regex search. uri %s,regex %s\n",uriString.c_str(),rules[l].body.pcre.at(m).c_str());
+						switch(rules[l].body.contentModifierHTTP[m+(rules[l].body.content.size())]){
+							case 1:{//http_method
+								if(regex_search(methodString,ruleRegex)){
+									if(rules[l].body.negatedPcre[m]){
+										//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+										goto skipRule;
+									}else{
+										contentMatched[m+(rules[l].body.content.size())]=true;
+									}
+								}else{
+									if(rules[l].body.negatedPcre[m]){
+										contentMatched[m+(rules[l].body.content.size())]=true;
+									}else{
+										goto skipRule;
+									}
+								}
+								break;
+							}
+							case 2:	//http_uri
+							case 3:{//http_raw_uri
+								if(regex_search(uriString,ruleRegex)){
+									if(rules[l].body.negatedPcre[m]){
+										//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+										goto skipRule;
+									}else{
+										contentMatched[m+(rules[l].body.content.size())]=true;
+									}
+								}else{
+									if(rules[l].body.negatedPcre[m]){
+										contentMatched[m+(rules[l].body.content.size())]=true;
+									}else{
+										goto skipRule;
+									}
+								}
+								break;
+							}
+							case 4:{//http_stat_msg
+								if(regex_search(statusMsgString,ruleRegex)){
+									if(rules[l].body.negatedPcre[m]){
+										//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+										goto skipRule;
+									}else{
+										contentMatched[m+(rules[l].body.content.size())]=true;
+									}
+								}else{
+									if(rules[l].body.negatedPcre[m]){
+										contentMatched[m+(rules[l].body.content.size())]=true;
+									}else{
+										goto skipRule;
+									}
+								}
+								break;
+							}
+							case 5:{//http_stat_code
+								if(regex_search(statusCodeString,ruleRegex)){
+									if(rules[l].body.negatedPcre[m]){
+										//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+										goto skipRule;
+									}else{
+										contentMatched[m+(rules[l].body.content.size())]=true;
+									}
+								}else{
+									if(rules[l].body.negatedPcre[m]){
+										contentMatched[m+(rules[l].body.content.size())]=true;
+									}else{
+										goto skipRule;
+									}
+								}
+								break;
+							}
+							default:{
+								THROWEXCEPTION("IpfixIds: Unknown or unexpected (HTTP) modifier for PCRE: %s (or not yet implemented) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
+							}
+						}
+					}else{//case sensitive pcre search
+						//regex_search is case sensitive by default, icase switches to case insensitive.
+						boost::regex ruleRegex(rules[l].body.pcre.at(m));
+						switch(rules[l].body.contentModifierHTTP[m+(rules[l].body.content.size())]){
+							case 1:{//http_method
+								if(regex_search(methodString,ruleRegex)){
+									if(rules[l].body.negatedPcre[m]){
+										//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+										goto skipRule;
+									}else{
+										contentMatched[m+(rules[l].body.content.size())]=true;
+									}
+								}else{
+									if(rules[l].body.negatedPcre[m]){
+										contentMatched[m+(rules[l].body.content.size())]=true;
+									}else{
+										goto skipRule;
+									}
+								}
+								break;
+							}
+							case 2:	//http_uri
+							case 3:{//http_raw_uri
+								if(regex_search(uriString,ruleRegex)){
+									if(rules[l].body.negatedPcre[m]){
+										//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+										goto skipRule;
+									}else{
+										contentMatched[m+(rules[l].body.content.size())]=true;
+									}
+								}else{
+									if(rules[l].body.negatedPcre[m]){
+										contentMatched[m+(rules[l].body.content.size())]=true;
+									}else{
+										goto skipRule;
+									}
+								}
+								break;
+							}
+							case 4:{//http_stat_msg
+								if(regex_search(statusMsgString,ruleRegex)){
+									if(rules[l].body.negatedPcre[m]){
+										//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+										goto skipRule;
+									}else{
+										contentMatched[m+(rules[l].body.content.size())]=true;
+									}
+								}else{
+									if(rules[l].body.negatedPcre[m]){
+										contentMatched[m+(rules[l].body.content.size())]=true;
+									}else{
+										goto skipRule;
+									}
+								}
+								break;
+							}
+							case 5:{//http_stat_code
+								if(regex_search(statusCodeString,ruleRegex)){
+									if(rules[l].body.negatedPcre[m]){
+										//skip the rest of the rule if content search is negative, this avoids expensive useless searches
+										goto skipRule;
+									}else{
+										contentMatched[m+(rules[l].body.content.size())]=true;
+									}
+								}else{
+									if(rules[l].body.negatedPcre[m]){
+										contentMatched[m+(rules[l].body.content.size())]=true;
+									}else{
+										goto skipRule;
+									}
+								}
+								break;
+							}
+							default:{
+								THROWEXCEPTION("IpfixIds: Unknown or unexpected (HTTP) modifier for PCRE: %s (or not yet implemented) in rule with sid: %s",statusCodeString.c_str(),rules[l].body.sid.c_str());
+							}
+						}
+					}
+				}catch (const boost::regex_error& e) {
+					std::string msg;
+					if(e.code()==boost::regex_constants::error_collate){
+										msg="The expression contained an invalid collating element name";
+									}
+					if(e.code()==boost::regex_constants::error_ctype){
+										msg="The expression contained an invalid character class name";
+									}
+					if(e.code()==boost::regex_constants::error_escape){
+										msg="The expression contained an invalid escaped character, or a trailing escape";
+									}
+					if(e.code()==boost::regex_constants::error_backref){
+										msg="TThe expression contained an invalid back reference";
+									}
+					if(e.code()==boost::regex_constants::error_brack){
+										msg="The expression contained mismatched brackets";
+									}
+					if(e.code()==boost::regex_constants::error_paren){
+										msg="The expression contained mismatched parentheses";
+									}
+					if(e.code()==boost::regex_constants::error_brace){
+										msg="The expression contained mismatched braces";
+									}
+					if(e.code()==boost::regex_constants::error_badbrace){
+										msg="The expression contained an invalid range between braces";
+									}
+					if(e.code()==boost::regex_constants::error_range){
+										msg="The expression contained an invalid character range";
+									}
+					if(e.code()==boost::regex_constants::error_space){
+										msg="There was insufficient memory to convert the expression info a finite state machine";
+									}
+					if(e.code()==boost::regex_constants::error_badrepeat){
+										msg="The expression contained a repeat specifier (one of *?+{) that was not preceded by a valid regular expression";
+									}
+					if(e.code()==boost::regex_constants::error_complexity){
+										msg="The complexity of an attempted match against a regular expression exceeded a pre-set level";
+									}
+					if(e.code()==boost::regex_constants::error_stack){
+										msg="There was insufficient stack memory to determine whether the regular expression could match the specified character sequence";
+									}
+					if(e.code()==boost::regex_constants::error_bad_pattern){
+										msg="Other, unspecified Error";
+									}
+					//e.code returns boost::regex_constants
+					THROWEXCEPTION("IpfixIds: regex_error caught during detection on rule sid:%s, what: %s, code %d. Msg: %s\n",rules[l].body.sid.c_str(), e.what(), e.code(), msg.c_str());
+				}
 
-        if(writeAlertBool){
-        	alertCounter++;
-            writeAlert(&rules[l].body.sid, &rules[l].body.msg,sourceIPData,sourceIPType,
-             destinationIPData,destinationIPType,
-             sourcePortData,sourcePortType,
-			 destinationPortData,destinationPortType,
-			 startData,startType
-            );
-        }
-        //jump here if a content match was false, so we save the time to do other (useless) content matches
-        skipRule:;
-    }//for loop through rules vector
+			}//for loop
+			//if all contents match for this rule, write alert
+			//to check if everything BUT pcre stuff matched, simply only check the first |content.size()| number of elements.
+			writeAlertBool=true;
+			for(k=0;k<rules[l].body.contentModifierHTTP.size();k++){
+				if(contentMatched[k]==false){
+					writeAlertBool=false;
+					break;
+				}
+			}
 
-    /*not hand over record but remove references to it*/
-	//record->removeReference();
-	/*hand record to next module*/
-	send(record);
+			if(writeAlertBool){
+				alertCounter++;
+				writeAlert(threadNum, &rules[l].body.sid, &rules[l].body.msg,sourceIPData,sourceIPType,
+				 destinationIPData,destinationIPType,
+				 sourcePortData,sourcePortType,
+				 destinationPortData,destinationPortType,
+				 startData,startType
+				);
+			}
+			//jump here if a content match was false, so we save the time to do other (useless) content matches
+			skipRule:;
+		}//for loop through rules vector
+		//hereby we make it impossible to add a module after this one
+		record->removeReference();
+		//send(record);
+		//remove first and then pop or other way round?!?
+		//FIFO style: insert with push, read front, remove with pop
+		flowQueues.at(threadNum).pop();
+		flowCounter++;
+		//TODO:do we have race conditions if threads use send(record); ? Maybe do that if above works stable
+    }//while threadWork
+    printCounter:;
+    msg(MSG_DEBUG, "IpfixIds: Pattern Matching thread %d processed %d flows",threadNum,flowCounter);
+    threadIsFinished.at(threadNum)=true;
+}
+
+/**
+ * called on reception of Ipfix record
+ */
+void IpfixIds::onDataRecord(IpfixDataRecord* record)
+{
+	//all the record handling stuff is done in parallel in the patternMatching method, here we only prepare the records by putting the reference in the appropriate queue
+	//distribute incoming flows on queues in round-robin fashion
+	//FIFO style: insert with push, read front, remove with pop
+	flowQueues.at(queueNum++).push(record);
+	if(queueNum>=threads){
+		queueNum=0;
+	}
+	//record reference is handled in patternMatching(..)
 }
 
 /**
 * called if flow triggers alert.
 * it writes alert + info to alertFile
 */
-void IpfixIds::writeAlert(string* sid, string* msg, IpfixRecord::Data* srcIPData, InformationElement::IeInfo srcIPType,
+void IpfixIds::writeAlert(int threadNum, string* sid, string* msg, IpfixRecord::Data* srcIPData, InformationElement::IeInfo srcIPType,
                         IpfixRecord::Data* dstIPData,InformationElement::IeInfo dstIPType,
                         IpfixRecord::Data* srcPortData, InformationElement::IeInfo srcPortType,
                         IpfixRecord::Data* dstPortData,InformationElement::IeInfo dstPortType,
 						IpfixRecord::Data* startData,InformationElement::IeInfo startType
 						){
-    fprintf(alertFile,"**ALERT**\n");
-    fprintf(alertFile,"by rule(sid):\t%s\n",sid->c_str());
-    fprintf(alertFile,"msg:\t\t%s\n",msg->c_str());
-    fprintf(alertFile,"source:\t\t");
+    fprintf(alertFile.at(threadNum),"**ALERT**\n");
+    fprintf(alertFile.at(threadNum),"by rule(sid):\t%s\n",sid->c_str());
+    fprintf(alertFile.at(threadNum),"msg:\t\t%s\n",msg->c_str());
+    fprintf(alertFile.at(threadNum),"source:\t\t");
+	//we have to change file for every thread, not very nice...
+    printer.changeFile(alertFile.at(threadNum));
     printer.printIPv4(srcIPType,srcIPData);
-    fprintf(alertFile,":");
+    fprintf(alertFile.at(threadNum),":");
     printer.printPort(srcPortType,srcPortData);
-    fprintf(alertFile,"\ndestination:\t");
+    fprintf(alertFile.at(threadNum),"\ndestination:\t");
     printer.printIPv4(dstIPType,dstIPData);
-    fprintf(alertFile,":");
+    fprintf(alertFile.at(threadNum),":");
     printer.printPort(dstPortType,dstPortData);
-    fprintf(alertFile,"\nflow start:\t");
+    fprintf(alertFile.at(threadNum),"\nflow start:\t");
     if(printTime){
-	printTimeSeconds(startData);
+	printTimeSeconds(threadNum, startData);
 	}else{
-	fprintf(alertFile,"cannot handle Ntops time format\t");
+	fprintf(alertFile.at(threadNum),"cannot handle Ntops time format\t");
 	}
-    fprintf(alertFile,"\n\n");
+    fprintf(alertFile.at(threadNum),"\n\n");
 
 }
 
 /**
  * helper function to print flow*NanoSeconds
  */
-void IpfixIds::printTimeSeconds(IpfixRecord::Data* startData){
+void IpfixIds::printTimeSeconds(int threadNum, IpfixRecord::Data* startData){
 	timeval t;
 	uint64_t hbnum;
     //printer.printLocaltime(startType,startData);
 	hbnum = ntohll(*(uint64_t*)startData);
 	if (hbnum>0) {
 		t = timentp64(*((ntp64*)(&hbnum)));
-		fprintf(alertFile, "%u.%06d seconds", (int32_t)t.tv_sec, (int32_t)t.tv_usec);
+		fprintf(alertFile.at(threadNum), "%u.%06d seconds", (int32_t)t.tv_sec, (int32_t)t.tv_usec);
 	} else {
-		fprintf(alertFile, "no value (only zeroes in field)");
+		fprintf(alertFile.at(threadNum), "no value (only zeroes in field)");
 	}
 }
 

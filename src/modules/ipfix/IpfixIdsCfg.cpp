@@ -29,6 +29,7 @@ IpfixIdsCfg::IpfixIdsCfg(XMLElement* elem)
     printParsedRules=false;
     useNtopIEs=false;
     httpPorts="NULL";
+    threads="NULL";
 
 	if (!elem)
 		return;
@@ -53,7 +54,9 @@ IpfixIdsCfg::IpfixIdsCfg(XMLElement* elem)
 			if(e->getFirstText()=="1\0"){
                 useNtopIEs=true;
             }
-        } else if (e->matches("next")) { // ignore next
+        } else if (e->matches("threads")) {
+			threads=e->getFirstText();
+        }else if (e->matches("next")) { // ignore next
             continue;
 		} else {
 			msg(MSG_FATAL, "Unknown IpfixIds config statement %s\n", e->getName().c_str());
@@ -74,7 +77,7 @@ IpfixIdsCfg* IpfixIdsCfg::create(XMLElement* e)
 
 IpfixIds* IpfixIdsCfg::createInstance()
 {
-	instance = new IpfixIds(alertFileString,rulesFileString,httpPorts,printParsedRules,useNtopIEs);
+	instance = new IpfixIds(alertFileString,rulesFileString,httpPorts,printParsedRules,useNtopIEs,threads);
 	return instance;
 }
 

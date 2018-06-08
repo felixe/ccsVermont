@@ -45,6 +45,7 @@ private:
 	string alertFileString;
 	string rulesFileString;
 	string httpPorts;
+	string threads;
 	bool printParsedRules;
 	bool useNtopIEs;
 };

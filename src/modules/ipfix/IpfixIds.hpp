@@ -30,6 +30,7 @@
 #include "modules/ipfix/IpfixPrinter.hpp"
 //in contrast to std::regex, boost::regex supports lookbehind.
 #include <boost/regex.hpp>
+#include <thread>
 
 /**
  * IPFIX Intrusion Detection System Module
@@ -39,7 +40,7 @@
 class IpfixIds : public Module, public IpfixRecordDestination, public Source<IpfixRecord*>
 {
 	public:
-		IpfixIds(string alertFS,string rulesFSg, string httpP,bool printParsedRules,bool useNtopIEs);
+		IpfixIds(string alertFS,string rulesFSg, string httpP,bool printParsedRules,bool useNtopIEs, string threads);
 		~IpfixIds();
 
 		virtual void onDataRecord(IpfixDataRecord* record);
@@ -47,8 +48,8 @@ class IpfixIds : public Module, public IpfixRecordDestination, public Source<Ipf
 		virtual void onTemplateDestruction(IpfixTemplateDestructionRecord* record);
 
 	protected:
+		//why are all these protected and not private again?
 		void* lastTemplate;
-		FILE* alertFile;
 		FILE* rulesFile;
 		std::vector<long> httpPorts;
         std::vector<SnortRuleParser::snortRule> rules;
@@ -56,18 +57,28 @@ class IpfixIds : public Module, public IpfixRecordDestination, public Source<Ipf
 		bool useNtopIEs;
 
 	private:
+		int threads;
+		bool threadsWork; //set to false if threads should stop
+		//for parallel pattern matching
+		int queueNum; //global round-robin counter to know where to put incoming flow
+		vector <queue <IpfixDataRecord*>> flowQueues;
+		vector <std::thread> freds;
+		vector <FILE*> alertFile;//every thread is writing to own alertFile;
+		vector <bool> threadIsFinished; //this is false and set to true if corresponding thread is finished
 		PrintHelpers printer;
+
 		void parsePorts(string* ports);
-		void printTimeSeconds(IpfixRecord::Data* startData);
+		void printTimeSeconds(int threadNum, IpfixRecord::Data* startData);
 		void printPayload(InformationElement::IeInfo type, IpfixRecord::Data* data, bool showOmittedZeroBytes,FILE* file);
 		void printIPv4(InformationElement::IeInfo type, IpfixRecord::Data* data,FILE* file);
-		void writeAlert(string* sid, string* msg, IpfixRecord::Data* srcIPData, InformationElement::IeInfo srcIPType,
+		void writeAlert(int threadNum, string* sid, string* msg, IpfixRecord::Data* srcIPData, InformationElement::IeInfo srcIPType,
                         IpfixRecord::Data* dstIPData,InformationElement::IeInfo dstIPType,
                         IpfixRecord::Data* srcPortData, InformationElement::IeInfo srcPortType,
                         IpfixRecord::Data* dstPortData,InformationElement::IeInfo dstPortType,
 						IpfixRecord::Data* startData,InformationElement::IeInfo startType
 		);
 		long getFlowPort(InformationElement::IeInfo type, IpfixRecord::Data* data);
+		void patternMatching(int threadNum);
 
 };
 
