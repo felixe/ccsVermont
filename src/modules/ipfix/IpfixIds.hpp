@@ -24,7 +24,6 @@
 
 #include "../../common/SnortRuleParser.h"
 #include "core/Module.h"
-#include "core/Source.h"
 #include "modules/ipfix/IpfixRecord.hpp"
 #include "modules/ipfix/IpfixRecordDestination.h"
 #include "modules/ipfix/IpfixPrinter.hpp"
@@ -79,6 +78,7 @@ class IpfixIds : public Module, public IpfixRecordDestination, public Source<Ipf
 		);
 		long getFlowPort(InformationElement::IeInfo type, IpfixRecord::Data* data);
 		void patternMatching(int threadNum);
+		string changeUriWs(string uri);
 
 };
 

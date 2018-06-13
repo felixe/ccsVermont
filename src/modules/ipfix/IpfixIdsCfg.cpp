@@ -60,7 +60,7 @@ IpfixIdsCfg::IpfixIdsCfg(XMLElement* elem)
             continue;
 		} else {
 			msg(MSG_FATAL, "Unknown IpfixIds config statement %s\n", e->getName().c_str());
-			THROWEXCEPTION("Unkown IpfixIds %s. Only 'alertfile', 'rulesfile', 'httpports', 'printparsedrules', 'usentopies' and 'next' allowed.\n", e->getName().c_str());
+			THROWEXCEPTION("Unkown IpfixIds %s. Only 'alertfile', 'rulesfile', 'httpports', 'printparsedrules', 'usentopies', 'threads' and 'next' allowed.\n", e->getName().c_str());
 			continue;
 		}
 	}

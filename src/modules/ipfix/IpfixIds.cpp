@@ -220,6 +220,7 @@ void IpfixIds::patternMatching(int threadNum){
 
 	string methodString;
 	string uriString;
+	string uriStringPcre;
 	string statusMsgString;
 	string statusCodeString;
 	IpfixDataRecord* record;
@@ -494,6 +495,8 @@ void IpfixIds::patternMatching(int threadNum){
 				}
 			}
 
+			//change whitespaces in uri for pcre search
+			uriStringPcre=changeUriWs(uriString);
 			//PCRE loop: Is skipped by the goto statements above if any of the above content patterns does not match.
 			//As pcres are almost always the last statement in a rule this part should be reached very seldomly and thus have a minor impact on performance.
 			for(m=0;m<rules[l].body.pcre.size();m++){
@@ -501,7 +504,7 @@ void IpfixIds::patternMatching(int threadNum){
 					if(rules[l].body.pcreNocase[j]){//---> case insensitive regex search
 						//regex_match is case sensitive by default, icase switches to case insensitive. default is perl, just to make sure.
 						boost::regex ruleRegex(rules[l].body.pcre.at(m),boost::regex::perl|boost::regex::icase);
-						//printf("###case ins. regex search. uri %s,regex %s\n",uriString.c_str(),rules[l].body.pcre.at(m).c_str());
+						//printf("###case ins. regex search. uri %s,regex %s\n",uriStringPcre.c_str(),rules[l].body.pcre.at(m).c_str());
 						switch(rules[l].body.contentModifierHTTP[m+(rules[l].body.content.size())]){
 							case 1:{//http_method
 								if(regex_search(methodString,ruleRegex)){
@@ -520,9 +523,10 @@ void IpfixIds::patternMatching(int threadNum){
 								}
 								break;
 							}
+							//PROBLEM:the set of whitespace chars (\s) does not include URI whitespaces like +.
 							case 2:	//http_uri
 							case 3:{//http_raw_uri
-								if(regex_search(uriString,ruleRegex)){
+								if(regex_search(uriStringPcre,ruleRegex)){
 									if(rules[l].body.negatedPcre[m]){
 										//skip the rest of the rule if content search is negative, this avoids expensive useless searches
 										goto skipRule;
@@ -599,7 +603,7 @@ void IpfixIds::patternMatching(int threadNum){
 							}
 							case 2:	//http_uri
 							case 3:{//http_raw_uri
-								if(regex_search(uriString,ruleRegex)){
+								if(regex_search(uriStringPcre,ruleRegex)){
 									if(rules[l].body.negatedPcre[m]){
 										//skip the rest of the rule if content search is negative, this avoids expensive useless searches
 										goto skipRule;
@@ -909,4 +913,19 @@ long IpfixIds::getFlowPort(InformationElement::IeInfo type, IpfixRecord::Data* d
 //		return;
 //	}
 	THROWEXCEPTION("Port with length %u unparseable", type.length);
+}
+
+/*
+ * changes + an %20 sign to ' ' sign
+ * Problem is that + and %20 represent a whitespace in uris, but pcres dont recognize it as whitespace.
+ */
+string IpfixIds::changeUriWs(string uri){
+	int pos;
+	while((pos=uri.find('+'))!=string::npos){
+		uri.replace(pos,1," ");
+	}
+	while((pos=uri.find("%20"))!=string::npos){
+		uri.replace(pos,3," ");
+	}
+	return uri;
 }
