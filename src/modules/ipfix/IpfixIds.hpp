@@ -64,7 +64,7 @@ class IpfixIds : public Module, public IpfixRecordDestination, public Source<Ipf
 		vector <std::thread> freds;
 		vector <FILE*> alertFile;//every thread is writing to own alertFile;
 		vector <bool> threadIsFinished; //this is false and set to true if corresponding thread is finished
-		PrintHelpers printer;
+
 
 		void parsePorts(string* ports);
 		void printTimeSeconds(int threadNum, IpfixRecord::Data* startData);
@@ -74,7 +74,8 @@ class IpfixIds : public Module, public IpfixRecordDestination, public Source<Ipf
                         IpfixRecord::Data* dstIPData,InformationElement::IeInfo dstIPType,
                         IpfixRecord::Data* srcPortData, InformationElement::IeInfo srcPortType,
                         IpfixRecord::Data* dstPortData,InformationElement::IeInfo dstPortType,
-						IpfixRecord::Data* startData,InformationElement::IeInfo startType
+						IpfixRecord::Data* startData,InformationElement::IeInfo startType,
+						PrintHelpers* printer
 		);
 		long getFlowPort(InformationElement::IeInfo type, IpfixRecord::Data* data);
 		void patternMatching(int threadNum);

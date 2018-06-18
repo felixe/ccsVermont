@@ -112,7 +112,7 @@ IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParse
 	//loop to fill all thread related vectors
 	for(int i=0; i<threads; i++){
 		threadIsFinished.push_back(false);
-		//default to stdout, is changed below to actual file. Why are we doing this again?
+		//default to stdout, is changed below to actual file
 		alertFile.push_back(stdout);
 		//create corresponding queue
 		//this could actually have an influence on performance, but 10mio pointers should be enough for quite some while
@@ -129,8 +129,7 @@ IpfixIds::IpfixIds(string alertFS, string rulesFS, string httpP, bool printParse
 	}else{
 		for(int i=0; i<threads; i++){
 			alertFile.at(i) = fopen((alertFS+std::to_string(i)).c_str(), "w");
-			//also tell the printhelper to use alertfile to print and not stdout
-				//is now done in every thread, every time it prints(!!!)
+			//we are telling the print helper in every thread to use the appropriate file.
 			if (!alertFile.at(i))
 				THROWEXCEPTION("IpfixIds: error opening alertfile '%s': %s (%u)", alertFS.c_str(), strerror(errno), errno);
 		}
@@ -192,6 +191,7 @@ IpfixIds::~IpfixIds()
 		}
 	}
 	msg(MSG_DEBUG, "IpfixIds:Threads finished");
+	msg(MSG_DIALOG,"IpfixIds: If more than one thread is used for IDS pattern matching than the following counter might be inaccurate");
 	msg(MSG_DIALOG,"IpfixIds: %d alerts triggered",alertCounter);
 	//close alertfiles before shutdown
 	for(int i=0; i<threads; i++){
@@ -217,6 +217,9 @@ void IpfixIds::patternMatching(int threadNum){
 	long flowDstPort;
 	//end pointer for strtol operations
 	char* end;
+	//every thread has own printer instance and writes to own alert file to avoid racing conditions (and mutex operations)
+	PrintHelpers* threadPrinter=new PrintHelpers();
+    //threadPrinter->changeFile(alertFile.at(threadNum));
 
 	string methodString;
 	string uriString;
@@ -723,18 +726,18 @@ void IpfixIds::patternMatching(int threadNum){
 				 destinationIPData,destinationIPType,
 				 sourcePortData,sourcePortType,
 				 destinationPortData,destinationPortType,
-				 startData,startType
+				 startData,startType,threadPrinter
 				);
 			}
 			//jump here if a content match was false, so we save the time to do other (useless) content matches
 			skipRule:;
 		}//for loop through rules vector
-		//hereby we make it impossible to add a module after this one
-		record->removeReference();
-		//send(record);
+
 		//remove first and then pop or other way round?!?
 		//FIFO style: insert with push, read front, remove with pop
 		flowQueues.at(threadNum).pop();
+		//send(record);
+		//record->removeReference();
 		flowCounter++;
 		//TODO:do we have race conditions if threads use send(record); ? Maybe do that if above works stable
     }//while threadWork
@@ -766,21 +769,20 @@ void IpfixIds::writeAlert(int threadNum, string* sid, string* msg, IpfixRecord::
                         IpfixRecord::Data* dstIPData,InformationElement::IeInfo dstIPType,
                         IpfixRecord::Data* srcPortData, InformationElement::IeInfo srcPortType,
                         IpfixRecord::Data* dstPortData,InformationElement::IeInfo dstPortType,
-						IpfixRecord::Data* startData,InformationElement::IeInfo startType
-						){
+						IpfixRecord::Data* startData,InformationElement::IeInfo startType,
+						PrintHelpers* printer){
+	printer->changeFile(alertFile.at(threadNum));
     fprintf(alertFile.at(threadNum),"**ALERT**\n");
     fprintf(alertFile.at(threadNum),"by rule(sid):\t%s\n",sid->c_str());
     fprintf(alertFile.at(threadNum),"msg:\t\t%s\n",msg->c_str());
     fprintf(alertFile.at(threadNum),"source:\t\t");
-	//we have to change file for every thread, not very nice...
-    printer.changeFile(alertFile.at(threadNum));
-    printer.printIPv4(srcIPType,srcIPData);
+    printer->printIPv4(srcIPType,srcIPData);
     fprintf(alertFile.at(threadNum),":");
-    printer.printPort(srcPortType,srcPortData);
+    printer->printPort(srcPortType,srcPortData);
     fprintf(alertFile.at(threadNum),"\ndestination:\t");
-    printer.printIPv4(dstIPType,dstIPData);
+    printer->printIPv4(dstIPType,dstIPData);
     fprintf(alertFile.at(threadNum),":");
-    printer.printPort(dstPortType,dstPortData);
+    printer->printPort(dstPortType,dstPortData);
     fprintf(alertFile.at(threadNum),"\nflow start:\t");
     if(printTime){
 	printTimeSeconds(threadNum, startData);
