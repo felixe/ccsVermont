@@ -7,6 +7,12 @@ This is a fork of Vermont that focuses on the aggregation of HTTP related inform
 
 For more information see also the wiki at https://github.com/felixe/ccsVermont/wiki.
 
+For more into depth info, there are several publications relying on this version of Vermont:
+"FIXIDS: A High-Speed Signature-based Flow Intrusion Detection System", http://www.ccs-labs.org/bib/erlacher2018fixids/
+"High Performance Intrusion Detection Using HTTP-Based Payload Aggregation",  http://www.ccs-labs.org/bib/erlacher2017high/
+"Improving Network Monitoring Through Aggregation of HTTP/1.1 Dialogs in IPFIX", http://www.ccs-labs.org/bib/erlacher2016improving/
+
+
 ------------
 REQUIREMENTS
 ------------
