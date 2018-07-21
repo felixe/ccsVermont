@@ -21,7 +21,6 @@
 #ifndef IPFIXIDS_H
 #define IPFIXIDS_H
 
-
 #include "../../common/SnortRuleParser.h"
 #include "core/Module.h"
 #include "modules/ipfix/IpfixRecord.hpp"
@@ -29,6 +28,7 @@
 #include "modules/ipfix/IpfixPrinter.hpp"
 //in contrast to std::regex, boost::regex supports lookbehind.
 #include <boost/regex.hpp>
+#include <boost/exception/all.hpp>
 #include <thread>
 
 /**

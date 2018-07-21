@@ -708,6 +708,19 @@ void IpfixIds::patternMatching(int threadNum){
 					//e.code returns boost::regex_constants
 					THROWEXCEPTION("IpfixIds: regex_error caught during detection on rule sid:%s, what: %s, code %d. Msg: %s\n",rules[l].body.sid.c_str(), e.what(), e.code(), msg.c_str());
 				}
+				catch (const boost::exception& e) {
+					//ugly way to catch this specific expression, but for the love of god, I couldnt come up with something better
+					string errMsg=boost::diagnostic_information(e);
+					if(errMsg.find("The complexity of matching the regular expression exceeded predefined bounds")!=std::string::npos){
+						//it is only detected in combination with a possibly hazardous text (haystack) to match against
+						msg(MSG_DIALOG, "IpfixIds: Boost::regex detected RegEx pattern which might lead to very long pattern matching times. Simplify pattern, if possible. Rule sid:%s", rules[l].body.sid.c_str());
+					}else{
+						//rethrow exception if not caught by above.
+						throw;
+						//just to make sure
+						THROWEXCEPTION("IpfixIds: BOOST EXCEPTION thrown\n");
+					}
+				}
 
 			}//for loop
 			//if all contents match for this rule, write alert
