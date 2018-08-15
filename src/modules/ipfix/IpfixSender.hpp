@@ -136,8 +136,8 @@ private:
 	int timeoutIpfixlolibBeat; /**< Dummy variable. Used as a pointer destination to distinguish between two dirrent types of timeout */
 
 	// mapping of uniqueId to templateId and vice versa
-	std::map<TemplateInfo::TemplateId, uint16_t> templateIdToUniqueId; /**< stores uniqueId for a give Template ID */
-	std::map<uint16_t, TemplateInfo::TemplateId> uniqueIdToTemplateId; /**< stores Template ID for a give unique ID */
+	std::map<TemplateInfo::TemplateId, uint32_t> templateIdToUniqueId; /**< stores uniqueId for a give Template ID */
+	std::map<uint32_t, TemplateInfo::TemplateId> uniqueIdToTemplateId; /**< stores Template ID for a give unique ID */
 
 };
 

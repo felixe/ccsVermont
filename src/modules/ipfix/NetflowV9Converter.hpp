@@ -61,7 +61,7 @@ protected:
 		uint32_t additionalDataLength;
 	};
 
-	std::map<uint16_t, ConvInfo> uniqueIdToConvInfo;
+	std::map<uint32_t, ConvInfo> uniqueIdToConvInfo;
 };
 
 #endif

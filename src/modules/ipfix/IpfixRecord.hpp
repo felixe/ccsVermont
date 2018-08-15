@@ -266,7 +266,7 @@ class TemplateInfo {
 		~TemplateInfo();
 
 		void setUniqueId();
-		inline uint16_t getUniqueId() {
+		inline uint32_t getUniqueId() {
 			return uniqueId;
 		}
 
@@ -304,7 +304,7 @@ class TemplateInfo {
 		 * - uniqueId remains unchanged if a TemplateInfo object is copied to change
 		 *   field lengths in the case of variable length fields (for IpfixSender, it still is the same Template)
 		 */
-		uint16_t uniqueId;
+		uint32_t uniqueId;
 		/* uniqueIdUseCount:
 		 * - at position i of the vector, we store the number of TemplateInfo objects with uniqueId==(i+1)
 		 * - if a new uniqueId is to be assigned, we look for the smallest index i with uniqueIdUseCount[i]==0
@@ -312,8 +312,8 @@ class TemplateInfo {
 		 * - requires long lifetime as it is used in the destructor of TemplateInfo (singleton without destruction)
 		 *   see: http://groups.google.com/group/comp.lang.c++/browse_thread/thread/8c6c8d00ec467068/fd8778f91ef7397e?lnk=raot
 		 */
-		std::vector<uint16_t>& uniqueIdUseCount() {
-			static std::vector<uint16_t>* theOnlyUniqueIdUseCount = new std::vector<uint16_t>;
+		std::vector<uint32_t>& uniqueIdUseCount() {
+			static std::vector<uint32_t>* theOnlyUniqueIdUseCount = new std::vector<uint32_t>;
 			return *theOnlyUniqueIdUseCount;
 		}
 

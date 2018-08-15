@@ -293,7 +293,7 @@ void IpfixSender::onTemplate(IpfixTemplateRecord* record)
 	uint16_t my_preceding = 0;
 	// Translate preceding template id if possible
 	if(dataTemplateInfo->preceding) {
-		map<TemplateInfo::TemplateId, uint16_t>::iterator iter = templateIdToUniqueId.find(dataTemplateInfo->preceding);
+		map<TemplateInfo::TemplateId, uint32_t>::iterator iter = templateIdToUniqueId.find(dataTemplateInfo->preceding);
 		if(iter == templateIdToUniqueId.end())
 			msg(MSG_ERROR, "IpfixSender: Preceding Template (id=%u) not available, use zero instead", dataTemplateInfo->preceding);
 		else
@@ -448,7 +448,7 @@ void IpfixSender::onTemplateDestruction(IpfixTemplateDestructionRecord* record)
 		return;
 	}
 
-	map<uint16_t, TemplateInfo::TemplateId>::iterator iter = uniqueIdToTemplateId.find(dataTemplateInfo->getUniqueId());
+	map<uint32_t, TemplateInfo::TemplateId>::iterator iter = uniqueIdToTemplateId.find(dataTemplateInfo->getUniqueId());
 	if(iter == uniqueIdToTemplateId.end()) {
 		msg(MSG_ERROR, "IpfixSender: Template (id=%u) to be destroyed does not exist.", dataTemplateInfo->templateId);
 		record->removeReference();
@@ -594,7 +594,7 @@ void IpfixSender::onDataRecord(IpfixDataRecord* record)
 	ipfixMessageLock.lock();
 
 	// check if we know the Template
-	map<uint16_t, TemplateInfo::TemplateId>::iterator iter = uniqueIdToTemplateId.find(dataTemplateInfo->getUniqueId());
+	map<uint32_t, TemplateInfo::TemplateId>::iterator iter = uniqueIdToTemplateId.find(dataTemplateInfo->getUniqueId());
 	if(iter == uniqueIdToTemplateId.end()) {
 		msg(MSG_ERROR, "IpfixSender: Discard Data Record because Template (id=%u) does not exist (this may happen during reconfiguration).", dataTemplateInfo->templateId);
 		record->removeReference();
@@ -670,7 +670,7 @@ void IpfixSender::onReconfiguration2()
 	ipfixMessageLock.lock();
 
 	// Destroy all templates (they will be resent after reconfiguration if necessary)
-	for(map<TemplateInfo::TemplateId, uint16_t>::iterator iter = templateIdToUniqueId.begin(); iter != templateIdToUniqueId.end(); iter++) {
+	for(map<TemplateInfo::TemplateId, uint32_t>::iterator iter = templateIdToUniqueId.begin(); iter != templateIdToUniqueId.end(); iter++) {
 		/* Remove template from ipfixlolib */
 		if (0 != ipfix_remove_template(ipfixExporter, iter->first)) {
 			msg(MSG_FATAL, "IpfixSender: ipfix_remove_template failed");

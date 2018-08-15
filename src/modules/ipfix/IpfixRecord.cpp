@@ -216,8 +216,8 @@ TemplateInfo::TemplateInfo(const TemplateInfo& t)
 	mutex().lock();
 	if((uniqueId == 0) || (uniqueId>uniqueIdUseCount().size()) || (uniqueIdUseCount()[uniqueId-1]==0))
 		THROWEXCEPTION("TemplateInfo copy constructor: uniqueIdUseCount is corrupt, this should never happen (Template ID=%u)!", templateId);
-	if(uniqueIdUseCount()[uniqueId-1]==65535)
-		THROWEXCEPTION("TemplateInfo: uniqueIdUseCount uint16_t overflow!");
+	if(uniqueIdUseCount()[uniqueId-1]==4294967290)
+		THROWEXCEPTION("TemplateInfo: uniqueIdUseCount uint32_t overflow!");
 	uniqueIdUseCount()[uniqueId-1]++;
 	mutex().unlock();
 }
@@ -242,8 +242,8 @@ TemplateInfo::~TemplateInfo() {
 void TemplateInfo::setUniqueId()
 {
 	mutex().lock();
-	uint16_t oldId = uniqueId;
-	uint16_t oldSize = uniqueIdUseCount().size();
+	uint32_t oldId = uniqueId;
+	uint32_t oldSize = uniqueIdUseCount().size();
 
 	uniqueId = 0;
 	for(int i=0; i < oldSize; i++) {
@@ -255,8 +255,8 @@ void TemplateInfo::setUniqueId()
 	}
 	// if new element was zero, we need to add a new element to uniqueIdUseCount()
 	if(uniqueId == 0) {
-		if(oldSize == 65535)
-			THROWEXCEPTION("TemplateInfo: more than 65353 uniqueIds needed");
+		if(oldSize == 4294967290)
+			THROWEXCEPTION("TemplateInfo: more than 4294967290 uniqueIds needed");
 		DPRINTF("TemplateInfo: need to increase number of uniqueIds, oldSize=%u", oldSize);
 		uniqueIdUseCount().push_back(1);
 		uniqueId = oldSize + 1;

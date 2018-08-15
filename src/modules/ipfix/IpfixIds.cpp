@@ -715,6 +715,8 @@ void IpfixIds::patternMatching(int threadNum){
 						//it is only detected in combination with a possibly hazardous text (haystack) to match against
 						msg(MSG_DIALOG, "IpfixIds: Boost::regex detected RegEx pattern which might lead to very long pattern matching times. Simplify pattern, if possible. Rule sid:%s", rules[l].body.sid.c_str());
 					}else{
+						//make sure it is at least visible
+						msg(MSG_DIALOG,"Boost exception should be thrown, do worry if not!");
 						//rethrow exception if not caught by above.
 						throw;
 						//just to make sure

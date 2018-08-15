@@ -151,7 +151,7 @@ void NetflowV9Converter::onTemplateDestruction(IpfixTemplateDestructionRecord* r
 	if (templateInfo->setId == TemplateInfo::NetflowTemplate) {
 	//if (true) {
 		// This should be a known Template for us
-		map<uint16_t, ConvInfo>::iterator iter = uniqueIdToConvInfo.find(templateInfo->getUniqueId());
+		map<uint32_t, ConvInfo>::iterator iter = uniqueIdToConvInfo.find(templateInfo->getUniqueId());
 		if(iter == uniqueIdToConvInfo.end()) {
 			msg(MSG_ERROR, "NetflowV9Converter: Received unknown Template (id=%u), which should not happen.", templateInfo->templateId);
 			record->removeReference();
@@ -180,7 +180,7 @@ void NetflowV9Converter::onDataRecord(IpfixDataRecord* record)
 	if (templateInfo->setId == TemplateInfo::NetflowTemplate) {
 	//if (true) {
 		// This should be a known Template for us
-		map<uint16_t, ConvInfo>::iterator iter = uniqueIdToConvInfo.find(templateInfo->getUniqueId());
+		map<uint32_t, ConvInfo>::iterator iter = uniqueIdToConvInfo.find(templateInfo->getUniqueId());
 		if(iter == uniqueIdToConvInfo.end()) {
 			msg(MSG_ERROR, "NetflowV9Converter: Received Data Record associated to unknown Template (id=%u), which should not happen.", templateInfo->templateId);
 			record->removeReference();
